@@ -278,6 +278,24 @@ select.field {
   @apply message-bar bg-warning-50 shadow-[inset_0_0_0_1px_var(--color-warning-100)];
 }
 
+/* The editors' save bar. It sticks to the bottom of the view, and its
+   background and top border run the width of the whole main column, not just
+   the centred content column it sits in (main clips the overflow). */
+@utility action-bar {
+  @apply sticky bottom-0 z-10 -mx-4 -mb-8 sm:-mx-8 lg:-mx-10 lg:-mb-10;
+  &::before {
+    content: '';
+    position: absolute;
+    inset-block: 0;
+    left: -100vmax;
+    right: -100vmax;
+    z-index: -1;
+    border-top: 1px solid var(--color-gray-200);
+    background: color-mix(in oklab, var(--color-surface) 90%, transparent);
+    backdrop-filter: blur(12px);
+  }
+}
+
 @utility table-head {
   @apply h-9 px-4 text-left text-xs font-medium whitespace-nowrap text-gray-500;
 }

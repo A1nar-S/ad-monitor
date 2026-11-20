@@ -1003,9 +1003,7 @@ const describeExtractor = (x: Extractor) =>
         </div>
       </section>
 
-      <div
-        class="sticky bottom-0 z-10 -mx-4 -mb-8 border-t border-gray-200 bg-surface/90 backdrop-blur-md sm:-mx-8 lg:-mx-10 lg:-mb-10"
-      >
+      <div class="action-bar">
         <div
           v-if="error"
           role="alert"

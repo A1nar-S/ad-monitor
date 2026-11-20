@@ -230,7 +230,7 @@ async function logout() {
       </nav>
     </header>
 
-    <main class="min-w-0 flex-1">
+    <main class="min-w-0 flex-1 overflow-x-clip">
       <div class="mx-auto max-w-[1200px] px-4 py-8 sm:px-8 lg:px-10 lg:py-10">
         <SearchEditor v-if="route.name === 'search'" :me="me" :id="route.id" />
         <WatchEditor
