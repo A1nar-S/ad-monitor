@@ -33,6 +33,8 @@ type Listing = {
   attrs: Record<string, unknown>
   // When the ad's own page was last read (region, gearbox, ...); null = never.
   detailedAt?: string | null
+  category: 'cars' | 'flats' | null
+  hasAdPage: boolean // the server can read this ad's page for details
 }
 type SavedSearch = {
   id: number
@@ -57,8 +59,14 @@ type Overview = {
     matches: number
     deliveries: number
   }
-  listings: Listing[]
-  searches: SavedSearch[]
+  // One page of the asked view, searched, filtered and sorted by the server.
+  view: 'listings' | 'searches'
+  sources: string[]
+  total: number
+  page: number
+  pages: number
+  pageSize: number
+  items: (Listing | SavedSearch)[]
 }
 
 const data = ref<Overview | null>(null)
@@ -79,71 +87,72 @@ const page = ref(1)
 const openListing = ref<Listing | null>(null)
 const openSearch = ref<SavedSearch | null>(null)
 const failedImages = ref(new Set<number>())
-const pageSize = 20
 let timer: ReturnType<typeof setInterval> | undefined
+let typing: ReturnType<typeof setTimeout> | undefined
 let controller: AbortController | undefined
 
+// Asks the server for the current page; a newer request cancels an older one.
 async function refresh() {
-  if (loading.value) return
+  controller?.abort()
+  const mine = new AbortController()
+  controller = mine
   loading.value = true
-  error.value = ''
-  controller = new AbortController()
-  const timeout = setTimeout(() => controller?.abort(), 10000)
+  const timeout = setTimeout(() => mine.abort(), 10000)
+  const params = new URLSearchParams({
+    view: view.value,
+    sort: sort.value,
+    page: String(page.value),
+  })
+  if (query.value.trim()) params.set('q', query.value.trim())
+  if (source.value !== 'all') params.set('source', source.value)
+  if (status.value !== 'all') params.set('status', status.value)
+  if (view.value === 'listings' && category.value !== 'all')
+    params.set('category', category.value)
   try {
-    const response = await fetch('/api/overview', { signal: controller.signal })
+    const response = await fetch(`/api/overview?${params}`, {
+      signal: mine.signal,
+    })
     if (response.status === 403) throw new Error(t('overview.adminsOnly'))
     if (!response.ok) throw new Error(t('overview.dbDown'))
-    data.value = await response.json()
+    const next: Overview = await response.json()
+    if (controller !== mine) return
+    data.value = next
+    page.value = next.page // the server clamps past-the-end pages
+    error.value = ''
   } catch (reason) {
+    if (controller !== mine) return
     error.value =
-      reason instanceof Error ? reason.message : t('overview.loadFailed')
+      reason instanceof Error && reason.name !== 'AbortError'
+        ? reason.message
+        : t('overview.loadFailed')
   } finally {
     clearTimeout(timeout)
-    loading.value = false
+    if (controller === mine) loading.value = false
   }
 }
 
-const loadedRecords = computed(() =>
-  view.value === 'listings'
-    ? (data.value?.listings ?? [])
-    : (data.value?.searches ?? []),
+// The page on screen; empty while another view's page is still shown.
+const current = computed(() =>
+  data.value?.view === view.value ? data.value : null,
 )
-const sources = computed(() =>
-  [...new Set(loadedRecords.value.map((item) => item.source))].sort(),
+const sources = computed(() => current.value?.sources ?? [])
+const visibleListings = computed(() =>
+  view.value === 'listings' ? ((current.value?.items ?? []) as Listing[]) : [],
 )
-const filteredListings = computed(() =>
-  (data.value?.listings ?? [])
-    .filter(
-      (item) =>
-        `${item.title} ${item.location} ${item.source}`
-          .toLowerCase()
-          .includes(query.value.toLowerCase()) &&
-        (source.value === 'all' || item.source === source.value) &&
-        (category.value === 'all' ||
-          listingCategory(item) === category.value) &&
-        (status.value === 'all' || item.active === (status.value === 'active')),
-    )
-    .sort((first, second) =>
-      sort.value === 'title'
-        ? first.title.localeCompare(second.title)
-        : (Date.parse(second.firstSeenAt) - Date.parse(first.firstSeenAt)) *
-          (sort.value === 'oldest' ? -1 : 1),
-    ),
+const visibleSearches = computed(() =>
+  view.value === 'searches'
+    ? ((current.value?.items ?? []) as SavedSearch[])
+    : [],
 )
-const filteredSearches = computed(() =>
-  (data.value?.searches ?? []).filter(
-    (item) =>
-      `${item.name} ${item.userName} ${item.source}`
-        .toLowerCase()
-        .includes(query.value.toLowerCase()) &&
-      (source.value === 'all' || item.source === source.value) &&
-      (status.value === 'all' || item.enabled === (status.value === 'active')),
-  ),
-)
-const resultCount = computed(() =>
-  view.value === 'listings'
-    ? filteredListings.value.length
-    : filteredSearches.value.length,
+const resultCount = computed(() => current.value?.total ?? 0)
+const pageCount = computed(() => current.value?.pages ?? 1)
+const pageSize = computed(() => current.value?.pageSize ?? 20)
+// Anything collected at all in this view, filters aside.
+const hasRecords = computed(
+  () =>
+    (view.value === 'listings'
+      ? data.value?.stats.listings
+      : data.value?.stats.searches) !== 0,
 )
 const hasFilters = computed(
   () =>
@@ -151,21 +160,6 @@ const hasFilters = computed(
     source.value !== 'all' ||
     status.value !== 'all' ||
     category.value !== 'all',
-)
-const pageCount = computed(() =>
-  Math.max(1, Math.ceil(resultCount.value / pageSize)),
-)
-const visibleListings = computed(() =>
-  filteredListings.value.slice(
-    (page.value - 1) * pageSize,
-    page.value * pageSize,
-  ),
-)
-const visibleSearches = computed(() =>
-  filteredSearches.value.slice(
-    (page.value - 1) * pageSize,
-    page.value * pageSize,
-  ),
 )
 const metrics = computed(() => {
   const stats = data.value?.stats
@@ -203,26 +197,21 @@ const updatedAt = computed(() =>
       })
     : '',
 )
-watch([query, source, category, status, sort, view], () => {
+// A changed filter starts again at page 1; typing waits for a pause.
+watch([source, category, status, sort, view], () => {
   page.value = 1
+  void refresh()
 })
-watch(pageCount, (value) => {
-  page.value = Math.min(page.value, value)
+watch(query, () => {
+  clearTimeout(typing)
+  typing = setTimeout(() => {
+    page.value = 1
+    void refresh()
+  }, 250)
 })
-
-function listingCategory(listing: Listing): 'cars' | 'flats' | undefined {
-  if (listing.source !== 'ss.com') return undefined
-  if (
-    listing.location === 'transport/cars' ||
-    listing.location.startsWith('transport/cars/')
-  )
-    return 'cars'
-  if (
-    listing.location === 'real-estate/flats' ||
-    listing.location.startsWith('real-estate/flats/')
-  )
-    return 'flats'
-  return undefined
+function goTo(next: number) {
+  page.value = next
+  void refresh()
 }
 
 // The order specifications are shown in; anything else follows.
@@ -285,10 +274,6 @@ const description = computed(() => {
 // page lacks (a car's region, gearbox, ...). Done once per ad, then saved.
 const details = ref<'idle' | 'loading' | 'failed' | 'gone'>('idle')
 const detailsError = ref('')
-const hasAdPage = (l: Listing) =>
-  l.source === 'ss.com' &&
-  (l.location.startsWith('transport/cars') ||
-    l.location.startsWith('real-estate/'))
 
 async function loadDetails(listing: Listing) {
   details.value = 'loading'
@@ -317,7 +302,7 @@ watch(
   () => {
     details.value = 'idle'
     const l = openListing.value
-    if (l && !l.detailedAt && hasAdPage(l)) void loadDetails(l)
+    if (l && !l.detailedAt && l.hasAdPage) void loadDetails(l)
   },
 )
 
@@ -397,6 +382,7 @@ onMounted(() => {
 })
 onUnmounted(() => {
   clearInterval(timer)
+  clearTimeout(typing)
   controller?.abort()
 })
 </script>
@@ -484,10 +470,7 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <div
-      v-if="loadedRecords.length"
-      class="mt-5 mb-4 flex flex-wrap items-center gap-2"
-    >
+    <div v-if="hasRecords" class="mt-5 mb-4 flex flex-wrap items-center gap-2">
       <label
         class="field-within flex h-8 w-full items-center gap-2 pr-1 pl-2.5 sm:w-72"
       >
@@ -577,7 +560,7 @@ onUnmounted(() => {
 
     <div class="card overflow-hidden" :aria-busy="loading">
       <div
-        v-if="!data && loading"
+        v-if="!current && loading"
         class="divide-y divide-gray-100"
         role="status"
         :aria-label="t('common.loading')"
@@ -593,7 +576,7 @@ onUnmounted(() => {
       </div>
 
       <EmptyState
-        v-else-if="!data && error"
+        v-else-if="!current && error"
         :icon="Database"
         :title="t('overview.unavailableTitle')"
         :description="t('overview.unavailableBody')"
@@ -795,7 +778,7 @@ onUnmounted(() => {
             :aria-label="t('overview.previousPage')"
             :title="t('overview.previousPage')"
             :disabled="page === 1"
-            @click="page--"
+            @click="goTo(page - 1)"
           >
             <ChevronLeft :size="16" />
           </button>
@@ -804,7 +787,7 @@ onUnmounted(() => {
             :aria-label="t('overview.nextPage')"
             :title="t('overview.nextPage')"
             :disabled="page === pageCount"
-            @click="page++"
+            @click="goTo(page + 1)"
           >
             <ChevronRight :size="16" />
           </button>
@@ -885,7 +868,7 @@ onUnmounted(() => {
             />{{ t('overview.readingAdPage') }}</span
           >
           <span
-            v-else-if="openListing.detailedAt && hasAdPage(openListing)"
+            v-else-if="openListing.detailedAt && openListing.hasAdPage"
             class="flex items-center gap-1 text-xs text-gray-500"
             >{{
               t('overview.fromAdPage', {

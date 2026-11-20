@@ -258,7 +258,7 @@ const en = {
     previousPage: 'Previous page',
     nextPage: 'Next page',
     footnote:
-      'Shows the latest 100 records of each kind and refreshes every 30 seconds.',
+      'Searches and sorts across every record; refreshes every 30 seconds.',
     adminsOnly: 'The overview is for admins.',
     dbDown:
       'The database is unavailable. Check that Postgres and the API are running and migrations have been applied.',

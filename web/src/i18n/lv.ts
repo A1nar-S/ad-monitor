@@ -264,7 +264,7 @@ const lv: Messages = {
     previousPage: 'Iepriekšējā lapa',
     nextPage: 'Nākamā lapa',
     footnote:
-      'Rāda katra veida jaunākos 100 ierakstus un atsvaidzinās ik pēc 30 sekundēm.',
+      'Meklē un kārto visos ierakstos; atsvaidzinās ik pēc 30 sekundēm.',
     adminsOnly: 'Pārskats pieejams tikai administratoriem.',
     dbDown:
       'Datubāze nav pieejama. Pārbaudiet, vai darbojas Postgres un API un vai ir piemērotas migrācijas.',
