@@ -204,7 +204,7 @@ func Ingest(ctx context.Context, cfg config.Ingest) error {
 	}()
 
 	slog.Info("starting ingest")
-	err = kafka.Consume(ctx, cfg.KafkaBrokers, cfg.Group("ingest"), cfg.Topic(events.TopicListingsDiscovered),
+	err = kafka.Consume(ctx, subscription(cfg.Common, "ingest", events.TopicListingsDiscovered),
 		func(ctx context.Context, l events.ListingDiscovered) error {
 			_, err := store.Ingest(ctx, l)
 			return err
@@ -263,7 +263,7 @@ func Matcher(ctx context.Context, cfg config.Matcher, reg sources.Registry) erro
 	defer producer.Close()
 
 	slog.Info("starting matcher")
-	return kafka.Consume(ctx, cfg.KafkaBrokers, cfg.Group("matcher"), cfg.Topic(events.TopicListingsNew),
+	return kafka.Consume(ctx, subscription(cfg.Common, "matcher", events.TopicListingsNew),
 		func(ctx context.Context, l events.ListingDiscovered) error {
 			ns, err := subs.Notifications(ctx, l)
 			if err != nil {
@@ -296,6 +296,16 @@ func adPageSaver(store *listings.Service) subscriptions.AdPageHook {
 	}
 }
 
+// subscription is what a consumer named name reads: the namespaced topic, in
+// the namespaced group. Failed records go to that topic's dead-letter topic.
+func subscription(c config.Common, name, topic string) kafka.Subscription {
+	return kafka.Subscription{Brokers: c.KafkaBrokers, Group: c.Group(name), Topic: c.Topic(topic)}
+}
+
+// DLQReplayGroup is the consumer group that remembers which dead letters of
+// topic (a logical name such as events.TopicListingsNew) were replayed.
+func DLQReplayGroup(c config.Common, topic string) string { return c.Group("dlq-replay." + topic) }
+
 // Notifier delivers notification requests through the given channels.
 func Notifier(ctx context.Context, cfg config.Notifier, notifiers ...notifications.Notifier) error {
 	pool, err := db.Open(ctx, cfg.DatabaseURL)
@@ -313,7 +323,7 @@ func Notifier(ctx context.Context, cfg config.Notifier, notifiers ...notificatio
 	}
 
 	slog.Info("starting notifier", "burst", cfg.Burst, "burst_window", cfg.BurstWindow)
-	return kafka.Consume(ctx, cfg.KafkaBrokers, cfg.Group("notifier"), cfg.Topic(events.TopicNotificationsRequested), svc.Handle)
+	return kafka.Consume(ctx, subscription(cfg.Common, "notifier", events.TopicNotificationsRequested), svc.Handle)
 }
 
 // Bot runs the chat bot users manage their searches with, on every

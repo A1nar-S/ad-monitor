@@ -51,14 +51,27 @@ func (p *Producer) Publish(ctx context.Context, topic, key string, v any) error 
 
 func (p *Producer) Close() { p.cl.Close() }
 
-// Consume reads topic as part of group and calls handle for every record,
-// committing the offset only after handle succeeds (at-least-once). A failing
-// handler is retried a few times, then the record is logged and skipped so one
-// poison message cannot block the partition; handlers must be idempotent.
-// Undecodable payloads are skipped immediately. Returns when ctx is done.
-func Consume[T any](ctx context.Context, brokers []string, group, topic string, handle func(context.Context, T) error) error {
+// Subscription says what Consume reads: Topic as part of Group.
+type Subscription struct {
+	Brokers []string
+	Group   string
+	Topic   string
+	// RetryDelay is the base wait between handler attempts; 0 = 2s. Tests shorten it.
+	RetryDelay time.Duration
+}
+
+// Consume reads sub.Topic as part of sub.Group and calls handle for every
+// record, committing the offset only after handle succeeds (at-least-once). A
+// failing handler is retried a few times; then the record, like an
+// undecodable one, is published to the dead-letter topic DLQTopic(sub.Topic)
+// so one poison message cannot block the partition and nothing is lost. If
+// that publish fails it is retried until it works; on shutdown the record is
+// left uncommitted and delivered again later. Handlers must be idempotent.
+// Returns when ctx is done.
+func Consume[T any](ctx context.Context, sub Subscription, handle func(context.Context, T) error) error {
+	topic, group := sub.Topic, sub.Group
 	cl, err := kgo.NewClient(
-		kgo.SeedBrokers(brokers...),
+		kgo.SeedBrokers(sub.Brokers...),
 		kgo.ConsumerGroup(group),
 		kgo.ConsumeTopics(topic),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
@@ -91,15 +104,26 @@ func Consume[T any](ctx context.Context, brokers []string, group, topic string, 
 			if done {
 				return
 			}
+			// Every record ends in one of two outcomes: handled, or (reason,
+			// cause) set and dead-lettered below.
 			var v T
+			var reason string
+			var cause error
 			if err := json.Unmarshal(rec.Value, &v); err != nil {
-				slog.Error("undecodable record, skipping", "topic", topic, "offset", rec.Offset, "err", err)
-			} else if err := retry(ctx, func() error { return handle(ctx, v) }); err != nil {
+				reason, cause = ReasonUndecodable, err
+			} else if err := retry(ctx, sub.RetryDelay, func() error { return handle(ctx, v) }); err != nil {
 				if ctx.Err() != nil {
 					done = true // shutting down: leave the record uncommitted
 					return
 				}
-				slog.Error("handler failed, skipping record", "topic", topic, "offset", rec.Offset, "err", err)
+				reason, cause = ReasonHandlerFailed, err
+			}
+			if cause != nil {
+				slog.Error("dead-lettering record", "topic", topic, "partition", rec.Partition, "offset", rec.Offset, "reason", reason, "err", cause)
+				if err := publishDeadLetter(ctx, cl, deadLetter(rec, group, reason, cause, time.Now())); err != nil {
+					done = true // shutting down: leave the record uncommitted
+					return
+				}
 			}
 			if err := cl.CommitRecords(ctx, rec); err != nil && ctx.Err() == nil {
 				slog.Error("commit failed", "topic", topic, "offset", rec.Offset, "err", err)
@@ -111,14 +135,20 @@ func Consume[T any](ctx context.Context, brokers []string, group, topic string, 
 	}
 }
 
-func retry(ctx context.Context, fn func() error) error {
+func retry(ctx context.Context, delay time.Duration, fn func() error) error {
+	if delay <= 0 {
+		delay = retryDelay
+	}
 	var err error
 	for i := 0; i < maxAttempts; i++ {
 		if err = fn(); err == nil {
 			return nil
 		}
 		slog.Warn("handler error, retrying", "attempt", i+1, "err", err)
-		if !sleep(ctx, retryDelay*time.Duration(i+1)) {
+		if i == maxAttempts-1 {
+			break // out of attempts; no point waiting
+		}
+		if !sleep(ctx, delay*time.Duration(i+1)) {
 			return ctx.Err()
 		}
 	}

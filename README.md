@@ -14,7 +14,9 @@ make up     # start everything
 make logs
 ```
 
-`make down` stops it.
+`make down` stops it. Messages a service could not process are kept in dead-letter topics:
+`make dlq TOPIC=listings.new` lists them, `make dlq-replay TOPIC=listings.new` sends them through again (at-least-once: after a crash a record may be sent twice;
+run one replay at a time).
 
 ## Discord bot
 

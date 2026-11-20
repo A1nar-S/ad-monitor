@@ -3,6 +3,8 @@
 //	admin migrate
 //	admin purge [-older-than 1440h]
 //	admin ss-codebook [-only cars|flats]
+//	admin dlq list [-limit 50] <topic>
+//	admin dlq replay <topic>
 package main
 
 import (
@@ -38,9 +40,12 @@ func run() error {
 	_ = godotenv.Load() // optional
 
 	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: admin migrate | purge [-older-than 1440h] | ss-codebook [-only cars|flats]")
+		return fmt.Errorf("usage: admin migrate | purge [-older-than 1440h] | ss-codebook [-only cars|flats] | dlq list|replay <topic>")
 	}
 	cmd, args := os.Args[1], os.Args[2:]
+	if cmd == "dlq" {
+		return dlq(args) // needs Kafka only
+	}
 	if cmd == "ss-codebook" {
 		return ssCodebook(args) // needs no database
 	}

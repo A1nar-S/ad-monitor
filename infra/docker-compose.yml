@@ -61,7 +61,10 @@ services:
       timeout: 10s
       retries: 20
 
-  # Creates the topics with explicit partition counts (auto-creation would give 1).
+  # Creates the topics with explicit partition counts (auto-creation would give 1),
+  # and a dead-letter topic <topic>.dlq for each: records a consumer gave up on,
+  # kept 30 days (see `make dlq`). With NAMESPACE set, services use <ns>.<topic>
+  # and the namespaced .dlq topic is auto-created (1 partition).
   kafka-init:
     image: confluentinc/cp-kafka:7.5.0
     depends_on:
@@ -72,6 +75,7 @@ services:
       - |
         for t in listings.discovered listings.new notifications.requested; do
           kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic $$t --partitions 3 --replication-factor 1
+          kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic $$t.dlq --partitions 1 --replication-factor 1 --config retention.ms=2592000000
         done
 
   postgres:
@@ -130,6 +134,7 @@ services:
     build: {context: .., args: {CMD: admin}}
     depends_on:
       postgres: {condition: service_healthy}
+      kafka-init: {condition: service_completed_successfully}
 
 volumes:
   kafka-data:

@@ -114,6 +114,22 @@ dashboard api ─┴─> subscriptions (users, channels, searches, logins) <─�
   ends. Covers catch-up after downtime, broad searches and bugs alike. Operational texts are never limited.
 - **Delivery:** at-least-once; dedup by DB keys (`listings` unique, `matches`, `deliveries` idempotency key).
   Matches are recorded after publishing, so a crash re-publishes rather than loses; the notifier dedups.
+- **Dead letters:** `kafka.Consume` (takes a `kafka.Subscription`: brokers, group, topic) retries a failing handler 5
+  times, then publishes the record (raw key and value, original headers) to `<topic>.dlq` (namespaced like the topic)
+  and only then commits its offset. Undecodable records go straight there. Added headers: `dlq.original_topic`,
+  `dlq.partition`, `dlq.offset`, `dlq.group`, `dlq.error` (cut to 1 KB), `dlq.failed_at` (RFC 3339), `dlq.reason`
+  (`handler_failed` | `undecodable`). If the DLQ publish fails it is retried with backoff and the offset is not
+  committed; on shutdown the record stays uncommitted and is redelivered (handlers are idempotent). Ingest, matcher
+  and notifier all use it. `kafka-init` creates `<topic>.dlq` (1 partition, 30 days retention); with `NAMESPACE`
+  set the namespaced DLQ topic is auto-created instead.
+  - Inspect: `make dlq TOPIC=listings.new` (`go run ./cmd/admin dlq list [-limit N] <topic>`): offset, reason, error,
+    failed-at, key, size; never the payload. Shows only letters not yet replayed.
+  - Replay: `make dlq-replay TOPIC=listings.new` (`admin dlq replay <topic>`) republishes them to the original topic
+    (same key and headers, `dlq.*` stripped) and commits in the group `<ns.>dlq-replay.<topic>`, so a second run does
+    nothing. Replay is at-least-once: a crash between republishing and committing republishes that record on the next
+    run (consumers are idempotent); run only one replay per topic at a time. Fix the cause first: a still-failing record is dead-lettered again. The admin container needs Kafka up.
+  - Tests: unit tests in `internal/platform/kafka/dlq_test.go`; `TestDeadLetters` (integration) covers a poison and an
+    undecodable record, no redelivery after restart, list, and a single replay.
 - **Lifecycle:** `make purge` / `go run ./cmd/admin purge` deletes listings not *seen* for `RETENTION_HOURS` (default 60
   days). The listings table doubles as the "already announced" memory: a shorter retention re-announces old ads when they
   are bumped. Matches/deliveries are kept 2x longer. Cron it weekly.
@@ -185,6 +201,7 @@ See the README. In short:
 make env                        # .env (random DB password); then the Discord values
 make up                         # Postgres, Kafka, scraper, ingest, matcher, notifier, bot, dashboard (all in Docker)
 make logs | make purge | make down
+make dlq TOPIC=listings.new     # records a consumer gave up on; make dlq-replay TOPIC=... republishes them
 # Services on the host instead: make infra, then go run ./cmd/<service>; the dashboard with cd web && bun run dev
 go run ./cmd/admin ss-codebook  # refresh the ss.com codebooks
 go generate ./...               # after changing a slice's migrations/ or queries/
