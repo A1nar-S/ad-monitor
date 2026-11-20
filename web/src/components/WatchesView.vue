@@ -170,13 +170,23 @@ onMounted(load)
 
       <template v-else>
         <div
-          class="hidden grid-cols-[minmax(0,1fr)_130px_210px_120px_64px_80px] items-center border-b border-gray-150 bg-gray-25 px-4 md:grid"
+          class="hidden grid-cols-[minmax(0,1fr)_130px_210px_150px_80px_80px] items-center border-b border-gray-150 bg-gray-25 px-4 md:grid"
         >
-          <span class="table-head pl-0!">{{ t('watches.colWatch') }}</span>
-          <span class="table-head text-right">{{ t('watches.colPrice') }}</span>
-          <span class="table-head">{{ t('watches.colRule') }}</span>
-          <span class="table-head">{{ t('watches.colChecked') }}</span>
-          <span class="table-head">{{ t('watches.colActive') }}</span>
+          <span class="table-head flex items-center pl-0!">{{
+            t('watches.colWatch')
+          }}</span>
+          <span class="table-head flex items-center justify-end">{{
+            t('watches.colPrice')
+          }}</span>
+          <span class="table-head flex items-center">{{
+            t('watches.colRule')
+          }}</span>
+          <span class="table-head flex items-center">{{
+            t('watches.colChecked')
+          }}</span>
+          <span class="table-head flex items-center">{{
+            t('watches.colActive')
+          }}</span>
           <span class="table-head"
             ><span class="sr-only">{{ t('watches.colActions') }}</span></span
           >
@@ -185,7 +195,7 @@ onMounted(load)
           <li
             v-for="w in watches"
             :key="w.id"
-            class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-3.5 transition-colors hover:bg-gray-25 md:grid-cols-[minmax(0,1fr)_130px_210px_120px_64px_80px] md:gap-0 md:py-3"
+            class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-3.5 transition-colors hover:bg-gray-25 md:grid-cols-[minmax(0,1fr)_130px_210px_150px_80px_80px] md:gap-0 md:py-3"
           >
             <div class="flex min-w-0 items-center gap-3 md:pr-4">
               <img
