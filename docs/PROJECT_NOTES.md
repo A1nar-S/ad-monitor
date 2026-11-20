@@ -167,6 +167,11 @@ dashboard api ─┴─> subscriptions (users, channels, searches, logins) <─�
 - Postgres data now lives in the named volume `pg-data` (it used to be a root-owned bind mount under `infra/postgres`).
 - Frontend checks: `cd web && bun run format:check && bun run build`. Apply formatting with
   `bun run format`; Prettier is pinned in the frontend development dependencies.
+- GitHub Actions run all of the above on every push to `main` and every PR (`.github/workflows/ci.yml`: lint, tests
+  with `-race` against a Postgres service, integration tests, `sqlc diff`, the dashboard build, the Docker image).
+  `security.yml` adds govulncheck, `bun audit`, CodeQL (Go and TypeScript), gitleaks over the whole history (false
+  positives go in `.gitleaksignore`) and dependency review on PRs, also weekly. Actions are pinned to commit SHAs;
+  Dependabot updates them along with Go, Bun and Docker dependencies.
 
 ## Not verified
 - Anything against a real Discord token: delivery, slash-command registration, autocomplete, select menus. The full

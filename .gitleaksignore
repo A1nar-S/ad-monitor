@@ -1,0 +1,3 @@
+# Example IDs in docs and log messages ("discord:1234..."), not secrets.
+8e444823b1058d84e522e3a8860dc6f9e8ab9bdb:internal/subscriptions/searches.go:discord-client-id:88
+9d8b415a7916c24ba29c607015c8488d16dc96e9:internal/platform/config/config.go:discord-client-id:180
