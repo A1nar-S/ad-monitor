@@ -95,5 +95,6 @@ Next:
 - [x] Prometheus metrics for every service (`admon_*`, see PROJECT_NOTES).
 - [x] Grafana dashboards: pipeline, price watches, API & bot (`127.0.0.1:3000`).
 - [x] Container, Postgres and Kafka monitoring: cAdvisor, postgres-exporter, kafka-exporter (consumer lag, dead letters).
+- [x] Grafana alerting to Discord: 13 rules (services, Kafka, Postgres, scraper, dead letters, lag, backlog, deliveries, watches, API, restarts).
 - [x] Dead-letter queues for Kafka records that fail or cannot be decoded (`make dlq`, `make dlq-replay`).
 - [ ] Protobuf, scheduler, and deployment tooling as needed.
