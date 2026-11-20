@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -26,6 +27,7 @@ import (
 	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/config"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/db"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/kafka"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/metrics"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/scraping"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/scraping/pages"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/sources"
@@ -41,6 +43,7 @@ const digestCheckEvery = 30 * time.Second
 // Scraper fetches the feeds users watch, for every registered source, and
 // publishes each ad it sees. It does no deduplication; ingest does.
 func Scraper(ctx context.Context, cfg config.Scraper, reg sources.Registry) error {
+	metrics.Serve(ctx, cfg.MetricsAddr)
 	pool, err := db.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
@@ -178,6 +181,7 @@ func watchLoop(ctx context.Context, subs *subscriptions.Service, reader sources.
 // Ingest stores discovered listings and announces the new ones. It owns the
 // listings table and relays its outbox to Kafka.
 func Ingest(ctx context.Context, cfg config.Ingest) error {
+	metrics.Serve(ctx, cfg.MetricsAddr)
 	pool, err := db.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
@@ -193,6 +197,17 @@ func Ingest(ctx context.Context, cfg config.Ingest) error {
 		return err
 	}
 	defer producer.Close()
+
+	metrics.SetGaugeFunc("admon_outbox_backlog", "Listings outbox entries not yet published to Kafka.", func() float64 {
+		n, err := store.OutboxBacklog(ctx)
+		if err != nil {
+			if ctx.Err() == nil {
+				slog.Warn("outbox backlog metric", "err", err)
+			}
+			return math.NaN()
+		}
+		return float64(n)
+	})
 
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
@@ -243,6 +258,7 @@ func relayLoop(ctx context.Context, store *listings.Service, p *kafka.Producer, 
 // Matcher decides which users care about each new listing and asks the
 // notifier to tell them. It owns users, channels and searches.
 func Matcher(ctx context.Context, cfg config.Matcher, reg sources.Registry) error {
+	metrics.Serve(ctx, cfg.MetricsAddr)
 	pool, err := db.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
@@ -276,7 +292,11 @@ func Matcher(ctx context.Context, cfg config.Matcher, reg sources.Registry) erro
 				}
 			}
 			slog.Info("matched", "listing", l.ExternalID, "notifications", len(ns))
-			return subs.Record(ctx, ns)
+			if err := subs.Record(ctx, ns); err != nil {
+				return err
+			}
+			observeMatch(reg, l.Source, len(ns)) // once per listing, not per retry
+			return nil
 		})
 }
 
@@ -308,6 +328,7 @@ func DLQReplayGroup(c config.Common, topic string) string { return c.Group("dlq-
 
 // Notifier delivers notification requests through the given channels.
 func Notifier(ctx context.Context, cfg config.Notifier, notifiers ...notifications.Notifier) error {
+	metrics.Serve(ctx, cfg.MetricsAddr)
 	pool, err := db.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
@@ -329,6 +350,7 @@ func Notifier(ctx context.Context, cfg config.Notifier, notifiers ...notificatio
 // Bot runs the chat bot users manage their searches with, on every
 // platform it has an adapter for (Discord now).
 func Bot(ctx context.Context, cfg config.Bot, reg sources.Registry) error {
+	metrics.Serve(ctx, cfg.MetricsAddr)
 	pool, err := db.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
@@ -378,6 +400,7 @@ func (a botAds) Ads(ctx context.Context, source string, ids []string) (map[strin
 
 // API serves the dashboard and its JSON API.
 func API(ctx context.Context, cfg config.API, reg sources.Registry) error {
+	metrics.Serve(ctx, cfg.MetricsAddr)
 	pool, err := db.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
@@ -398,13 +421,13 @@ func API(ctx context.Context, cfg config.API, reg sources.Registry) error {
 	}
 	server := &http.Server{
 		Addr: cfg.Addr,
-		Handler: web.New(web.Config{
+		Handler: metrics.HTTP(web.New(web.Config{
 			Searches: subs, Listings: store, Overview: dashboard.NewHandler(dashboard.Load(pool)),
 			Sources: reg, WebDir: webDir, PublicURL: cfg.PublicURL, MaxSearches: cfg.MaxSearches,
 			// Pages for the price picker, read on the user's behalf; the
 			// timeout fits the server's write timeout.
 			Watches: subs, Pages: pages.New(10*time.Second, cfg.RequestGap), MaxWatches: cfg.MaxWatches,
-		}),
+		})),
 		ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: time.Minute,
 	}
 	go func() {

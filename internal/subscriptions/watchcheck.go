@@ -88,6 +88,7 @@ func (s *Service) checkTarget(ctx context.Context, r sources.PageReader, id int6
 	if err != nil {
 		return err
 	}
+	start := time.Now()
 	reading, readErr := r.ReadPrice(ctx, url, x)
 	if readErr == nil {
 		readErr = s.validateReading(ctx, r, url, x, prev, &reading)
@@ -95,7 +96,12 @@ func (s *Service) checkTarget(ctx context.Context, r sources.PageReader, id int6
 	if readErr != nil {
 		slog.Info("watch read failed", "target", id, "url", url, "err", readErr)
 	}
-	return s.recordReading(ctx, id, reading, readErr)
+	err = s.recordReading(ctx, id, reading, readErr)
+	if err == nil && ctx.Err() == nil {
+		watchChecks.WithLabelValues(watchResult(readErr)).Inc()
+		watchCheckDuration.Observe(time.Since(start).Seconds())
+	}
+	return err
 }
 
 // validateReading guards the alerts against misreads: a price in another
@@ -130,7 +136,10 @@ func orNone(currency string) string {
 // it causes, in one transaction: the history, the watches' state and the
 // alert outbox never disagree.
 func (s *Service) recordReading(ctx context.Context, id int64, reading sources.Reading, readErr error) error {
-	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	// Counted only once the transaction committed.
+	var raised []string
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		raised = raised[:0]
 		q := s.q.WithTx(tx)
 		t, err := q.LockWatchTarget(ctx, id)
 		if err != nil {
@@ -148,7 +157,7 @@ func (s *Service) recordReading(ctx context.Context, id int64, reading sources.R
 		}
 
 		if readErr != nil {
-			return s.recordFailure(ctx, q, t, watches, interval, readErr)
+			return s.recordFailure(ctx, q, t, watches, interval, readErr, &raised)
 		}
 
 		cents := reading.Price.Cents
@@ -180,7 +189,7 @@ func (s *Service) recordReading(ctx context.Context, id int64, reading sources.R
 			}
 			if below {
 				text := s.dropText(w, rule, t, reading.Price)
-				if err := insertAlert(ctx, q, w, AlertDrop, &cents, text); err != nil {
+				if err := insertAlert(ctx, q, w, AlertDrop, &cents, text, &raised); err != nil {
 					return err
 				}
 			}
@@ -188,17 +197,23 @@ func (s *Service) recordReading(ctx context.Context, id int64, reading sources.R
 		if t.Failing {
 			for _, w := range watches {
 				text := fmt.Sprintf("✅ **%s**: reading the price works again: **%s**.\n%s", w.Name, reading.Price, t.Url)
-				if err := insertAlert(ctx, q, w, AlertRecovered, &cents, text); err != nil {
+				if err := insertAlert(ctx, q, w, AlertRecovered, &cents, text, &raised); err != nil {
 					return err
 				}
 			}
 		}
 		return nil
 	})
+	if err == nil {
+		for _, kind := range raised {
+			watchAlerts.WithLabelValues(kind).Inc()
+		}
+	}
+	return err
 }
 
 func (s *Service) recordFailure(ctx context.Context, q *subscriptionsdb.Queries, t subscriptionsdb.LockWatchTargetRow,
-	watches []subscriptionsdb.ListTargetWatchesRow, interval time.Duration, readErr error) error {
+	watches []subscriptionsdb.ListTargetWatchesRow, interval time.Duration, readErr error, raised *[]string) error {
 	msg := clipText(readErr.Error(), 300)
 	if t.Failures == 0 {
 		err := q.InsertWatchPrice(ctx, subscriptionsdb.InsertWatchPriceParams{TargetID: t.ID, Ok: false, Currency: t.Currency, Error: msg})
@@ -223,7 +238,7 @@ func (s *Service) recordFailure(ctx context.Context, q *subscriptionsdb.Queries,
 		text := fmt.Sprintf("⚠️ **%s**: can't read the price any more: %s (%d tries). Its %s.\n"+
 			"Alerts resume by themselves when the page reads again. If the page changed, pick the price again: %s",
 			w.Name, failureReason(readErr), failures, last, s.dashboardLink(w.ID))
-		if err := insertAlert(ctx, q, w, AlertFailing, nil, text); err != nil {
+		if err := insertAlert(ctx, q, w, AlertFailing, nil, text, raised); err != nil {
 			return err
 		}
 	}
@@ -270,14 +285,18 @@ func failureReason(err error) string {
 	return "the site can't be reached"
 }
 
-func insertAlert(ctx context.Context, q *subscriptionsdb.Queries, w subscriptionsdb.ListTargetWatchesRow, kind string, cents *int64, text string) error {
+func insertAlert(ctx context.Context, q *subscriptionsdb.Queries, w subscriptionsdb.ListTargetWatchesRow, kind string, cents *int64, text string, raised *[]string) error {
 	payload, err := json.Marshal(events.NotificationRequested{
 		UserID: w.UserID, Channel: events.Channel{Kind: w.ChannelKind, Target: w.ChannelTarget}, Text: text,
 	})
 	if err != nil {
 		return err
 	}
-	return q.InsertWatchAlert(ctx, subscriptionsdb.InsertWatchAlertParams{WatchID: w.ID, Kind: kind, PriceCents: cents, Payload: payload})
+	err = q.InsertWatchAlert(ctx, subscriptionsdb.InsertWatchAlertParams{WatchID: w.ID, Kind: kind, PriceCents: cents, Payload: payload})
+	if err == nil {
+		*raised = append(*raised, kind)
+	}
+	return err
 }
 
 // RelayWatchAlerts hands up to batch unsent alerts to publish, oldest

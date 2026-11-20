@@ -18,6 +18,9 @@ x-service: &service
     DB_HOST: postgres
     DB_PORT: "5432"
     KAFKA_BROKERS: kafka:29092
+    # /metrics for Prometheus; reachable on the compose network only (no
+    # ports: entry publishes it to the host).
+    METRICS_ADDR: ":9100"
   depends_on:
     postgres: {condition: service_healthy}
     kafka-init: {condition: service_completed_successfully}
@@ -124,8 +127,24 @@ services:
       DB_PORT: "5432"
       KAFKA_BROKERS: kafka:29092
       API_ADDR: 0.0.0.0:8080
+      METRICS_ADDR: ":9100"
     ports:
       - "127.0.0.1:8080:8080"
+  # Scrapes every service's /metrics (infra/prometheus/prometheus.yml). The UI
+  # is bound to this machine only: http://127.0.0.1:9090
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    profiles: [app]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
   # One-off maintenance: `make purge`, or `... --profile tools run --rm admin migrate`.
   admin:
     <<: *service
@@ -139,3 +158,4 @@ services:
 volumes:
   kafka-data:
   pg-data:
+  prometheus-data:

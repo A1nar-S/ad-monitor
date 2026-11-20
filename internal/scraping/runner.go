@@ -71,10 +71,12 @@ type Runner struct {
 // Run scrapes until ctx is done.
 func (r *Runner) Run(ctx context.Context) {
 	for {
+		start := time.Now()
 		err := r.cycle(ctx)
 		if ctx.Err() != nil {
 			return
 		}
+		observeCycle(r.Source.Name(), start, r.idle, err)
 		r.noteResult(ctx, err)
 		if !sleep(ctx, r.nextWait()) {
 			return
@@ -182,6 +184,9 @@ func (r *Runner) scrapeFeed(ctx context.Context, feed string) (gap bool, err err
 			return false, ctx.Err()
 		}
 		ads, err := r.Source.FetchFeed(ctx, feed, page)
+		if ctx.Err() == nil {
+			feedFetches.WithLabelValues(r.Source.Name(), fetchResult(page, len(ads), err)).Inc()
+		}
 		if err != nil {
 			return false, err
 		}
@@ -203,6 +208,7 @@ func (r *Runner) scrapeFeed(ctx context.Context, feed string) (gap bool, err err
 			if err := r.Publish(ctx, l); err != nil {
 				return false, fmt.Errorf("publish: %w", err)
 			}
+			listingsDiscovered.WithLabelValues(r.Source.Name()).Inc()
 		}
 		slog.Info("scraped", "feed", feed, "page", page, "ads", len(ads), "known", len(known))
 

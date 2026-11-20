@@ -40,12 +40,15 @@ func NewProducer(brokers []string) (*Producer, error) {
 func (p *Producer) Publish(ctx context.Context, topic, key string, v any) error {
 	b, err := json.Marshal(v)
 	if err != nil {
+		published.WithLabelValues(topic, "error").Inc()
 		return fmt.Errorf("marshal for %s: %w", topic, err)
 	}
 	rec := &kgo.Record{Topic: topic, Key: []byte(key), Value: b}
 	if err := p.cl.ProduceSync(ctx, rec).FirstErr(); err != nil {
+		published.WithLabelValues(topic, "error").Inc()
 		return fmt.Errorf("publish to %s: %w", topic, err)
 	}
+	published.WithLabelValues(topic, "ok").Inc()
 	return nil
 }
 
@@ -111,7 +114,7 @@ func Consume[T any](ctx context.Context, sub Subscription, handle func(context.C
 			var cause error
 			if err := json.Unmarshal(rec.Value, &v); err != nil {
 				reason, cause = ReasonUndecodable, err
-			} else if err := retry(ctx, sub.RetryDelay, func() error { return handle(ctx, v) }); err != nil {
+			} else if err := handleObserved(ctx, topic, sub.RetryDelay, v, handle); err != nil {
 				if ctx.Err() != nil {
 					done = true // shutting down: leave the record uncommitted
 					return
@@ -124,6 +127,10 @@ func Consume[T any](ctx context.Context, sub Subscription, handle func(context.C
 					done = true // shutting down: leave the record uncommitted
 					return
 				}
+				consumed.WithLabelValues(topic, "dead_lettered").Inc()
+				deadLettered.WithLabelValues(topic, reason).Inc()
+			} else {
+				consumed.WithLabelValues(topic, "ok").Inc()
 			}
 			if err := cl.CommitRecords(ctx, rec); err != nil && ctx.Err() == nil {
 				slog.Error("commit failed", "topic", topic, "offset", rec.Offset, "err", err)

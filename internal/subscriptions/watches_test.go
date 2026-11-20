@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/sources"
@@ -123,7 +124,15 @@ func TestWatchLifecycle(t *testing.T) {
 	if got := relay(); len(got) != 0 {
 		t.Fatalf("no alert above the thresholds: %v", got)
 	}
+	drops, checks := watchAlerts.WithLabelValues(AlertDrop), watchChecks.WithLabelValues("ok")
+	drops0, checks0 := testutil.ToFloat64(drops), testutil.ToFloat64(checks)
 	check(1, int64(119900)) // below both: one alert each
+	if d := testutil.ToFloat64(drops) - drops0; d != 2 {
+		t.Errorf("drop alerts counter rose by %v, want 2", d)
+	}
+	if d := testutil.ToFloat64(checks) - checks0; d != 1 {
+		t.Errorf("ok checks counter rose by %v, want 1", d)
+	}
 	got := relay()
 	if len(got) != 2 || got[0].Channel.Target != "dm-ana" || got[1].Channel.Target != "dm-ben" {
 		t.Fatalf("drop alerts: %+v", got)

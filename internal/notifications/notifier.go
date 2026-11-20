@@ -92,6 +92,7 @@ func (s *Service) Handle(ctx context.Context, req events.NotificationRequested) 
 	if !ok {
 		// Retrying cannot fix a missing notifier; drop it loudly.
 		slog.Error("no notifier for channel kind", "kind", req.Channel.Kind, "key", req.Key)
+		deliveries.WithLabelValues("unknown", "dropped").Inc()
 		return nil
 	}
 
@@ -116,6 +117,7 @@ func (s *Service) Handle(ctx context.Context, req events.NotificationRequested) 
 		}
 		if queued {
 			slog.Info("burst limit reached, queued for digest", "search", req.SearchName, "key", req.Key)
+			deliveries.WithLabelValues(n.Kind(), "digested").Inc()
 			return nil
 		}
 	}
@@ -128,12 +130,15 @@ func (s *Service) Handle(ctx context.Context, req events.NotificationRequested) 
 	}
 	if errors.Is(err, ErrUndeliverable) {
 		slog.Warn("undeliverable, dropped", "target", req.Channel.Target, "search", req.SearchName, "err", err)
+		deliveries.WithLabelValues(n.Kind(), "dropped").Inc()
 		return nil // keep the claim: a retry would fail the same way
 	}
 	if err != nil {
 		s.release(ctx, req.Key)
+		deliveries.WithLabelValues(n.Kind(), "failed").Inc()
 		return fmt.Errorf("%s: %w", n.Kind(), err)
 	}
+	deliveries.WithLabelValues(n.Kind(), "sent").Inc()
 	s.pause(ctx)
 	return nil
 }
@@ -227,10 +232,13 @@ func (s *Service) FlushDigests(ctx context.Context) (int, error) {
 			for _, msg := range digestMessages(d.SearchName, ls, s.burst, s.burstWindow) {
 				if err := n.NotifyText(ctx, d.ChannelTarget, msg); errors.Is(err, ErrUndeliverable) {
 					slog.Warn("digest undeliverable, dropped", "target", d.ChannelTarget, "err", err)
+					deliveries.WithLabelValues(n.Kind(), "dropped").Inc()
 					return nil // commits the delete
 				} else if err != nil {
+					deliveries.WithLabelValues(n.Kind(), "failed").Inc()
 					return fmt.Errorf("%s: %w", n.Kind(), err) // rolls back: stays queued
 				}
+				deliveries.WithLabelValues(n.Kind(), "sent").Inc()
 				s.pause(ctx)
 			}
 			return nil

@@ -151,6 +151,7 @@ func (s *Service) Notifications(ctx context.Context, l events.ListingDiscovered)
 		switch {
 		case errors.Is(err, sources.ErrGone):
 			slog.Info("ad removed before its page was read", "id", l.ExternalID)
+			adPageReads.WithLabelValues(l.Source, "gone").Inc()
 			if s.adPage != nil {
 				s.adPage(ctx, l, l, true)
 			}
@@ -159,9 +160,11 @@ func (s *Service) Notifications(ctx context.Context, l events.ListingDiscovered)
 			// candidates, flagged, rather than failing (and so dropping) the
 			// listing for everyone.
 			slog.Warn("ad page unavailable; notifying unconfirmed", "id", l.ExternalID, "err", err)
+			adPageReads.WithLabelValues(l.Source, "failed").Inc()
 			l.Fields = append(l.Fields, events.Field{Name: "⚠️ Unconfirmed", Value: "Could not read the ad page to check: " + strings.Join(pendingKeys(pending, l, enrichable), ", ")})
 			matched = append(matched, pending...)
 		default:
+			adPageReads.WithLabelValues(l.Source, "ok").Inc()
 			if s.adPage != nil {
 				s.adPage(ctx, l, enriched, false)
 			}

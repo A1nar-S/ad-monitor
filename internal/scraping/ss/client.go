@@ -10,8 +10,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+
 	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/metrics"
 )
+
+// requests counts every HTTP request to the site (feed and ad pages), by
+// status class; "error" is a request that got no response.
+var requests = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "admon_scraper_requests_total",
+	Help: "HTTP requests to a source site by source and status class (2xx, 4xx, ..., error).",
+}, []string{"source", "status_class"})
 
 const (
 	userAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
@@ -121,9 +132,11 @@ func (c *Client) get(ctx context.Context, url string) ([]byte, error) {
 
 	resp, err := c.http.Do(req)
 	if err != nil {
+		requests.WithLabelValues(Source, "error").Inc()
 		return nil, fmt.Errorf("fetch %s: %w", url, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	requests.WithLabelValues(Source, metrics.StatusClass(resp.StatusCode)).Inc()
 
 	if resp.StatusCode >= 400 {
 		_, _ = io.Copy(io.Discard, resp.Body)

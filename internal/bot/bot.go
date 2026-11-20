@@ -128,6 +128,7 @@ func New(m Messenger, s Searches, ads Ads, publicURL string, maxPerUser int) *Bo
 // reply; other errors are logged and reported vaguely.
 func (b *Bot) Run(ctx context.Context, u User, c Call) Reply {
 	r, err := b.run(ctx, u, c)
+	observeCommand(c.Command, err)
 	if err != nil {
 		return Reply{Text: b.errorText(c.Command, err)}
 	}
@@ -181,6 +182,7 @@ func (b *Bot) run(ctx context.Context, u User, c Call) (Reply, error) {
 // Act runs a menu choice (pause/resume, delete) and returns the refreshed list.
 func (b *Bot) Act(ctx context.Context, u User, action, value string) Reply {
 	r, err := b.act(ctx, u, action, value)
+	observeCommand(action, err)
 	if err != nil {
 		return Reply{Text: b.errorText(action, err)}
 	}

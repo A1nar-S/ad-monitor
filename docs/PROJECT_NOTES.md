@@ -166,6 +166,46 @@ dashboard api ─┴─> subscriptions (users, channels, searches, logins) <─�
 - **Tests:** `PAGES_LIVE=1 go test ./internal/scraping/pages -run TestLive` reads the Strandberg page the
   picker was designed on.
 
+## Metrics
+Every long-running service (`scraper`, `ingest`, `matcher`, `notifier`, `bot`, `api`) serves Prometheus metrics on
+`METRICS_ADDR` (`internal/platform/metrics`; default `127.0.0.1:9100` so a host `go run` is not exposed, empty disables; a busy port only logs a warning). Go
+runtime and process metrics come with it. Compose sets `METRICS_ADDR=:9100` (all interfaces of the container) for each service without publishing it, and
+a `prometheus` service (profile `app`, `infra/prometheus/prometheus.yml`, volume `prometheus-data`, 15 days of
+retention) scrapes `<service>:9100` every 15 s. Its UI: http://127.0.0.1:9090 (`make up` starts it; `Status > Targets`
+shows what is scraped).
+
+Every app metric is prefixed `admon_`. Labels are bounded (source, topic, kind, result, route pattern, status): never
+URLs, user/search IDs, feed paths or error text. Metrics live in the package that owns the logic (`metrics.go` there).
+The same code runs in several processes (e.g. `admon_kafka_*` in every service), so group by `job` when needed.
+
+| Name | Type | Labels | Meaning |
+|---|---|---|---|
+| `admon_kafka_consumed_total` | counter | `topic`, `result` (ok, dead_lettered) | Records finished by `kafka.Consume`; `dead_lettered` = sent to `<topic>.dlq` (after retries, or undecodable) and committed |
+| `admon_kafka_dead_lettered_total` | counter | `topic` (source topic), `reason` (handler_failed, undecodable) | Dead-lettered records by reason; any increase needs a look (`make dlq TOPIC=...`) |
+| `admon_kafka_dlq_publish_total` | counter | `topic` (the `.dlq` topic), `result` (ok, error) | Attempts to publish a dead letter; errors are retried until they work, so a rising `error` with no `ok` means a stuck partition |
+| `admon_kafka_handle_duration_seconds` | histogram | `topic` | One handler attempt |
+| `admon_kafka_handle_retries_total` | counter | `topic` | Handler attempts repeated after an error |
+| `admon_kafka_published_total` | counter | `topic`, `result` (ok, error) | Records published; `error` includes marshal failures |
+| `admon_scraper_requests_total` | counter | `source`, `status_class` (1xx, 2xx, 3xx, 4xx, 5xx, other, error) | HTTP requests to the site (feed and ad pages, also in the matcher; not price-watch page reads) |
+| `admon_scraper_feed_fetches_total` | counter | `source`, `result` (ok, empty, blocked, failed) | Feed page fetches; `empty` = page 1 returned 200 with no rows (layout change?); empty later pages are normal paging and count as ok |
+| `admon_scraper_listings_discovered_total` | counter | `source` | Listings read and published |
+| `admon_scraper_cycles_total` | counter | `source`, `result` (ok, idle, failed) | Scrape cycles; `idle` = no feeds to watch |
+| `admon_scraper_cycle_duration_seconds` | histogram | `source` | Cycle duration |
+| `admon_scraper_last_success_timestamp_seconds` | gauge | `source` | Unix time of the last cycle without errors (alert on `time() - x`) |
+| `admon_ingest_listings_total` | counter | `result` (new, seeded, known) | Listings stored; `new` is announced, `seeded` is new but silent (feed seed window) |
+| `admon_outbox_relayed_total` | counter | `result` (published, failed) | Outbox relay to `listings.new` |
+| `admon_outbox_backlog` | gauge | none | Outbox entries not yet published (read from Postgres at scrape time; NaN if unreadable) |
+| `admon_matcher_listings_total` | counter | `source`, `result` (matched, unmatched) | New listings fully handled by the matcher, counted once after recording (`unknown` source for unregistered ones) |
+| `admon_matcher_notifications_total` | counter | `source` | Notification requests produced, counted once per listing after they are recorded (not per retry) |
+| `admon_matcher_adpage_reads_total` | counter | `source`, `result` (ok, gone, failed) | Ad page reads (attempts: a Kafka retry reads again) |
+| `admon_notifier_deliveries_total` | counter | `kind` (notifier kind, or `unknown`), `result` (sent, failed, dropped, digested) | Deliveries per notifier kind (digest messages count as sent); `failed` counts attempts, so one message retried 5 times adds 5 (unlike `admon_kafka_consumed_total`, which counts records) |
+| `admon_watch_checks_total` | counter | `result` (ok, failed, blocked, gone, no_price) | Price watch page checks (scraper, and the API's "Check now") |
+| `admon_watch_check_duration_seconds` | histogram | none | One check: page read plus recording |
+| `admon_watch_alerts_total` | counter | `kind` (drop, failing, recovered) | Price alerts queued for delivery (counted after the transaction commits) |
+| `admon_bot_commands_total` | counter | `command` (watch, edit, searches, matches, unwatch, dashboard, setup, menu_toggle, menu_delete, other), `result` (ok, rejected, error) | Bot commands and menu actions; `rejected` is the user's mistake |
+| `admon_http_requests_total` | counter | `method`, `route`, `code` | API requests; `route` is the mux pattern (`/api/searches/{id}`, also `/api/` and the SPA catch-all `/`), `unmatched` if none; `method` is GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS or `other` |
+| `admon_http_request_duration_seconds` | histogram | `method`, `route` | API request duration |
+
 ## Testing
 - `go test ./...` unit tests; slice tests need `TEST_DATABASE_URL` (skipped otherwise). The bot core is tested with a
   fake `Messenger`, the Discord adapter's translation on its own, the web API with `httptest`.
@@ -200,7 +240,7 @@ See the README. In short:
 ```sh
 make env                        # .env (random DB password); then the Discord values
 make up                         # Postgres, Kafka, scraper, ingest, matcher, notifier, bot, dashboard (all in Docker)
-make logs | make purge | make down
+make logs | make purge | make down  # make up also starts Prometheus: http://127.0.0.1:9090
 make dlq TOPIC=listings.new     # records a consumer gave up on; make dlq-replay TOPIC=... republishes them
 # Services on the host instead: make infra, then go run ./cmd/<service>; the dashboard with cd web && bun run dev
 go run ./cmd/admin ss-codebook  # refresh the ss.com codebooks

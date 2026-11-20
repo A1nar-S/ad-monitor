@@ -46,6 +46,12 @@ click the price on the page, choose "drops by 5%" or "at or below a price", and 
 read every 30 minutes to daily; alerts go to your DMs or a channel. One read serves everyone
 watching the same page.
 
+## Metrics
+
+Every service serves Prometheus metrics on `METRICS_ADDR` (default `127.0.0.1:9100` on the host; Docker sets `:9100`, inside its network only), and
+`make up` starts a Prometheus that scrapes them: http://127.0.0.1:9090 (try `Status > Targets`). The metric list is in
+[docs/PROJECT_NOTES.md](docs/PROJECT_NOTES.md#metrics).
+
 ## Dashboard
 
 http://127.0.0.1:8080, log in with `/dashboard`. To reach it from elsewhere, use a tunnel and set `PUBLIC_URL`.

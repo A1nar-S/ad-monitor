@@ -97,11 +97,13 @@ func publishDeadLetter(ctx context.Context, cl *kgo.Client, rec *kgo.Record) err
 	for {
 		err := cl.ProduceSync(ctx, rec).FirstErr()
 		if err == nil {
+			dlqPublishes.WithLabelValues(rec.Topic, "ok").Inc()
 			return nil
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		dlqPublishes.WithLabelValues(rec.Topic, "error").Inc()
 		slog.Error("dead-letter publish failed, retrying", "topic", rec.Topic, "err", err)
 		if !sleep(ctx, delay) {
 			return ctx.Err()

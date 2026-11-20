@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
 )
@@ -124,6 +125,8 @@ func TestBurstGoesToDigest(t *testing.T) {
 	f := &fake{}
 	svc, pool := newTestService(t, f)
 	ctx := context.Background()
+	sentCount, digestedCount := deliveries.WithLabelValues("fake", "sent"), deliveries.WithLabelValues("fake", "digested")
+	sent0, digested0 := testutil.ToFloat64(sentCount), testutil.ToFloat64(digestedCount)
 
 	// 12 matches for one search: 5 posted, 7 queued. Redelivering one of the
 	// queued keys must neither post nor queue it twice.
@@ -137,6 +140,12 @@ func TestBurstGoesToDigest(t *testing.T) {
 	}
 	if len(f.sent) != 5 {
 		t.Fatalf("sent %d messages, want 5: %v", len(f.sent), f.sent)
+	}
+	if d := testutil.ToFloat64(sentCount) - sent0; d != 5 {
+		t.Errorf("sent counter rose by %v, want 5", d)
+	}
+	if d := testutil.ToFloat64(digestedCount) - digested0; d != 7 {
+		t.Errorf("digested counter rose by %v, want 7", d)
 	}
 
 	// Another search has its own budget.

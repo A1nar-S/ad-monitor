@@ -63,6 +63,7 @@ const DefaultSeedWindow = 2 * time.Minute
 // listing was new.
 func (s *Service) Ingest(ctx context.Context, l events.ListingDiscovered) (bool, error) {
 	var isNew bool
+	var result string
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
 
@@ -83,8 +84,13 @@ func (s *Service) Ingest(ctx context.Context, l events.ListingDiscovered) (bool,
 			return fmt.Errorf("upsert %s/%s: %w", l.Source, l.ExternalID, err)
 		}
 		if !isNew || seeding {
+			result = "known"
+			if isNew {
+				result = "seeded"
+			}
 			return nil
 		}
+		result = "new"
 		payload, err := json.Marshal(l)
 		if err != nil {
 			return err
@@ -92,6 +98,9 @@ func (s *Service) Ingest(ctx context.Context, l events.ListingDiscovered) (bool,
 		slog.Debug("new listing", "source", l.Source, "id", l.ExternalID, "title", l.Title)
 		return q.InsertOutbox(ctx, payload)
 	})
+	if err == nil {
+		ingested.WithLabelValues(result).Inc()
+	}
 	return isNew, err
 }
 
@@ -127,6 +136,10 @@ func (s *Service) RelayOutbox(ctx context.Context, batch int32, publish func(con
 		}
 		return nil // commit what was published; pubErr is reported below
 	})
+	relayed.WithLabelValues("published").Add(float64(published))
+	if pubErr != nil {
+		relayed.WithLabelValues("failed").Inc()
+	}
 	if err == nil {
 		err = pubErr
 	}

@@ -18,6 +18,8 @@ type Common struct {
 	// Namespace prefixes topic and consumer-group names, so several
 	// environments (or test runs) can share one Kafka cluster.
 	Namespace string
+	// MetricsAddr is where /metrics is served for Prometheus; empty disables it.
+	MetricsAddr string
 }
 
 // Topic is the topic name to use for name in this environment.
@@ -33,8 +35,22 @@ func (c Common) prefix(name string) string {
 	return c.Namespace + "." + name
 }
 
+// metricsAddr is METRICS_ADDR, default 127.0.0.1:9100 (away from API_ADDR's
+// 8080, and not exposed when run on the host; compose sets :9100); set it to an
+// empty value to turn metrics off.
+func metricsAddr() string {
+	if v, ok := os.LookupEnv("METRICS_ADDR"); ok {
+		return strings.TrimSpace(v)
+	}
+	return "127.0.0.1:9100"
+}
+
 func commonFromEnv() Common {
-	c := Common{KafkaBrokers: strings.Split(env("KAFKA_BROKERS", "localhost:9092"), ","), Namespace: os.Getenv("NAMESPACE")}
+	c := Common{
+		KafkaBrokers: strings.Split(env("KAFKA_BROKERS", "localhost:9092"), ","),
+		Namespace:    os.Getenv("NAMESPACE"),
+		MetricsAddr:  metricsAddr(),
+	}
 	if v := os.Getenv("DATABASE_URL"); v != "" {
 		c.DatabaseURL = v
 		return c
