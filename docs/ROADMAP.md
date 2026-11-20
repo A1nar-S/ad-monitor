@@ -62,7 +62,7 @@ Next:
 - [ ] Verify a real alert through Discord (the notifier path is the one searches use).
 - [ ] Pages whose price only exists after JavaScript runs (an optional headless-browser reader).
   Today the picker shows such pages without the price and points to suggestions or the API.
-- [ ] Shops that refuse automated reads (Amazon often does) are reported as refused, not worked around.
+- [x] Shops that refuse automated reads (401/403/429, Amazon often does) are reported as refused, not worked around.
 - [ ] Admin incidents for failing pages in `#monitoring-alerts` (see Monitoring).
 
 ## Monitoring: required for scraping
@@ -91,4 +91,7 @@ Next:
 - [ ] Add City24, Vinted, and shop/marketplace adapters one at a time, with parser fixtures and health checks.
 - [ ] Cross-store comparison: match variant, condition, seller, currency, and shipping/fees first.
   Start with manual product grouping.
-- [ ] CI, observability, dead-letter queues, protobuf, scheduler, and deployment tooling as needed.
+- [x] CI: lint, tests, integration tests, sqlc, dashboard and image builds, security scans.
+- [ ] Observability (Prometheus metrics, Grafana dashboards).
+- [ ] Dead-letter queues for Kafka records that fail or cannot be decoded.
+- [ ] Protobuf, scheduler, and deployment tooling as needed.
