@@ -145,6 +145,32 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
+  # Dashboards, provisioned from infra/grafana (datasource + JSON files): http://127.0.0.1:3000,
+  # login admin / GRAFANA_ADMIN_PASSWORD. Bound to this machine only.
+  grafana:
+    image: grafana/grafana-oss:11.6.0
+    restart: unless-stopped
+    profiles: [app]
+    depends_on: [prometheus]
+    # Refuse to start without a password (never a default). Checked here, not
+    # with ${VAR:?} in the file, which would break every compose command for a
+    # .env that predates this variable.
+    entrypoint: ["sh", "-c", ": \"$${GF_SECURITY_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env (make env)}\"; exec /run.sh"]
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
   # One-off maintenance: `make purge`, or `... --profile tools run --rm admin migrate`.
   admin:
     <<: *service
@@ -159,3 +185,4 @@ volumes:
   kafka-data:
   pg-data:
   prometheus-data:
+  grafana-data:

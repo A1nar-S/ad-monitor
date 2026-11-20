@@ -51,3 +51,17 @@ func handleObserved[T any](ctx context.Context, topic string, delay time.Duratio
 		return err
 	})
 }
+
+// initConsumeSeries creates the consumer-side series at 0 so that increase()
+// sees a counter's first increment (a series born at 1 has no earlier sample).
+func initConsumeSeries(topic string) {
+	for _, r := range []string{"ok", "dead_lettered"} {
+		consumed.WithLabelValues(topic, r)
+	}
+	for _, r := range []string{"handler_failed", "undecodable"} {
+		deadLettered.WithLabelValues(topic, r)
+	}
+	for _, r := range []string{"ok", "error"} {
+		dlqPublishes.WithLabelValues(DLQTopic(topic), r)
+	}
+}

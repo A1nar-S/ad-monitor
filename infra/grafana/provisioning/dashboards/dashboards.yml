@@ -1,0 +1,10 @@
+apiVersion: 1
+providers:
+  - name: admon
+    type: file
+    # Read-only in the UI; edit the JSON files (see docs/PROJECT_NOTES.md, Grafana).
+    allowUiUpdates: false
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards

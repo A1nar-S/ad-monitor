@@ -206,6 +206,29 @@ The same code runs in several processes (e.g. `admon_kafka_*` in every service),
 | `admon_http_requests_total` | counter | `method`, `route`, `code` | API requests; `route` is the mux pattern (`/api/searches/{id}`, also `/api/` and the SPA catch-all `/`), `unmatched` if none; `method` is GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS or `other` |
 | `admon_http_request_duration_seconds` | histogram | `method`, `route` | API request duration |
 
+## Grafana
+A `grafana` service (profile `app`, `grafana/grafana-oss` pinned in compose, volume `grafana-data`) is provisioned
+entirely from files, so it is ready after `make up`: http://127.0.0.1:3000 (bound to this machine), user `admin`,
+password `GRAFANA_ADMIN_PASSWORD` (required; `make env` generates it). Anonymous access, sign-up, analytics, update
+checks and the news feed are off. The password is read as `${GRAFANA_ADMIN_PASSWORD:-}` and the container's
+entrypoint wrapper exits with a message when it is empty (a `${VAR:?}` in the file would break every compose command
+for a `.env` that predates it). Upgrade: add `GRAFANA_ADMIN_PASSWORD=<openssl rand -hex 16>` to the existing `.env`.
+Stat panels that must not read as a healthy 0 when the series is missing (oldest scrape, outbox backlog) show a red
+"No data" / "Unreadable"; counters the alarm stats use are created at 0 when `kafka.Consume` starts so `increase()`
+sees the first event. Layout in `infra/grafana/`:
+- `provisioning/datasources/prometheus.yml`: datasource uid `prometheus` -> `http://prometheus:9090` (dashboards use that uid).
+- `provisioning/dashboards/dashboards.yml`: file provider reading `dashboards/` (mounted read-only, rescanned every 30 s).
+- `dashboards/pipeline.json`, `price-watches.json`, `api-bot.json`: uids `admon-pipeline`, `admon-watches`, `admon-api-bot`.
+
+Dashboards use only the `admon_*` metrics above (plus `up`). Counters are shown with `increase(...[$__rate_interval])`
+or `rate()`, latencies with `histogram_quantile` over `_bucket`. The "oldest successful scrape" stat goes red at 900 s,
+i.e. 3x the default `CRAWL_INTERVAL_MINUTES=5`; edit it if the interval changes.
+
+Changing a dashboard: the provider is read-only, so UI edits cannot be saved in place. Open the dashboard, edit and
+tune it in the UI (Save is disabled, so use `Export > Export as JSON`, "export for sharing externally" off), replace the
+matching file in `infra/grafana/dashboards/` and keep its `uid`; Grafana reloads it within 30 s. Edit the file directly
+for small changes. Check expressions against Prometheus before committing.
+
 ## Testing
 - `go test ./...` unit tests; slice tests need `TEST_DATABASE_URL` (skipped otherwise). The bot core is tested with a
   fake `Messenger`, the Discord adapter's translation on its own, the web API with `httptest`.

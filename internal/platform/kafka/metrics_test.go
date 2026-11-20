@@ -9,6 +9,16 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
+func TestInitConsumeSeries(t *testing.T) {
+	initConsumeSeries("init.test")
+	// Reading a series with WithLabelValues would create it, so count what
+	// exists: 2 consumed + 2 dead-lettered + 2 dlq publishes for this topic.
+	before := testutil.CollectAndCount(consumed) + testutil.CollectAndCount(deadLettered) + testutil.CollectAndCount(dlqPublishes)
+	if before < 6 {
+		t.Fatalf("series after init = %d, want >= 6", before)
+	}
+}
+
 func TestHandleObservedCountsRetries(t *testing.T) {
 	const topic = "metrics-test"
 	retries := handleRetries.WithLabelValues(topic)

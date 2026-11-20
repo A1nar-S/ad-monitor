@@ -73,6 +73,7 @@ type Subscription struct {
 // Returns when ctx is done.
 func Consume[T any](ctx context.Context, sub Subscription, handle func(context.Context, T) error) error {
 	topic, group := sub.Topic, sub.Group
+	initConsumeSeries(topic)
 	cl, err := kgo.NewClient(
 		kgo.SeedBrokers(sub.Brokers...),
 		kgo.ConsumerGroup(group),
