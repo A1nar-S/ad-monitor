@@ -75,6 +75,30 @@ Postgres as down (`pg_up` 0) until you add it and run `make up` again. `make up`
 the new scrape jobs apply to an existing stack (the first `up` recreates the `prometheus` container for its new config
 mount; with plain `docker compose up`, run `docker compose kill -s HUP prometheus` after later config edits).
 
+## Alerts
+
+Grafana evaluates alert rules (folder `admon`, provisioned from `infra/grafana/provisioning/alerting/`) and sends
+them to a Discord channel. They are visible in Grafana under **Alerting > Alert rules** even without Discord.
+
+1. In Discord: channel settings (gear) > Integrations > Webhooks > New Webhook > Copy Webhook URL.
+2. Put it in `.env` as `GRAFANA_DISCORD_WEBHOOK_URL=<url>` and run `make up`. Treat the URL like a password.
+   Optional: `GRAFANA_ROOT_URL` (default `http://127.0.0.1:3000`) is what the message links point to; set your
+   tunnel address if you open Grafana from elsewhere.
+
+Without the variable Grafana still starts and shows the alerts; `make up` prints a note and Grafana logs a failed
+delivery per notification. Messages are grouped per alert (first after 30 s, updates every 5 min, repeated every
+4 h while it fires) and a "RESOLVED" message follows when it clears.
+
+Critical: an app service down, Kafka or its exporter down, Postgres down (it fires until `MONITOR_DB_PASSWORD` is
+set in `.env`: the exporter cannot log in), scraper stale (no good cycle for 15 min), dead-letter publish errors.
+Warning: new dead letters (`make dlq TOPIC=...`), consumer lag high, outbox backlog, notifier delivery failures,
+price-watch check failures, API 5xx, a container restarting repeatedly, a monitoring component down. Thresholds are
+in [docs/PROJECT_NOTES.md](docs/PROJECT_NOTES.md#alerting).
+
+To silence an alert during maintenance: click **Silence** in the Discord message, or Grafana > Alerting > Silences >
+New silence (match `alertname` or `severity`). To mute a rule for good, set `isPaused: true` on it in
+`rules.yml` (provisioned rules are read-only in the UI; see the notes). A Grafana outage cannot alert by itself.
+
 ## Dashboard
 
 http://127.0.0.1:8080, log in with `/dashboard`. To reach it from elsewhere, use a tunnel and set `PUBLIC_URL`.

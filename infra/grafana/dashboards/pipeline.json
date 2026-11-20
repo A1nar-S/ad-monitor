@@ -1388,7 +1388,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (consumergroup, topic) (kafka_consumergroup_lag_sum{job=\"kafka\", topic!~\".*[.]dlq\"})",
+          "expr": "clamp_min(sum by (consumergroup, topic) (kafka_consumergroup_lag_sum{job=\"kafka\", topic!~\".*[.]dlq\"}), 0)",
           "legendFormat": "{{consumergroup}} / {{topic}}"
         }
       ],

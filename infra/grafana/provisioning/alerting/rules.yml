@@ -1,0 +1,668 @@
+# Grafana-managed alert rules, provisioned from this file (read-only in the UI).
+# Change a rule here, not in the UI: see docs/PROJECT_NOTES.md (Alerting).
+# Layout per rule: A = Prometheus instant query, B = last value of A, C = threshold on B
+# (the lag rule uses A, B queries, C, D reductions and an E math condition).
+# Annotation values are templates: write {{ $labels.job }} with a single $ (it is not expanded as an env var).
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: availability
+    folder: admon
+    interval: 1m
+    rules:
+      # critical; noData=Alerting, execErr=Error: Per target: a series that disappears means Prometheus
+      # scrapes nothing for the job, which is as bad as down. Query errors become DatasourceError alerts (grouped by
+      # alertname; labels such as job are empty in them).
+      - uid: admon-app-target-down
+        title: 'App service down'
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              datasource: {type: prometheus, uid: prometheus}
+              expr: 'up{job=~"scraper|ingest|matcher|notifier|bot|api"}'
+              instant: true
+              range: false
+              editorMode: code
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              datasource: {type: __expr__, uid: __expr__}
+              type: reduce
+              expression: A
+              reducer: last
+              settings: {mode: dropNN}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              datasource: {type: __expr__, uid: __expr__}
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: {type: lt, params: [1]}
+        noDataState: Alerting
+        execErrState: Error
+        for: 2m
+        isPaused: false
+        annotations:
+          __dashboardUid__: admon-pipeline
+          __panelId__: '24'
+          summary: '{{ $labels.job }} is down'
+          description: 'Prometheus cannot scrape {{ $labels.job }} ({{ $labels.instance }}): up = {{ $values.B.Value }}. The container is stopped, crash-looping or its /metrics is unreachable. Check `make ps` and `docker compose --env-file .env -f infra/docker-compose.yml --profile app logs {{ $labels.job }}`.'
+        labels:
+          severity: critical
+      # critical; noData=Alerting, execErr=Error: 0 when kafka-exporter reports no broker or is itself down
+      # (same expression as the dashboard stat). Missing data cannot be told from an outage, so it alerts.
+      - uid: admon-kafka-down
+        title: 'Kafka broker or exporter down'
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              datasource: {type: prometheus, uid: prometheus}
+              expr: 'min(kafka_brokers{job="kafka"} or (up{job="kafka"} * 0))'
+              instant: true
+              range: false
+              editorMode: code
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              datasource: {type: __expr__, uid: __expr__}
+              type: reduce
+              expression: A
+              reducer: last
+              settings: {mode: dropNN}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              datasource: {type: __expr__, uid: __expr__}
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: {type: lt, params: [1]}
+        noDataState: Alerting
+        execErrState: Error
+        for: 3m
+        isPaused: false
+        annotations:
+          __dashboardUid__: admon-postgres-kafka
+          __panelId__: '4'
+          summary: 'Kafka is down or unreachable'
+          description: 'kafka-exporter reports no healthy broker (value {{ $values.B.Value }}; no value = the exporter is gone too). The whole pipeline stalls while Kafka is away. Check `docker compose ps kafka kafka-exporter` and the kafka container logs.'
+        labels:
+          severity: critical
+          service: kafka
+      # critical; noData=Alerting, execErr=Error: pg_up is 0 when the exporter cannot log in or reach
+      # Postgres; missing data is treated the same.
+      - uid: admon-postgres-down
+        title: 'Postgres down'
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              datasource: {type: prometheus, uid: prometheus}
+              expr: 'min(pg_up{job="postgres"} or (up{job="postgres"} * 0))'
+              instant: true
+              range: false
+              editorMode: code
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              datasource: {type: __expr__, uid: __expr__}
+              type: reduce
+              expression: A
+              reducer: last
+              settings: {mode: dropNN}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              datasource: {type: __expr__, uid: __expr__}
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: {type: lt, params: [1]}
+        noDataState: Alerting
+        execErrState: Error
+        for: 5m
+        isPaused: false
+        annotations:
+          __dashboardUid__: admon-postgres-kafka
+          __panelId__: '1'
+          summary: 'Postgres is down or not monitorable'
+          description: 'pg_up is {{ $values.B.Value }} (no value = no data): postgres-exporter cannot query the database. If Postgres itself is running, the usual cause is a missing MONITOR_DB_PASSWORD in .env (the read-only role admon_monitor is never created, so the exporter cannot log in); add it and run `make up`. Otherwise check the postgres container.'
+        labels:
+          severity: critical
+          service: postgres
+      # warning; noData=Alerting, execErr=Error: Per scrape job (kafka is covered by the critical Kafka
+      # rule). A Grafana outage cannot notify by itself, since Grafana runs the alert engine; this rule
+      # catches a failed /metrics scrape of a live Grafana.
+      - uid: admon-monitoring-down
+        title: 'Monitoring component down'
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              datasource: {type: prometheus, uid: prometheus}
+              expr: 'up{job=~"cadvisor|postgres|prometheus|grafana"}'
+              instant: true
+              range: false
+              editorMode: code
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              datasource: {type: __expr__, uid: __expr__}
+              type: reduce
+              expression: A
+              reducer: last
+              settings: {mode: dropNN}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              datasource: {type: __expr__, uid: __expr__}
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: {type: lt, params: [1]}
+        noDataState: Alerting
+        execErrState: Error
+        for: 5m
+        isPaused: false
+        annotations:
+          __dashboardUid__: admon-containers
+          __panelId__: '2'
+          summary: 'Monitoring component {{ $labels.job }} is not scraped'
+          description: 'Prometheus cannot scrape {{ $labels.job }} ({{ $labels.instance }}). Dashboards and alerts that depend on it are blind. For job postgres this is postgres-exporter itself (a failed login shows up as the Postgres down alert instead).'
+        labels:
+          severity: warning
+  - orgId: 1
+    name: pipeline
+    folder: admon
+    interval: 1m
+    rules:
+      # critical; noData=Alerting, execErr=Error: 900 s = 3x the default CRAWL_INTERVAL_MINUTES=5 (idle
+      # cycles count as success). No series at all means the scraper never completed a cycle, so it alerts.
+      - uid: admon-scraper-stale
+        title: 'Scraper stale'
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              datasource: {type: prometheus, uid: prometheus}
+              expr: 'max by (source) (time() - admon_scraper_last_success_timestamp_seconds)'
+              instant: true
+              range: false
+              editorMode: code
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              datasource: {type: __expr__, uid: __expr__}
+              type: reduce
+              expression: A
+              reducer: last
+              settings: {mode: dropNN}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              datasource: {type: __expr__, uid: __expr__}
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: {type: gt, params: [900]}
+        noDataState: Alerting
+        execErrState: Error
+        for: 5m
+        isPaused: false
+        annotations:
+          __dashboardUid__: admon-pipeline
+          __panelId__: '9'
+          summary: 'No successful scrape cycle for {{ humanizeDuration $values.B.Value }} ({{ $labels.source }})'
+          description: 'The scraper''s last cycle without errors for source {{ $labels.source }} was {{ humanizeDuration $values.B.Value }} ago (limit 15 min). ss.com may be blocking or changed its layout, or the scraper is stuck. Check the scraper logs and the Feed fetches panel.'
+        labels:
+          severity: critical
+      # critical; noData=OK, execErr=Error: A dead letter that cannot be written to its .dlq topic is
+      # retried forever, so the partition is stuck. No series just means no errors yet, hence OK.
+      - uid: admon-dlq-publish-errors
+        title: 'Dead-letter publish errors'
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              datasource: {type: prometheus, uid: prometheus}
+              expr: 'sum by (topic) (increase(admon_kafka_dlq_publish_total{result="error"}[10m]))'
+              instant: true
+              range: false
+              editorMode: code
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              datasource: {type: __expr__, uid: __expr__}
+              type: reduce
+              expression: A
+              reducer: last
+              settings: {mode: dropNN}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              datasource: {type: __expr__, uid: __expr__}
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        isPaused: false
+        annotations:
+          __dashboardUid__: admon-pipeline
+          __panelId__: '21'
+          summary: 'Cannot publish dead letters to {{ $labels.topic }}'
+          description: '{{ humanize $values.B.Value }} failed attempts in 10 min to write a failed record to {{ $labels.topic }}. The consumer retries until it works, so its partition is stuck and no new records are processed. Check Kafka health and the logs of the consuming service.'
+        labels:
+          severity: critical
+      # warning; noData=OK, execErr=Error: Any event is worth a look, so no pending time (the 15 min window
+      # keeps it firing for that long). The Kafka counters start at 0 with the consumer, so the first event is seen.
+      # No data means no consumer is running, which the down rules cover.
+      - uid: admon-dead-letters
+        title: 'New dead letters'
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              datasource: {type: prometheus, uid: prometheus}
+              expr: 'sum by (topic, reason) (increase(admon_kafka_dead_lettered_total[15m]))'
+              instant: true
+              range: false
+              editorMode: code
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              datasource: {type: __expr__, uid: __expr__}
+              type: reduce
+              expression: A
+              reducer: last
+              settings: {mode: dropNN}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              datasource: {type: __expr__, uid: __expr__}
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        isPaused: false
+        annotations:
+          __dashboardUid__: admon-pipeline
+          __panelId__: '20'
+          summary: '{{ humanize $values.B.Value }} new dead letter(s) on {{ $labels.topic }} ({{ $labels.reason }})'
+          description: 'Records from {{ $labels.topic }} were given up on in the last 15 min (reason: {{ $labels.reason }}). List them with `make dlq TOPIC={{ $labels.topic }}`, fix the cause, then `make dlq-replay TOPIC={{ $labels.topic }}`.'
+        labels:
+          severity: warning
+      # warning; noData=OK, execErr=Error: Lag above 1000 records that did not shrink over the last 10 min,
+      # held for 10 min; a burst the consumer is working off does not alert. clamp_min hides kafka-
+      # exporter's -1 for groups without committed offsets. No data: exporter or Kafka down, covered by the
+      # Kafka rule.
+      - uid: admon-consumer-lag
+        title: 'Consumer lag high'
+        condition: E
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              datasource: {type: prometheus, uid: prometheus}
+              expr: 'clamp_min(sum by (consumergroup, topic) (kafka_consumergroup_lag_sum{job="kafka", topic!~".*[.]dlq"}), 0)'
+              instant: true
+              range: false
+              editorMode: code
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: B
+              datasource: {type: prometheus, uid: prometheus}
+              expr: 'clamp_min(sum by (consumergroup, topic) (kafka_consumergroup_lag_sum{job="kafka", topic!~".*[.]dlq"}), 0) - clamp_min(sum by (consumergroup, topic) (kafka_consumergroup_lag_sum{job="kafka", topic!~".*[.]dlq"} offset 10m), 0) or clamp_min(sum by (consumergroup, topic) (kafka_consumergroup_lag_sum{job="kafka", topic!~".*[.]dlq"}), 0)'
+              instant: true
+              range: false
+              editorMode: code
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              datasource: {type: __expr__, uid: __expr__}
+              type: reduce
+              expression: A
+              reducer: last
+              settings: {mode: dropNN}
+          - refId: D
+            datasourceUid: __expr__
+            model:
+              refId: D
+              datasource: {type: __expr__, uid: __expr__}
+              type: reduce
+              expression: B
+              reducer: last
+              settings: {mode: dropNN}
+          - refId: E
+            datasourceUid: __expr__
+            model:
+              refId: E
+              datasource: {type: __expr__, uid: __expr__}
+              type: math
+              expression: '$C > 1000 && $D >= 0'
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        isPaused: false
+        annotations:
+          __dashboardUid__: admon-postgres-kafka
+          __panelId__: '17'
+          summary: 'Consumer group {{ $labels.consumergroup }} is falling behind on {{ $labels.topic }}'
+          description: 'Lag is {{ humanize $values.C.Value }} records and has not shrunk for 10 min. The consuming service is slow, stuck or down (also see the dead-letter and target-down alerts).'
+        labels:
+          severity: warning
+      # warning; noData=OK, execErr=Error: Entries wait only until the relay's next poll, so 200 for 10 min
+      # means it cannot publish to Kafka or read Postgres (NaN, dropped, is covered by the Postgres rule).
+      # No data: ingest is down, covered by the target-down rule.
+      - uid: admon-outbox-backlog
+        title: 'Outbox backlog high'
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              datasource: {type: prometheus, uid: prometheus}
+              expr: 'sum(admon_outbox_backlog)'
+              instant: true
+              range: false
+              editorMode: code
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              datasource: {type: __expr__, uid: __expr__}
+              type: reduce
+              expression: A
+              reducer: last
+              settings: {mode: dropNN}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              datasource: {type: __expr__, uid: __expr__}
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: {type: gt, params: [200]}
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        isPaused: false
+        annotations:
+          __dashboardUid__: admon-pipeline
+          __panelId__: '14'
+          summary: 'Outbox backlog is {{ humanize $values.B.Value }}'
+          description: '{{ humanize $values.B.Value }} outbox entries have waited for 10 min to be published to listings.new. The relay is failing or Kafka is unavailable; new ads are not announced until it recovers.'
+        labels:
+          severity: warning
+          service: ingest
+      # warning; noData=OK, execErr=Error: Counts attempts, and one message is retried 5 times, so more than
+      # 5 in 15 min means more than one message failing; held 10 min so one bad channel does not page. No
+      # data: nothing was sent.
+      - uid: admon-notifier-failures
+        title: 'Notifier delivery failures'
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              datasource: {type: prometheus, uid: prometheus}
+              expr: 'sum by (kind) (increase(admon_notifier_deliveries_total{result="failed"}[15m]))'
+              instant: true
+              range: false
+              editorMode: code
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              datasource: {type: __expr__, uid: __expr__}
+              type: reduce
+              expression: A
+              reducer: last
+              settings: {mode: dropNN}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              datasource: {type: __expr__, uid: __expr__}
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: {type: gt, params: [5]}
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        isPaused: false
+        annotations:
+          __dashboardUid__: admon-pipeline
+          __panelId__: '18'
+          summary: 'Notifier deliveries failing ({{ $labels.kind }})'
+          description: '{{ humanize $values.B.Value }} failed delivery attempts in 15 min for kind {{ $labels.kind }}. Typical causes: an invalid DISCORD_BOT_TOKEN, missing channel permissions or a Discord outage. See the notifier logs.'
+        labels:
+          severity: warning
+          service: notifier
+  - orgId: 1
+    name: services
+    folder: admon
+    interval: 2m
+    rules:
+      # warning; noData=OK, execErr=Error: More than half of the checks failing or blocked over 30 min, and
+      # only with at least 5 checks in that window so a single page cannot trip it. Pages that vanished
+      # (gone) or lost their price (no_price) are the user's problem, not counted. No data: no checks ran.
+      - uid: admon-watch-failures
+        title: 'Price watch checks failing'
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              datasource: {type: prometheus, uid: prometheus}
+              expr: '(sum(increase(admon_watch_checks_total{result=~"failed|blocked"}[30m])) / sum(increase(admon_watch_checks_total[30m]))) and (sum(increase(admon_watch_checks_total[30m])) >= 5)'
+              instant: true
+              range: false
+              editorMode: code
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              datasource: {type: __expr__, uid: __expr__}
+              type: reduce
+              expression: A
+              reducer: last
+              settings: {mode: dropNN}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              datasource: {type: __expr__, uid: __expr__}
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: {type: gt, params: [0.5]}
+        noDataState: OK
+        execErrState: Error
+        for: 15m
+        isPaused: false
+        annotations:
+          __dashboardUid__: admon-watches
+          __panelId__: '5'
+          summary: '{{ humanizePercentage $values.B.Value }} of price watch checks are failing'
+          description: 'Over the last 30 min {{ humanizePercentage $values.B.Value }} of price-watch page checks failed or were blocked. The sites may block the scraper, or the network is down. See the Price watches dashboard.'
+        labels:
+          severity: warning
+          service: scraper
+      # warning; noData=OK, execErr=Error: More than 5 server errors in 10 min, held 5 min; a stray 500 does
+      # not alert. Traffic is tiny, so a ratio would be noisy. No data: the API is down or has had no 5xx
+      # yet.
+      - uid: admon-api-5xx
+        title: 'API 5xx errors'
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              datasource: {type: prometheus, uid: prometheus}
+              expr: 'sum(increase(admon_http_requests_total{code=~"5.."}[10m]))'
+              instant: true
+              range: false
+              editorMode: code
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              datasource: {type: __expr__, uid: __expr__}
+              type: reduce
+              expression: A
+              reducer: last
+              settings: {mode: dropNN}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              datasource: {type: __expr__, uid: __expr__}
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: {type: gt, params: [5]}
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        isPaused: false
+        annotations:
+          __dashboardUid__: admon-api-bot
+          __panelId__: '6'
+          summary: 'API is returning 5xx errors'
+          description: '{{ humanize $values.B.Value }} responses with a 5xx code in the last 10 min. See the API & bot dashboard for the routes, and the api logs.'
+        labels:
+          severity: warning
+          job: api
+      # warning; noData=OK, execErr=Error: 3 or more starts in 30 min, held 5 min: a restart loop, not a
+      # deploy (`make up` recreates a container once). Any compose project (the label must be set, so
+      # non-compose containers are ignored). No data: cAdvisor is down, covered by the monitoring rule.
+      - uid: admon-container-restarts
+        title: 'Container restarting repeatedly'
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              refId: A
+              datasource: {type: prometheus, uid: prometheus}
+              expr: 'sum by (name) (changes(container_start_time_seconds{container_label_com_docker_compose_project!=""}[30m]))'
+              instant: true
+              range: false
+              editorMode: code
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              datasource: {type: __expr__, uid: __expr__}
+              type: reduce
+              expression: A
+              reducer: last
+              settings: {mode: dropNN}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              datasource: {type: __expr__, uid: __expr__}
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: {type: gte, params: [3]}
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        isPaused: false
+        annotations:
+          __dashboardUid__: admon-containers
+          __panelId__: '16'
+          summary: 'Container {{ $labels.name }} restarted {{ $values.B.Value }} times in 30 min'
+          description: '{{ $labels.name }} started {{ $values.B.Value }} times in the last 30 min. It is likely crash-looping (out of memory, bad config, failing dependency). Check its logs with `docker logs {{ $labels.name }}`.'
+        labels:
+          severity: warning

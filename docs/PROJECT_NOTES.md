@@ -298,6 +298,52 @@ compose network only (no `ports:`), scraped by jobs `postgres` and `kafka` in `p
   With no broker data the stat shows red "No data", never a 0.
 - The Pipeline dashboard also has a "Consumer lag" panel from `kafka_consumergroup_lag_sum`.
 
+## Alerting
+Grafana-managed alerting (not Prometheus rules), provisioned from `infra/grafana/provisioning/alerting/` (mounted
+read-only, loaded at Grafana start; edit a file, then `docker compose ... restart grafana`; `make up` does not
+recreate it for a changed provisioning file):
+- `rules.yml`: folder `admon`, groups `availability` (1m), `pipeline` (1m), `services` (2m). Each rule: A = Prometheus
+  instant query, B = reduce last, C = threshold (lag rule: A/B queries, C/D reductions, E math). Annotations
+  `summary`, `description`, `__dashboardUid__`/`__panelId__` (file provisioning ignores top-level `dashboardUid`/
+  `panelId`; the annotations are what give the Dashboard link), label `severity`. Annotation templates use a plain
+  `$labels`/`$values` (no env expansion there).
+- `contact-points.yml`: Discord `discord`, url `${GRAFANA_DISCORD_WEBHOOK_URL}`; `templates.yml`: `admon.title` and
+  `admon.message` (severity, summary, description, job/service/topic/container/source, Dashboard and Silence links).
+- `policies.yml`: root route to `discord`, group by `alertname, job, topic`, wait 30 s, interval 5 m, repeat 4 h;
+  resolved messages on.
+- **Webhook unset:** Grafana rejects a Discord contact point with an empty URL (provisioning error). The grafana
+  entrypoint wrapper therefore exports an unreachable placeholder (`http://127.0.0.1:9/...`, connection refused at
+  once) when `GRAFANA_DISCORD_WEBHOOK_URL` is empty and prints a notice; Grafana starts, rules evaluate and show
+  in the UI, and each notification attempt fails with a logged error. Verified with and without the variable.
+- Links use `GF_SERVER_ROOT_URL` = `GRAFANA_ROOT_URL` (default `http://127.0.0.1:3000`).
+- **Error/no-data policy:** `execErrState: Error` everywhere (a Prometheus outage becomes `DatasourceError` alerts, grouped by alertname, with empty
+  job/topic labels; not exercised yet); `noDataState: Alerting` where a missing series is itself the failure
+  (`up`, Kafka, Postgres, monitoring, scraper stale), `OK` for event counters and rules whose cause another rule
+  already covers.
+- **Limits:** if Grafana is down nothing alerts (it runs the engine); Prometheus-side rules are not used.
+- **Changing a rule:** edit `rules.yml` (not the UI: provisioned rules are read-only), restart Grafana, check
+  Alerting > Alert rules. Test an expression in Prometheus first. Mute: `isPaused: true`, or a Silence in the UI.
+
+| Rule (group) | Severity | Condition | for | noData / execErr |
+|---|---|---|---|---|
+| App service down (availability) | critical | `up{job=~"scraper\|ingest\|matcher\|notifier\|bot\|api"} < 1` | 2m | Alerting / Error |
+| Kafka broker or exporter down | critical | `min(kafka_brokers or up*0) < 1` | 3m | Alerting / Error |
+| Postgres down | critical | `min(pg_up or up*0) < 1` (also: missing `MONITOR_DB_PASSWORD`) | 5m | Alerting / Error |
+| Monitoring component down | warning | `up{job=~"cadvisor\|postgres\|prometheus\|grafana"} < 1` | 5m | Alerting / Error |
+| Scraper stale (pipeline) | critical | `time() - last_success > 900` s (3x default crawl interval) | 5m | Alerting / Error |
+| Dead-letter publish errors | critical | `increase(dlq_publish{result="error"}[10m]) > 0` per topic | 2m | OK / Error |
+| New dead letters | warning | `increase(dead_lettered[15m]) > 0` per topic, reason; description cites `make dlq TOPIC=...` | 0s | OK / Error |
+| Consumer lag high | warning | `clamp_min(lag_sum,0) > 1000` and not smaller than 10 m ago | 10m | OK / Error |
+| Outbox backlog high | warning | `sum(admon_outbox_backlog) > 200` | 10m | OK / Error |
+| Notifier delivery failures | warning | `increase(deliveries{result="failed"}[15m]) > 5` per kind (5 = one message's retries) | 10m | OK / Error |
+| Price watch checks failing (services) | warning | failed+blocked / all over 30 m `> 0.5`, only with >= 5 checks | 15m | OK / Error |
+| API 5xx errors | warning | `increase(5xx[10m]) > 5` | 5m | OK / Error |
+| Container restarting repeatedly | warning | `changes(container_start_time_seconds[30m]) >= 3` in any compose project | 5m | OK / Error |
+
+Thresholds are for a small single-host setup (tiny traffic): counts rather than ratios where traffic is low, long
+`for` where bursts are normal. Lag panels and the lag rule clamp kafka-exporter's `-1` (group without committed
+offsets) with `clamp_min(..., 0)`. The Container rule covers any compose project; notifier `failed` and API 5xx counters are created on first use, so `increase()` misses the very first one (harmless at their `> 5` thresholds).
+
 ## Testing
 - `go test ./...` unit tests; slice tests need `TEST_DATABASE_URL` (skipped otherwise). The bot core is tested with a
   fake `Messenger`, the Discord adapter's translation on its own, the web API with `httptest`.

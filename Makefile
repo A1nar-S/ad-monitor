@@ -22,6 +22,7 @@ env:
 
 up: .env
 	@grep -q '^MONITOR_DB_PASSWORD=.' .env || echo "note: .env has no MONITOR_DB_PASSWORD; add MONITOR_DB_PASSWORD=<openssl rand -hex 16> for Postgres metrics (see README)"
+	@grep -q '^GRAFANA_DISCORD_WEBHOOK_URL=.' .env || echo "note: .env has no GRAFANA_DISCORD_WEBHOOK_URL; Grafana alerts will show in its UI only (see README)"
 	$(COMPOSE) --profile app up -d --build
 	@# Pick up an edited infra/prometheus/prometheus.yml without recreating the container.
 	@$(COMPOSE) --profile app kill -s HUP prometheus >/dev/null 2>&1 || true

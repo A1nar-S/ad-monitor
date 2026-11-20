@@ -1,0 +1,24 @@
+# Discord message. Links come from the rules' dashboardUid/panelId and the server root URL
+# (GRAFANA_ROOT_URL). Template names are namespaced admon.* so they never clash with Grafana's.
+apiVersion: 1
+templates:
+  - orgId: 1
+    name: admon
+    template: |
+      {{ define "admon.title" -}}
+      [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}
+      {{- end }}
+
+      {{ define "admon.alert" -}}
+      **{{ if eq .Status "resolved" }}RESOLVED{{ else }}{{ .Labels.severity | toUpper }}{{ end }}**: {{ .Annotations.summary }}
+      {{ if and .Annotations.description (ne .Status "resolved") }}{{ .Annotations.description }}
+      {{ end -}}
+      {{ with .Labels.job }}Job: {{ . }}  {{ end }}{{ with .Labels.service }}Service: {{ . }}  {{ end }}{{ with .Labels.topic }}Topic: {{ . }}  {{ end }}{{ with .Labels.name }}Container: {{ . }}  {{ end }}{{ with .Labels.source }}Source: {{ . }}  {{ end }}
+      {{ if .PanelURL }}[Dashboard]({{ .PanelURL }}){{ else if .DashboardURL }}[Dashboard]({{ .DashboardURL }}){{ end }}{{ if .SilenceURL }} | [Silence]({{ .SilenceURL }}){{ end }}
+      {{ end }}
+
+      {{ define "admon.message" -}}
+      {{ range .Alerts.Firing }}{{ template "admon.alert" . }}
+      {{ end }}{{ range .Alerts.Resolved }}{{ template "admon.alert" . }}
+      {{ end }}
+      {{- end }}

@@ -157,7 +157,19 @@ services:
     # Refuse to start without a password (never a default). Checked here, not
     # with ${VAR:?} in the file, which would break every compose command for a
     # .env that predates this variable.
-    entrypoint: ["sh", "-c", ": \"$${GF_SECURITY_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env (make env)}\"; exec /run.sh"]
+    # Also: Grafana refuses to provision a Discord contact point with an empty URL, so an unset
+    # GRAFANA_DISCORD_WEBHOOK_URL becomes an unreachable placeholder (alerts stay visible in the UI;
+    # sending fails and is logged).
+    entrypoint:
+      - sh
+      - -c
+      - |
+        : "$${GF_SECURITY_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env (make env)}"
+        if [ -z "$$GRAFANA_DISCORD_WEBHOOK_URL" ]; then
+          export GRAFANA_DISCORD_WEBHOOK_URL=http://127.0.0.1:9/discord-webhook-not-configured
+          echo "notice: GRAFANA_DISCORD_WEBHOOK_URL is not set; alerts show in Grafana only" >&2
+        fi
+        exec /run.sh
     ports:
       - "127.0.0.1:3000:3000"
     environment:
@@ -173,6 +185,9 @@ services:
       GF_PLUGINS_PREINSTALL_DISABLED: "true"
       # /metrics for Prometheus; compose network only.
       GF_METRICS_ENABLED: "true"
+      # Base of the dashboard links in alert messages.
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://127.0.0.1:3000}
+      GRAFANA_DISCORD_WEBHOOK_URL: ${GRAFANA_DISCORD_WEBHOOK_URL:-}
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro

@@ -352,7 +352,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum((sum by (topic) (kafka_consumergroup_lag_sum{job=\"kafka\", consumergroup=~\".*dlq-replay[.].*\", topic=~\".*[.]dlq\"})) or (sum by (topic) (kafka_topic_partition_current_offset{job=\"kafka\", topic=~\".*[.]dlq\"} - kafka_topic_partition_oldest_offset{job=\"kafka\", topic=~\".*[.]dlq\"}))) or on() (max(kafka_brokers{job=\"kafka\"} > 0) * 0)",
+          "expr": "sum((clamp_min(sum by (topic) (kafka_consumergroup_lag_sum{job=\"kafka\", consumergroup=~\".*dlq-replay[.].*\", topic=~\".*[.]dlq\"}), 0)) or (sum by (topic) (kafka_topic_partition_current_offset{job=\"kafka\", topic=~\".*[.]dlq\"} - kafka_topic_partition_oldest_offset{job=\"kafka\", topic=~\".*[.]dlq\"}))) or on() (max(kafka_brokers{job=\"kafka\"} > 0) * 0)",
           "instant": true
         }
       ],
@@ -425,7 +425,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max(kafka_consumergroup_lag_sum{job=\"kafka\", topic!~\".*[.]dlq\"}) or on() (max(kafka_brokers{job=\"kafka\"} > 0) * 0)",
+          "expr": "clamp_min(max(kafka_consumergroup_lag_sum{job=\"kafka\", topic!~\".*[.]dlq\"}), 0) or on() (max(kafka_brokers{job=\"kafka\"} > 0) * 0)",
           "instant": true
         }
       ],
@@ -967,7 +967,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (consumergroup, topic) (kafka_consumergroup_lag_sum{job=\"kafka\", topic!~\".*[.]dlq\"})",
+          "expr": "clamp_min(sum by (consumergroup, topic) (kafka_consumergroup_lag_sum{job=\"kafka\", topic!~\".*[.]dlq\"}), 0)",
           "legendFormat": "{{consumergroup}} / {{topic}}"
         }
       ],
@@ -1080,7 +1080,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "(sum by (topic) (kafka_consumergroup_lag_sum{job=\"kafka\", consumergroup=~\".*dlq-replay[.].*\", topic=~\".*[.]dlq\"})) or (sum by (topic) (kafka_topic_partition_current_offset{job=\"kafka\", topic=~\".*[.]dlq\"} - kafka_topic_partition_oldest_offset{job=\"kafka\", topic=~\".*[.]dlq\"}))",
+          "expr": "(clamp_min(sum by (topic) (kafka_consumergroup_lag_sum{job=\"kafka\", consumergroup=~\".*dlq-replay[.].*\", topic=~\".*[.]dlq\"}), 0)) or (sum by (topic) (kafka_topic_partition_current_offset{job=\"kafka\", topic=~\".*[.]dlq\"} - kafka_topic_partition_oldest_offset{job=\"kafka\", topic=~\".*[.]dlq\"}))",
           "instant": true,
           "format": "table"
         }
@@ -1183,7 +1183,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "(sum by (topic) (kafka_consumergroup_lag_sum{job=\"kafka\", consumergroup=~\".*dlq-replay[.].*\", topic=~\".*[.]dlq\"})) or (sum by (topic) (kafka_topic_partition_current_offset{job=\"kafka\", topic=~\".*[.]dlq\"} - kafka_topic_partition_oldest_offset{job=\"kafka\", topic=~\".*[.]dlq\"}))",
+          "expr": "(clamp_min(sum by (topic) (kafka_consumergroup_lag_sum{job=\"kafka\", consumergroup=~\".*dlq-replay[.].*\", topic=~\".*[.]dlq\"}), 0)) or (sum by (topic) (kafka_topic_partition_current_offset{job=\"kafka\", topic=~\".*[.]dlq\"} - kafka_topic_partition_oldest_offset{job=\"kafka\", topic=~\".*[.]dlq\"}))",
           "legendFormat": "{{topic}}"
         }
       ],
@@ -1235,7 +1235,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "kafka_consumergroup_lag{job=\"kafka\"}",
+          "expr": "clamp_min(kafka_consumergroup_lag{job=\"kafka\"}, 0)",
           "instant": true,
           "format": "table"
         }

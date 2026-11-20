@@ -1,0 +1,17 @@
+# Discord contact point. The webhook URL comes from GRAFANA_DISCORD_WEBHOOK_URL (.env). Grafana
+# refuses an empty URL, so compose's entrypoint wrapper substitutes an unreachable placeholder
+# when the variable is unset: Grafana starts, alerts show in its UI, and sending just fails and
+# is logged (see docs/PROJECT_NOTES.md, Alerting).
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: discord
+    receivers:
+      - uid: admon-discord
+        type: discord
+        settings:
+          url: ${GRAFANA_DISCORD_WEBHOOK_URL}
+          title: '{{ template "admon.title" . }}'
+          message: '{{ template "admon.message" . }}'
+          use_discord_username: false
+        disableResolveMessage: false
