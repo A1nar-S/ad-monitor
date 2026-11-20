@@ -27,7 +27,8 @@ linters:
             - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/notifications, desc: "slices do not import each other"}
             - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/scraping, desc: "slices do not import each other"}
         subscriptions-is-standalone:
-          files: ["**/internal/subscriptions/**"]
+          # Tests may check searches against a real source's catalog.
+          files: ["**/internal/subscriptions/**", "!$test"]
           deny:
             - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/listings, desc: "slices do not import each other"}
             - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/notifications, desc: "slices do not import each other"}

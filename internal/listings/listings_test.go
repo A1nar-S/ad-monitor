@@ -2,6 +2,7 @@ package listings
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -213,7 +214,7 @@ func TestDetailsSurviveScrapes(t *testing.T) {
 	if one, _ = svc.Get(ctx, got.ID); one.Active {
 		t.Error("still active after MarkGone")
 	}
-	if _, err := svc.Get(ctx, got.ID+100); err != ErrNotFound {
+	if _, err := svc.Get(ctx, got.ID+100); !errors.Is(err, ErrNotFound) {
 		t.Errorf("missing listing: err = %v, want ErrNotFound", err)
 	}
 }

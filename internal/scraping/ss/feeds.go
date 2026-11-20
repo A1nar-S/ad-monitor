@@ -120,7 +120,7 @@ func (*Client) PlanFeeds(wanted []string, collapseAt int) []string {
 // deal searches. Other feeds come back as they are.
 func carDealFeeds(w string) []string {
 	f := parseFeed(w)
-	if f.deal != "" || !(f.scope == CarsCategory || strings.HasPrefix(f.scope, CarsCategory+"/")) {
+	if f.deal != "" || f.scope != CarsCategory && !strings.HasPrefix(f.scope, CarsCategory+"/") {
 		return []string{w}
 	}
 	out := make([]string, len(carDeals))
