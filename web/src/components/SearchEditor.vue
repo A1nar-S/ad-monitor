@@ -53,7 +53,13 @@ const name = ref('')
 const category = ref('')
 const channelId = ref(0)
 const lists = reactive<Record<string, string[]>>({})
-const ranges = reactive<Record<string, { min: string; max: string }>>({})
+// v-model on <input type="number"> hands back a number once something is
+// typed (and '' when cleared), so bounds can be either.
+const ranges = reactive<
+  Record<string, { min: string | number; max: string | number }>
+>({})
+const filled = (v: string | number | undefined) =>
+  v !== undefined && String(v).trim() !== ''
 const error = ref('')
 const saving = ref(false)
 const deleting = ref(false)
@@ -106,8 +112,8 @@ function collect(): Filters {
     if (f.kind === 'range') {
       const r = ranges[f.key]
       const range: Range = {}
-      if (r?.min.trim()) range.min = Number(r.min)
-      if (r?.max.trim()) range.max = Number(r.max)
+      if (filled(r?.min)) range.min = Number(r!.min)
+      if (filled(r?.max)) range.max = Number(r!.max)
       if (range.min !== undefined || range.max !== undefined) out[f.key] = range
     } else if (lists[f.key]?.length) {
       out[f.key] = lists[f.key]
