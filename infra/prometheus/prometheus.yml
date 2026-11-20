@@ -41,3 +41,30 @@ scrape_configs:
       # `id` is the cgroup path with the container hash; `name` identifies it.
       - regex: id
         action: labeldrop
+
+  # Postgres and Kafka exporters (infra/grafana/dashboards/postgres-kafka.json).
+  - job_name: postgres
+    static_configs: [{targets: ["postgres-exporter:9187"]}]
+    # The exporter emits ~250 pg_settings_* series and many per-table families;
+    # keep only what the dashboard reads (max_connections, table sizes and rows).
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: pg_settings_max_connections
+        target_label: __keep
+        replacement: "1"
+      # Joined with ";": an empty __keep leaves "pg_settings_...;".
+      - source_labels: [__name__, __keep]
+        regex: pg_settings_.*;
+        action: drop
+      - regex: __keep
+        action: labeldrop
+      - source_labels: [__name__]
+        regex: pg_statio_user_tables_.*|pg_locks_count|pg_database_connection_limit|pg_stat_user_tables_(seq_.*|idx_.*|n_tup_.*|n_mod_since_analyze|.*vacuum.*|.*analyze.*)
+        action: drop
+  - job_name: kafka
+    static_configs: [{targets: ["kafka-exporter:9308"]}]
+    metric_relabel_configs:
+      # Per-member and per-group detail the dashboard does not use; lag, offsets and brokers are kept.
+      - source_labels: [__name__]
+        regex: kafka_consumergroup_(members|current_offset_sum)|kafka_topic_partition_(replicas|in_sync_replica|leader|leader_is_preferred|under_replicated_partition)
+        action: drop

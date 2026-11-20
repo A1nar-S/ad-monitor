@@ -63,8 +63,17 @@ service; filter by compose service). The stat panels at the top turn
 red/orange on trouble (a target down, a stale scrape, a dead-letter publish error). Dashboards are read-only in the UI;
 how to change them is in [docs/PROJECT_NOTES.md](docs/PROJECT_NOTES.md#grafana).
 
-Upgrading with an existing `.env`: add a line `GRAFANA_ADMIN_PASSWORD=` followed by the output of `openssl rand -hex 16`.
-Without it the Grafana container exits with a message; everything else still works.
+The **Postgres & Kafka** dashboard shows database health (connections, transactions, cache hit ratio, deadlocks,
+sizes) and Kafka (consumer lag, throughput, dead-letter topics). It is fed by `postgres-exporter` and `kafka-exporter`,
+which `make up` starts too (compose network only). Postgres is read through a separate read-only role, `admon_monitor`
+(`pg_monitor`), that a one-shot `pg-monitor-init` container creates or updates on every `make up`.
+
+Upgrading with an existing `.env`: add a line `GRAFANA_ADMIN_PASSWORD=` followed by the output of `openssl rand -hex 16`,
+and the same for `MONITOR_DB_PASSWORD=`. Without `GRAFANA_ADMIN_PASSWORD` the Grafana container exits with a message.
+Without `MONITOR_DB_PASSWORD`, `pg-monitor-init` only prints a warning (and `make up` a note), and the dashboard shows
+Postgres as down (`pg_up` 0) until you add it and run `make up` again. `make up` also reloads Prometheus's config, so
+the new scrape jobs apply to an existing stack (the first `up` recreates the `prometheus` container for its new config
+mount; with plain `docker compose up`, run `docker compose kill -s HUP prometheus` after later config edits).
 
 ## Dashboard
 

@@ -143,7 +143,9 @@ services:
     ports:
       - "127.0.0.1:9090:9090"
     volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # The directory, not the file: an edited prometheus.yml (new inode) stays visible
+      # to the container, so `make up` can reload it with SIGHUP.
+      - ./prometheus:/etc/prometheus:ro
       - prometheus-data:/prometheus
   # Dashboards, provisioned from infra/grafana (datasource + JSON files): http://127.0.0.1:3000,
   # login admin / GRAFANA_ADMIN_PASSWORD. Bound to this machine only.
@@ -208,6 +210,66 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+  # --- Postgres and Kafka exporters (metrics for the Postgres & Kafka dashboard) ---
+  # Creates (or updates) the least-privilege role the exporter logs in with:
+  # LOGIN + pg_monitor only, never the app's owner account. Idempotent, so it runs
+  # on every `up`: fresh and existing databases alike, and it applies a changed
+  # MONITOR_DB_PASSWORD. Without that variable (a .env that predates it) it only
+  # warns and exits 0, so `up` still succeeds; the exporter then cannot log in and
+  # pg_up shows 0. (No ${VAR:?} in the file: it would break every compose command.)
+  # The password goes in by \getenv, not argv, and statement logging is off for it.
+  pg-monitor-init:
+    image: postgres:15
+    profiles: [app]
+    restart: "no"
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      PGHOST: postgres
+      PGUSER: ${DB_USER:-}
+      PGPASSWORD: ${DB_PASSWORD:-}
+      PGDATABASE: ${DB_NAME:-ads_monitor}
+      MONITOR_DB_PASSWORD: ${MONITOR_DB_PASSWORD:-}
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        if [ -z "$$MONITOR_DB_PASSWORD" ]; then
+          echo "WARNING: MONITOR_DB_PASSWORD is not set in .env (make env); skipping the monitoring role. The Postgres exporter cannot log in and pg_up will read 0." >&2
+          exit 0
+        fi
+        psql -v ON_ERROR_STOP=1 <<'SQL'
+        \getenv pw MONITOR_DB_PASSWORD
+        SET log_statement = 'none';
+        SET log_min_duration_statement = -1;
+        SET log_min_error_statement = 'panic';
+        SELECT 'CREATE ROLE admon_monitor LOGIN' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'admon_monitor') \gexec
+        ALTER ROLE admon_monitor LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE CONNECTION LIMIT 3 PASSWORD :'pw';
+        GRANT pg_monitor TO admon_monitor;
+        SQL
+  # Postgres metrics for Prometheus (job postgres), compose network only.
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.18.1
+    restart: unless-stopped
+    profiles: [app]
+    depends_on:
+      pg-monitor-init: {condition: service_completed_successfully}
+    environment:
+      DATA_SOURCE_URI: postgres:5432/${DB_NAME:-ads_monitor}?sslmode=disable
+      DATA_SOURCE_USER: admon_monitor
+      DATA_SOURCE_PASS: ${MONITOR_DB_PASSWORD:-}
+  # Kafka topic offsets and consumer-group lag for Prometheus (job kafka), compose network only.
+  # It reads every topic and group, so a NAMESPACE prefix needs no setting here;
+  # the dashboard matches names by suffix.
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.9.0
+    restart: unless-stopped
+    profiles: [app]
+    depends_on:
+      kafka: {condition: service_healthy}
+    command:
+      - --kafka.server=kafka:29092
+      # Not __consumer_offsets and other internal topics.
+      - --topic.filter=^[^_]
   # One-off maintenance: `make purge`, or `... --profile tools run --rm admin migrate`.
   admin:
     <<: *service

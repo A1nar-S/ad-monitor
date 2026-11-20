@@ -255,6 +255,8 @@ sees the first event. Layout in `infra/grafana/`:
   name: it would rename the volumes and orphan the Postgres and Kafka data.
 - `GF_PLUGINS_PREINSTALL_DISABLED=true` stops Grafana 11.x installing plugins (the default preinstalled list) on every
   start; the dashboards use built-in panels only. `GF_METRICS_ENABLED` serves `/metrics` for Prometheus.
+- `dashboards/postgres-kafka.json`: uid `admon-postgres-kafka`, built on the exporters' `pg_*` / `kafka_*` metrics
+  (see "Postgres and Kafka exporters").
 
 The other dashboards use only the `admon_*` metrics above (plus `up`). Counters are shown with `increase(...[$__rate_interval])`
 or `rate()`, latencies with `histogram_quantile` over `_bucket`. The "oldest successful scrape" stat goes red at 900 s,
@@ -264,6 +266,37 @@ Changing a dashboard: the provider is read-only, so UI edits cannot be saved in 
 tune it in the UI (Save is disabled, so use `Export > Export as JSON`, "export for sharing externally" off), replace the
 matching file in `infra/grafana/dashboards/` and keep its `uid`; Grafana reloads it within 30 s. Edit the file directly
 for small changes. Check expressions against Prometheus before committing.
+
+## Postgres and Kafka exporters
+Dashboard `postgres-kafka.json` (uid `admon-postgres-kafka`) reads two exporters, both profile `app`, pinned tags,
+compose network only (no `ports:`), scraped by jobs `postgres` and `kafka` in `prometheus.yml`:
+- **`postgres-exporter`** (`prometheuscommunity/postgres-exporter`) logs in as the role `admon_monitor` (LOGIN,
+  `pg_monitor`, no superuser/createdb/createrole; `CONNECTION LIMIT 3`; cannot read table contents or create objects, though `pg_monitor` does show query texts in `pg_stat_activity`), not the owner account.
+  The role is made by the one-shot `pg-monitor-init` (postgres image, `psql`, idempotent: create-if-missing, then
+  `ALTER ROLE ... PASSWORD`, `GRANT pg_monitor`; the password is read with psql's `\getenv`, so it is not in argv, and statement logging is switched off for the session). It runs on every `up`, so fresh and existing databases need nothing
+  by hand and a changed `MONITOR_DB_PASSWORD` is applied by the next `make up`. It connects as `DB_USER` (a superuser in
+  this setup). Password: `MONITOR_DB_PASSWORD` (`make env` generates it). Compose reads it as `${MONITOR_DB_PASSWORD:-}`
+  and the init container, if it is empty, prints a WARNING and exits 0 (no `${VAR:?}`: it would break compose for an older
+  `.env`; a failing init would make `make up` exit non-zero). The exporter then cannot authenticate: it keeps running (no restart loop), `pg_up` is 0 (red on the dashboard) and it logs the auth error per scrape.
+  `make up` also prints a note when `.env` lacks the key. Upgrade: add `MONITOR_DB_PASSWORD=<openssl rand -hex 16>` to `.env`
+  (hex/alphanumerics only), then `make up`.
+- **Prometheus config reload:** compose mounts `infra/prometheus/` (a directory; a single-file bind mount keeps the old
+  inode after an editor replaces the file) and `make up` sends SIGHUP to Prometheus after `up -d`, so an edited
+  `prometheus.yml` applies without recreating the container. Upgrade: the first `up` recreates `prometheus` for the new mount.
+  Not enabled: `--collector.long_running_transactions` (v0.18.1 fails its scrape whenever no transaction is open);
+  the longest transaction comes from `pg_stat_activity_max_tx_duration`.
+- **`kafka-exporter`** (`danielqsj/kafka-exporter`) reads `kafka:29092`, all topics except `_*` (`--topic.filter`) and all
+  groups, so a `NAMESPACE` prefix needs no setting; the dashboard matches DLQ topics by the `.dlq` suffix. Series used:
+  `kafka_consumergroup_lag` (per group/topic/partition), `kafka_consumergroup_lag_sum`, `kafka_topic_partition_current_offset`
+  and `..._oldest_offset`, `kafka_brokers`. Groups only appear after a first commit.
+- **Cardinality:** `metric_relabel_configs` drop the ~250 `pg_settings_*` series except `max_connections`, `pg_statio_*`,
+  `pg_locks_*`, per-table scan/tuple/vacuum counters (table sizes, `n_live_tup` and `n_dead_tup` stay), and Kafka
+  member, replica and leader series.
+- **Dead letters pending** (red when > 0) per `*.dlq` topic = lag of the `dlq-replay.<topic>` group (what `make
+  dlq-replay` has not republished), or the records retained in the topic if that group does not exist yet. The topic
+  keeps replayed records for 30 days, so "retained" alone would stay red after a replay; the dashboard's table shows both.
+  With no broker data the stat shows red "No data", never a 0.
+- The Pipeline dashboard also has a "Consumer lag" panel from `kafka_consumergroup_lag_sum`.
 
 ## Testing
 - `go test ./...` unit tests; slice tests need `TEST_DATABASE_URL` (skipped otherwise). The bot core is tested with a
