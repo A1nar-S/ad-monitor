@@ -1,6 +1,7 @@
 # Advertisement monitoring
 
-Watches ss.com (cars, flats) and sends new ads matching people's searches to Discord.
+Watches ss.com (cars, flats) and any product page you pin, and sends matching new ads and
+price drops to Discord.
 Details: [docs/PROJECT_NOTES.md](docs/PROJECT_NOTES.md). Plans: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Run
@@ -35,6 +36,13 @@ register commands on one server only.
 Alerts go to your DMs, or to `channel:` if you can post there. `/edit … clear:channel` moves them back to DMs.
 
 Admins: `/setup status-channel`, `/setup status-off`, `/setup show` for the service's start/stop/error messages.
+
+## Price watches
+
+In the dashboard, **Price watches → New watch**: paste a product page (or a JSON API address),
+click the price on the page, choose "drops by 5%" or "at or below a price", and save. The page is
+read every 30 minutes to daily; alerts go to your DMs or a channel. One read serves everyone
+watching the same page.
 
 ## Dashboard
 

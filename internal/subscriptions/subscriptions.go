@@ -41,6 +41,11 @@ type Service struct {
 	admins      map[string]bool // Discord IDs
 
 	adPage AdPageHook // optional; see WithAdPageHook
+
+	// Price watches (see watches.go).
+	maxWatches       int // per user; 0 = unlimited
+	minWatchInterval int // minutes
+	publicURL        string
 }
 
 // AdPageHook hears about every ad page the matcher reads: enriched is the

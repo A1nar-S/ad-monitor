@@ -8,6 +8,9 @@ export type Me = {
   platform: string
   admin: boolean
   maxSearches: number
+  maxWatches: number
+  // Check intervals a price watch may use, in minutes.
+  watchIntervals: number[]
 }
 
 export type FieldSpec = {
@@ -122,7 +125,147 @@ export const api = {
     call<void>('PATCH', `/api/searches/${id}`, { enabled }),
   deleteSearch: (id: number) => call<void>('DELETE', `/api/searches/${id}`),
   matches: (limit = 50) => call<Match[]>('GET', `/api/matches?limit=${limit}`),
+
+  watches: (all = false) =>
+    call<Watch[]>('GET', `/api/watches${all ? '?all=1' : ''}`),
+  watch: (id: number) => call<WatchDetail>('GET', `/api/watches/${id}`),
+  createWatch: (input: WatchInput) =>
+    call<Watch>('POST', '/api/watches', input),
+  updateWatch: (id: number, input: WatchInput) =>
+    call<Watch>('PUT', `/api/watches/${id}`, input),
+  setWatchEnabled: (id: number, enabled: boolean) =>
+    call<void>('PATCH', `/api/watches/${id}`, { enabled }),
+  deleteWatch: (id: number) => call<void>('DELETE', `/api/watches/${id}`),
+  resetWatch: (id: number) => call<Watch>('POST', `/api/watches/${id}/reset`),
+  checkWatch: (id: number) => call<Watch>('POST', `/api/watches/${id}/check`),
+
+  inspectPage: (url: string, signal?: AbortSignal) =>
+    call<InspectedPage>('POST', '/api/pages/inspect', { url }, signal),
+  testExtractor: (
+    snapshot: string,
+    extractor: Extractor,
+    signal?: AbortSignal,
+  ) =>
+    call<ExtractorTest>(
+      'POST',
+      '/api/pages/test',
+      { snapshot, extractor },
+      signal,
+    ),
 }
+
+// --- price watches ------------------------------------------------------------
+
+// Where a price is on a page: a CSS selector (its text, or one attribute),
+// optionally read as JSON along jsonPath. No selector = a JSON API.
+export type Extractor = {
+  selector?: string
+  attr?: string
+  jsonPath?: string
+  currency?: string
+}
+
+// Amounts are exact: cents are hundredths of the currency's unit.
+export type Price = { cents: number; currency: string }
+
+export type WatchRule =
+  { kind: 'below'; targetCents: number } | { kind: 'drop'; dropPercent: number }
+
+export type Watch = {
+  id: number
+  userId: number
+  userName: string
+  name: string
+  enabled: boolean
+  url: string
+  extractor: Extractor
+  title: string
+  imageUrl: string
+  rule: WatchRule
+  thresholdCents: number
+  referenceCents: number
+  referenceAt: string
+  below: boolean
+  intervalMinutes: number
+  channel: Channel
+  alerts: number
+  currency: string
+  priceCents: number | null
+  raw: string
+  checkedAt: string | null
+  okAt: string | null
+  nextCheckAt: string
+  failures: number
+  failing: boolean
+  lastError: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type WatchInput = {
+  name: string
+  url: string
+  // The page copy the price was picked on; it gives the starting price.
+  snapshot?: string
+  extractor: Extractor
+  rule: WatchRule
+  intervalMinutes: number
+  channelId: number
+}
+
+export type PricePoint = {
+  at: string
+  ok: boolean
+  cents: number | null
+  currency: string
+  raw: string
+  error: string
+}
+
+export type WatchAlert = {
+  kind: 'drop' | 'failing' | 'recovered'
+  cents: number | null
+  at: string
+  sent: boolean
+}
+
+export type WatchDetail = {
+  watch: Watch
+  history: PricePoint[] // newest first
+  alerts: WatchAlert[]
+}
+
+export type Suggestion = {
+  kind: 'structured' | 'meta' | 'field' | 'element' | 'json'
+  label: string
+  extractor: Extractor
+  raw: string
+  price: Price
+}
+
+export type InspectedPage = {
+  snapshot: string
+  url: string
+  kind: 'html' | 'json'
+  title: string
+  imageUrl: string
+  currency: string
+  json?: unknown
+  jsonTooBig?: boolean
+  suggestions: Suggestion[]
+  fetched: string
+}
+
+export type ExtractorTest = {
+  raw: string
+  price: Price | null
+  matches: number
+  error?: string
+}
+
+// The iframe address of an inspected page's copy, with the picker.
+export const snapshotURL = (snapshot: string) =>
+  `/api/pages/snapshots/${encodeURIComponent(snapshot)}`
 
 // describe renders filters as one line: "make Skoda, Toyota · price ≤ 7000".
 export function describe(filters: Filters, fields?: FieldSpec[]): string {

@@ -27,6 +27,7 @@ import (
 	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/db"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/kafka"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/scraping"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/scraping/pages"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/sources"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/subscriptions"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/web"
@@ -45,7 +46,7 @@ func Scraper(ctx context.Context, cfg config.Scraper, reg sources.Registry) erro
 		return err
 	}
 	defer pool.Close()
-	subs := subscriptions.NewService(pool, reg, cfg.FeedCollapseAt)
+	subs := subscriptions.NewService(pool, reg, cfg.FeedCollapseAt).WithPublicURL(cfg.PublicURL)
 	if err := subs.Migrate(ctx); err != nil {
 		return err
 	}
@@ -107,6 +108,14 @@ func Scraper(ctx context.Context, cfg config.Scraper, reg sources.Registry) erro
 			runner.Run(ctx)
 		}()
 	}
+	// Price watches: pinned pages, read on their own schedule.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		watchLoop(ctx, subs, pages.New(cfg.RequestTimeout, cfg.RequestGap), func(ctx context.Context, n events.NotificationRequested) error {
+			return producer.Publish(ctx, cfg.Topic(events.TopicNotificationsRequested), strconv.FormatInt(n.UserID, 10), n)
+		})
+	}()
 	wg.Wait()
 
 	slog.Info("stopping scraper")
@@ -115,6 +124,55 @@ func Scraper(ctx context.Context, cfg config.Scraper, reg sources.Registry) erro
 	defer cancel()
 	alert(bye, "⏹️ **Scraper stopped**")
 	return nil
+}
+
+const (
+	watchCheckEvery = 30 * time.Second
+	watchRelayEvery = 2 * time.Second
+	watchBatch      = 10
+)
+
+// watchLoop reads the price-watch pages that are due and relays the alerts
+// they raise (also those raised by the dashboard's "Check now").
+func watchLoop(ctx context.Context, subs *subscriptions.Service, reader sources.PageReader,
+	publish func(context.Context, events.NotificationRequested) error) {
+	check := time.NewTicker(watchCheckEvery)
+	defer check.Stop()
+	relay := time.NewTicker(watchRelayEvery)
+	defer relay.Stop()
+	checkDue := func() {
+		for ctx.Err() == nil {
+			n, err := subs.CheckDueWatches(ctx, reader, watchBatch)
+			if err != nil && ctx.Err() == nil {
+				slog.Error("check price watches", "err", err)
+			}
+			if n > 0 {
+				slog.Info("price watches read", "pages", n)
+			}
+			if err != nil || n < watchBatch {
+				return
+			}
+		}
+	}
+	checkDue()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-check.C:
+			checkDue()
+		case <-relay.C:
+		}
+		for ctx.Err() == nil {
+			n, err := subs.RelayWatchAlerts(ctx, relayBatch, publish)
+			if err != nil && ctx.Err() == nil {
+				slog.Error("relay price alerts", "err", err)
+			}
+			if err != nil || n < relayBatch {
+				break
+			}
+		}
+	}
 }
 
 // Ingest stores discovered listings and announces the new ones. It owns the
@@ -315,7 +373,8 @@ func API(ctx context.Context, cfg config.API, reg sources.Registry) error {
 		return err
 	}
 	defer pool.Close()
-	subs := subscriptions.NewService(pool, reg, cfg.FeedCollapseAt).WithLimits(cfg.MaxSearches, cfg.Admins)
+	subs := subscriptions.NewService(pool, reg, cfg.FeedCollapseAt).WithLimits(cfg.MaxSearches, cfg.Admins).
+		WithWatchLimits(cfg.MaxWatches, cfg.MinWatchInterval).WithPublicURL(cfg.PublicURL)
 	store := listings.NewService(pool, listings.DefaultSeedWindow)
 	for _, m := range []func(context.Context) error{subs.Migrate, store.Migrate} {
 		if err := m(ctx); err != nil {
@@ -332,6 +391,9 @@ func API(ctx context.Context, cfg config.API, reg sources.Registry) error {
 		Handler: web.New(web.Config{
 			Searches: subs, Listings: store, Overview: dashboard.NewHandler(dashboard.Load(pool)),
 			Sources: reg, WebDir: webDir, PublicURL: cfg.PublicURL, MaxSearches: cfg.MaxSearches,
+			// Pages for the price picker, read on the user's behalf; the
+			// timeout fits the server's write timeout.
+			Watches: subs, Pages: pages.New(10*time.Second, cfg.RequestGap), MaxWatches: cfg.MaxWatches,
 		}),
 		ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: time.Minute,
 	}

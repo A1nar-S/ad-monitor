@@ -58,6 +58,10 @@ type Config struct {
 	WebDir      string // the built app; empty = API only
 	PublicURL   string // https:// makes the cookie Secure
 	MaxSearches int
+	// Price watches; both nil turns them off.
+	Watches    Watches
+	Pages      Pages
+	MaxWatches int
 }
 
 const (
@@ -70,6 +74,7 @@ const (
 type server struct {
 	Config
 	secure bool
+	watch  *watchState
 }
 
 type ctxKey struct{}
@@ -91,6 +96,7 @@ func New(cfg Config) http.Handler {
 	mux.Handle("GET /api/matches", s.auth(s.matches))
 	mux.Handle("POST /api/searches/preview", s.auth(s.previewSearch))
 	mux.Handle("POST /api/listings/{id}/details", s.auth(s.listingDetails))
+	s.routeWatches(mux)
 	if cfg.Overview != nil {
 		mux.Handle("GET /api/overview", s.auth(func(w http.ResponseWriter, r *http.Request, o subscriptions.Owner) {
 			if !o.Admin {
@@ -171,9 +177,14 @@ func (s *server) auth(h ownerHandler) http.Handler {
 // --- endpoints ------------------------------------------------------------------
 
 func (s *server) me(w http.ResponseWriter, _ *http.Request, o subscriptions.Owner) {
-	writeJSON(w, http.StatusOK, map[string]any{
+	me := map[string]any{
 		"name": o.Name, "platform": o.Platform, "admin": o.Admin, "maxSearches": s.MaxSearches,
-	})
+		"maxWatches": s.MaxWatches, "watchIntervals": []int{},
+	}
+	if s.Watches != nil {
+		me["watchIntervals"] = s.Watches.AllowedWatchIntervals()
+	}
+	writeJSON(w, http.StatusOK, me)
 }
 
 func (s *server) categories(w http.ResponseWriter, _ *http.Request, _ subscriptions.Owner) {
@@ -443,6 +454,8 @@ func (s *server) fail(w http.ResponseWriter, err error) bool {
 		writeError(w, http.StatusUnprocessableEntity, inv.Msg)
 	case errors.Is(err, subscriptions.ErrNotFound):
 		writeError(w, http.StatusNotFound, "no such search")
+	case errors.Is(err, subscriptions.ErrWatchNotFound):
+		writeError(w, http.StatusNotFound, "no such watch")
 	default:
 		slog.Error("dashboard api", "err", err)
 		writeError(w, http.StatusInternalServerError, "something went wrong")

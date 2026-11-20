@@ -63,3 +63,60 @@ type User struct {
 	ExternalID  *string
 	DisplayName string
 }
+
+type Watch struct {
+	ID              int64
+	UserID          int64
+	ChannelID       int64
+	TargetID        int64
+	Name            string
+	Enabled         bool
+	Rule            string
+	TargetCents     *int64
+	DropPercent     *float64
+	ReferenceCents  int64
+	ReferenceAt     pgtype.Timestamptz
+	Below           bool
+	IntervalMinutes int32
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+type WatchAlert struct {
+	ID          int64
+	WatchID     int64
+	Kind        string
+	PriceCents  *int64
+	Payload     []byte
+	CreatedAt   pgtype.Timestamptz
+	PublishedAt pgtype.Timestamptz
+}
+
+type WatchPrice struct {
+	ID         int64
+	TargetID   int64
+	At         pgtype.Timestamptz
+	Ok         bool
+	PriceCents *int64
+	Currency   string
+	Raw        string
+	Error      string
+}
+
+type WatchTarget struct {
+	ID          int64
+	Url         string
+	Extractor   []byte
+	Title       string
+	ImageUrl    string
+	NextCheckAt pgtype.Timestamptz
+	CheckedAt   pgtype.Timestamptz
+	OkAt        pgtype.Timestamptz
+	PriceCents  *int64
+	Currency    string
+	Raw         string
+	Failures    int32
+	Failing     bool
+	LastError   string
+	CreatedAt   pgtype.Timestamptz
+}

@@ -107,6 +107,44 @@ export function formatDate(
   return new Date(value).toLocaleString(intlLocale.value, options)
 }
 
+// formatMoney writes an exact amount (hundredths of a unit) in its
+// currency: "€1,299", "1 073,55 €". Whole amounts drop the decimals.
+export function formatMoney(cents: number, currency: string): string {
+  const digits = cents % 100 === 0 ? 0 : 2
+  const options: Intl.NumberFormatOptions = {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: 2,
+  }
+  if (/^[A-Z]{3}$/.test(currency)) {
+    try {
+      return formatNumber(cents / 100, {
+        ...options,
+        style: 'currency',
+        currency,
+      })
+    } catch {
+      // An unknown code: fall through and write it after the number.
+    }
+    return `${formatNumber(cents / 100, options)} ${currency}`
+  }
+  return formatNumber(cents / 100, options)
+}
+
+// formatRelative writes a moment as "5 minutes ago" or "in 2 hours".
+export function formatRelative(value: string | number | Date): string {
+  const seconds = (new Date(value).getTime() - Date.now()) / 1000
+  const rtf = new Intl.RelativeTimeFormat(intlLocale.value, { numeric: 'auto' })
+  const units: [Intl.RelativeTimeFormatUnit, number][] = [
+    ['day', 86400],
+    ['hour', 3600],
+    ['minute', 60],
+  ]
+  for (const [unit, size] of units)
+    if (Math.abs(seconds) >= size)
+      return rtf.format(Math.round(seconds / size), unit)
+  return rtf.format(0, 'minute')
+}
+
 // Labels for the API's own words: a search field ("make") or category.
 export const fieldLabel = (key: string, fallback = key) =>
   tKey(`fields.${key}`, fallback)

@@ -59,7 +59,11 @@ flowchart LR
 | matcher | Matches new ads to searches; reads the ad page only when a filter needs it |
 | notifier | Delivers alerts, idempotent, with burst digests |
 | bot | Chat commands: `/watch`, `/searches`, `/dashboard` |
-| api | Dashboard and JSON API; search preview; admin overview |
+| api | Dashboard and JSON API; search preview; admin overview; the price picker |
+
+The scraper also reads pinned product pages for **price watches** on their own
+schedule and relays their alerts (an outbox in the subscriptions slice) to
+`notifications.requested`. See *Price watches* below.
 
 ## A new ad, end to end
 
@@ -95,7 +99,7 @@ except the admin overview, a read-only report across all of them.
 flowchart TB
     events[events: Kafka payloads]
     listings[listings] --- t1[(listings, listings_outbox, feed_state)]
-    subs[subscriptions] --- t2[(users, channels, searches, matches, sessions, login_tokens, settings)]
+    subs[subscriptions] --- t2[(users, channels, searches, matches, sessions, login_tokens, settings, watch_targets, watches, watch_prices, watch_alerts)]
     notif[notifications] --- t3[(deliveries, digest_queue)]
     scraping[sources + scraping: one adapter per site]
 
@@ -110,6 +114,28 @@ flowchart LR
     adapter -. optional .-> cat[sources.Catalog<br/>search form fields]
     adapter -. optional .-> enr[sources.Enricher<br/>ad page details]
     src --> reg[app.KnownSources<br/>register once]
+```
+
+## Price watches
+
+```mermaid
+sequenceDiagram
+    participant U as Browser
+    participant A as api
+    participant S as scraper (watch loop)
+    participant DB as Postgres
+    participant N as notifier
+
+    U->>A: inspect URL
+    A-->>U: page copy in a sandboxed iframe + suggestions
+    U->>A: picked selector (read back: "€1,299")
+    U->>A: save watch (rule, interval, channel)
+    A->>DB: target (shared) + watch, first price = silent baseline
+    loop every interval, one read per page for all watchers
+        S->>S: read page, parse price
+        S->>DB: price row + watch state + alerts (one transaction)
+    end
+    S->>N: notifications.requested (from the alert outbox)
 ```
 
 ## Guarantees

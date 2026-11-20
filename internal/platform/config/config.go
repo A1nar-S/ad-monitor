@@ -62,6 +62,8 @@ type Scraper struct {
 	FeedCollapseAt int
 	// AdminChannel receives start/stop/error messages; empty target disables them.
 	AdminChannel AdminChannel
+	// PublicURL is the dashboard, for links in price-watch alerts.
+	PublicURL string
 }
 
 type AdminChannel struct{ Kind, Target string }
@@ -76,6 +78,7 @@ func ScraperFromEnv() (Scraper, error) {
 		MaxPages:       envInt("MAX_PAGES", 5),
 		FeedCollapseAt: envInt("FEED_COLLAPSE_AT", 3),
 		AdminChannel:   AdminChannel{Kind: env("ADMIN_CHANNEL_KIND", "discord"), Target: os.Getenv("ADMIN_CHANNEL_ID")},
+		PublicURL:      selfServiceFromEnv().PublicURL,
 	}
 	var errs []error
 	if c.CrawlInterval <= 0 {
@@ -182,6 +185,11 @@ type SelfService struct {
 	// PublicURL is where people open the dashboard, e.g.
 	// https://ads.example.com; login links point there.
 	PublicURL string
+	// MaxWatches is price watches per user; admins are exempt. 0 = unlimited.
+	MaxWatches int
+	// MinWatchInterval is the shortest check interval offered, in minutes:
+	// how often one shop page may be read.
+	MinWatchInterval int
 }
 
 func selfServiceFromEnv() SelfService {
@@ -195,6 +203,9 @@ func selfServiceFromEnv() SelfService {
 		MaxSearches: envInt("MAX_SEARCHES_PER_USER", 10),
 		Admins:      admins,
 		PublicURL:   strings.TrimRight(env("PUBLIC_URL", "http://127.0.0.1:8080"), "/"),
+		MaxWatches:  envInt("MAX_WATCHES_PER_USER", 10),
+		// Half an hour is gentle on shops; prices rarely move faster.
+		MinWatchInterval: envInt("WATCH_MIN_INTERVAL_MINUTES", 30),
 	}
 }
 

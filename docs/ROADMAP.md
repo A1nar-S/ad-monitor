@@ -34,26 +34,36 @@ supports price ceilings; marketplace and shop discovery still need source adapte
 - [ ] Keep new matching-listing alerts separate from existing offers dropping below the
   target; the latter needs the price-change tracking below. Deduplicate both alert types.
 
-## Price watches: first milestone
+## Price watches: first milestone (built)
 
-Examples: an Apple Watch below EUR 250, or protein powder on Amazon.de dropping 5%
-from its price when the watch starts. Support either rule, not just target prices.
+Examples: an Apple Watch below EUR 250, or protein powder dropping 5% from its price when
+the watch starts. Either rule, not just target prices.
 
-- [ ] Support one reliable retailer and one product URL first. Amazon.de is a candidate,
-  not a promised integration.
-- [ ] Configure per-user watches: exact offer/variant, target price or percentage drop, currency, interval,
-  and destination (`#new-offers`, `#price-drops`, or a personal channel).
-- [ ] For percentage rules, capture the current valid price at watch start as a fixed reference
-  until manually reset: EUR 100 with a 5% drop rule alerts at EUR 95 or less. Count gradual drops too.
-- [ ] Revisit pinned offers independently of discovery feeds; share checks across users.
-- [ ] Store timestamped price history using exact monetary values and explicit currency.
-- [ ] Save changes and outbox events atomically; deduplicate alerts per watch and change.
-- [ ] Start with a silent baseline. Alert when price crosses at-or-below the rule's threshold;
-  re-arm after it rises above. No repeated alerts while it stays below.
-- [ ] Test both rules, gradual drops, reference resets, retries, restarts, missing prices, and shared watches.
+- [x] Any product page or JSON API instead of one retailer: paste the URL, click the price in
+  the dashboard's element picker (dev-tools-style box overlay on the server's copy of the page)
+  or the value in a JSON tree. Structured data, shop meta tags and price-named form fields are
+  suggested. React/Next.js streamed pages are revealed the way their scripts would.
+- [x] Per-user watches: the element, target price or percentage drop, currency, interval
+  (30 min to daily, `WATCH_MIN_INTERVAL_MINUTES`), and destination (DM or a channel).
+- [x] Percentage rules keep the price at watch start as a fixed reference until reset in the
+  dashboard: EUR 100 with a 5% rule alerts at EUR 95 or less, gradual drops included.
+- [x] Pinned pages are read on their own schedule, shared: one read per page and element
+  for everyone watching it.
+- [x] Timestamped price history in exact cents with explicit currency (a row per change).
+- [x] Readings, watch state and alerts commit together; alerts relay from an outbox, keyed per alert.
+- [x] Silent baseline; alert on crossing at or below the threshold; re-arm above it.
+- [x] Never a missing price as zero: failed reads keep the last price, a price under half the
+  last one is read twice, a changed currency is a failure. Watchers get one "can't read"
+  alert after 3 failures in a row and one when it reads again.
+- [x] Tests: both rules, gradual drops, resets, retries, misreads, failures, shared watches,
+  the outbox, the picker API, streamed pages, private-address refusal.
 
-Done when one URL can be watched, its price history inspected, and a qualifying alert
-delivered through the existing bot. Scraping adapters also need failure/recovery alerts.
+Next:
+- [ ] Verify a real alert through Discord (the notifier path is the one searches use).
+- [ ] Pages whose price only exists after JavaScript runs (an optional headless-browser reader).
+  Today the picker shows such pages without the price and points to suggestions or the API.
+- [ ] Shops that refuse automated reads (Amazon often does) are reported as refused, not worked around.
+- [ ] Admin incidents for failing pages in `#monitoring-alerts` (see Monitoring).
 
 ## Monitoring: required for scraping
 
@@ -74,7 +84,8 @@ delivered through the existing bot. Scraping adapters also need failure/recovery
 
 ## Later
 
-- [ ] Price history and last-check status in the dashboard; price-watch commands in the bot.
+- [x] Price history and last-check status in the dashboard.
+- [ ] Price-watch commands in the bot (list, pause); creating one needs the picker.
 - [ ] Restock rules. Keep advertised discounts separate from observed price drops.
 - [ ] Preserve active watches and required price history during cleanup.
 - [ ] Add City24, Vinted, and shop/marketplace adapters one at a time, with parser fixtures and health checks.

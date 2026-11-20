@@ -120,6 +120,32 @@ dashboard api ─┴─> subscriptions (users, channels, searches, logins) <─�
   admins the old read-only overview (`internal/dashboard`'s cross-slice queries). Compose binds it to `127.0.0.1:8080`;
   publish it through a tunnel and set `PUBLIC_URL` for others. `cd web && bun run dev` proxies `/api` to a local API.
 
+## Price watches (built 2026-11-10)
+- **Any page, picked by pointing.** The dashboard loads a URL through the API (`POST /api/pages/inspect`),
+  which keeps a copy for 30 minutes and serves it to a sandboxed iframe (`/api/pages/snapshots/{id}`:
+  scripts stripped, opaque origin, strict CSP with a nonce for the picker only). `internal/scraping/pages/picker.js`
+  draws the hovered element's margin/border/padding/content boxes like dev tools; a click posts a CSS selector
+  back. Every change is read back by the server (`/api/pages/test`), so "the monitor reads" is what the watch
+  will see. JSON responses show as a tree; a click picks a path (`data.items[0].price`).
+- **Extractor** (`sources.Extractor`): CSS selector (first match), optional attribute, optional JSON path
+  (JSON-LD scripts, APIs), fallback currency. Prices are `sources.Price` in exact cents. Parsing handles
+  `1 299 €`, `1.299,00`, `$1,299.99`, `1299,-`; values from JSON/attributes must be plain amounts.
+- **Streamed pages** (React/Next.js): content arrives in `<div hidden id="S:n">` and inline `$RC`/`$RS` calls
+  move it into place. Both the copy and the reader replay those calls, so selectors match in both.
+- **Fetching** only reaches public addresses (checked after DNS, on every redirect): users can't make the
+  server read Postgres, Kafka or cloud metadata. Per-host request gap, 8 MB cap, browser-like UA, no
+  workaround for 401/403/429.
+- **Storage** (subscriptions slice, migration 0004): `watch_targets` (url + extractor, shared, last valid price,
+  failure count, lease via `next_check_at`), `watches` (user, channel, rule, fixed reference, `below` flag),
+  `watch_prices` (history, a row per change), `watch_alerts` (history and outbox).
+- **Checking** runs inside the scraper service (`app.watchLoop`): every 30 s it leases due targets, reads each
+  once for all its watches, and commits the reading, watch states and alerts in one transaction. The relay
+  publishes alerts to `notifications.requested` with key `watch-alert:<id>`. "Check now" in the dashboard
+  runs the same code in the API process (at most once per 30 s per page).
+- **Limits:** `MAX_WATCHES_PER_USER` (10, admins exempt), `WATCH_MIN_INTERVAL_MINUTES` (30).
+- **Tests:** `PAGES_LIVE=1 go test ./internal/scraping/pages -run TestLive` reads the Strandberg page the
+  picker was designed on.
+
 ## Testing
 - `go test ./...` unit tests; slice tests need `TEST_DATABASE_URL` (skipped otherwise). The bot core is tested with a
   fake `Messenger`, the Discord adapter's translation on its own, the web API with `httptest`.

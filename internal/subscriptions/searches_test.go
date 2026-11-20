@@ -28,7 +28,7 @@ func newTestService(t *testing.T, src sources.Source) (*Service, *pgxpool.Pool) 
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	if _, err := pool.Exec(ctx, `DROP TABLE IF EXISTS settings, sessions, login_tokens, matches, searches, channels, users, subscriptions_migrations`); err != nil {
+	if _, err := pool.Exec(ctx, `DROP TABLE IF EXISTS watch_alerts, watch_prices, watches, watch_targets, settings, sessions, login_tokens, matches, searches, channels, users, subscriptions_migrations`); err != nil {
 		t.Fatal(err)
 	}
 	svc := NewService(pool, sources.NewRegistry(src), 3).WithLimits(3, []string{"discord:admin-1"})

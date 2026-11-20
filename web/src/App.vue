@@ -8,12 +8,15 @@ import {
   Radar,
   RefreshCw,
   SlidersHorizontal,
+  TrendingDown,
   TriangleAlert,
 } from 'lucide-vue-next'
 import AdminOverview from './components/AdminOverview.vue'
 import MatchesView from './components/MatchesView.vue'
 import SearchEditor from './components/SearchEditor.vue'
 import SearchesView from './components/SearchesView.vue'
+import WatchEditor from './components/WatchEditor.vue'
+import WatchesView from './components/WatchesView.vue'
 import PreferencesMenu from './components/PreferencesMenu.vue'
 import { api, ApiError, type Me } from './api'
 import { t } from './i18n'
@@ -21,9 +24,13 @@ import { onLinkClick, route } from './router'
 
 const me = ref<Me | null>(null)
 const state = ref<'loading' | 'out' | 'in' | 'down'>('loading')
-// The sidebar entry for the current page; an editor belongs to Searches.
+// The sidebar entry for the current page; an editor belongs to its list.
 const tab = computed(() =>
-  route.value.name === 'search' ? 'searches' : route.value.name,
+  route.value.name === 'search'
+    ? 'searches'
+    : route.value.name === 'watch'
+      ? 'watches'
+      : route.value.name,
 )
 const expired = new URLSearchParams(location.search).get('login') === 'expired'
 
@@ -33,6 +40,12 @@ const navigation = [
     href: '/searches',
     label: 'app.searches' as const,
     icon: SlidersHorizontal,
+  },
+  {
+    id: 'watches' as const,
+    href: '/watches',
+    label: 'app.watches' as const,
+    icon: TrendingDown,
   },
   {
     id: 'alerts' as const,
@@ -220,6 +233,12 @@ async function logout() {
     <main class="min-w-0 flex-1">
       <div class="mx-auto max-w-[1200px] px-4 py-8 sm:px-8 lg:px-10 lg:py-10">
         <SearchEditor v-if="route.name === 'search'" :me="me" :id="route.id" />
+        <WatchEditor
+          v-else-if="route.name === 'watch'"
+          :me="me"
+          :id="route.id"
+        />
+        <WatchesView v-else-if="route.name === 'watches'" :me="me" />
         <MatchesView v-else-if="route.name === 'alerts'" />
         <AdminOverview v-else-if="route.name === 'overview' && me.admin" />
         <SearchesView v-else :me="me" />

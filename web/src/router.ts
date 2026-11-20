@@ -6,6 +6,8 @@ import { computed, ref } from 'vue'
 export type Route =
   | { name: 'searches' }
   | { name: 'search'; id: number | 'new' }
+  | { name: 'watches' }
+  | { name: 'watch'; id: number | 'new' }
   | { name: 'alerts' }
   | { name: 'overview' }
 
@@ -15,6 +17,11 @@ export const route = computed<Route>(() => {
   const parts = path.value.split('/').filter(Boolean)
   if (parts[0] === 'alerts') return { name: 'alerts' }
   if (parts[0] === 'overview') return { name: 'overview' }
+  if (parts[0] === 'watches' && parts[1] === 'new')
+    return { name: 'watch', id: 'new' }
+  if (parts[0] === 'watches' && /^\d+$/.test(parts[1] ?? ''))
+    return { name: 'watch', id: Number(parts[1]) }
+  if (parts[0] === 'watches') return { name: 'watches' }
   if (parts[0] === 'searches' && parts[1] === 'new')
     return { name: 'search', id: 'new' }
   if (parts[0] === 'searches' && /^\d+$/.test(parts[1] ?? ''))
