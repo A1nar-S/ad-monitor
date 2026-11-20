@@ -1,10 +1,10 @@
 package kafka
 
 import (
-	"time"
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
