@@ -55,9 +55,11 @@ Every service serves Prometheus metrics on `METRICS_ADDR` (default `127.0.0.1:91
 ## Grafana
 
 `make up` also starts Grafana with ready-made dashboards: http://127.0.0.1:3000, user `admin`, password
-`GRAFANA_ADMIN_PASSWORD` from `.env` (`make env` generates one). Three dashboards: **Pipeline** (scrape
+`GRAFANA_ADMIN_PASSWORD` from `.env` (`make env` generates one). Four dashboards: **Pipeline** (scrape
 cycles and freshness, ingest, outbox, matcher, notifier, Kafka and dead letters, service `up`), **Price watches**
-(checks and alerts) and **API & bot** (HTTP rate, errors, latency, bot commands). The stat panels at the top turn
+(checks and alerts), **API & bot** (HTTP rate, errors, latency, bot commands) and **Containers** (per-container CPU,
+memory, network, disk and uptime from cAdvisor, scrape health of cAdvisor/Prometheus/Grafana, Go runtime metrics per
+service; filter by compose service). The stat panels at the top turn
 red/orange on trouble (a target down, a stale scrape, a dead-letter publish error). Dashboards are read-only in the UI;
 how to change them is in [docs/PROJECT_NOTES.md](docs/PROJECT_NOTES.md#grafana).
 

@@ -206,6 +206,34 @@ The same code runs in several processes (e.g. `admon_kafka_*` in every service),
 | `admon_http_requests_total` | counter | `method`, `route`, `code` | API requests; `route` is the mux pattern (`/api/searches/{id}`, also `/api/` and the SPA catch-all `/`), `unmatched` if none; `method` is GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS or `other` |
 | `admon_http_request_duration_seconds` | histogram | `method`, `route` | API request duration |
 
+### Container and monitoring-stack metrics
+A `cadvisor` service (profile `app`, `gcr.io/cadvisor/cadvisor` pinned in compose, no `ports:` entry, so only
+Prometheus reaches `cadvisor:8080`) gives per-container CPU, memory, network and disk. Prometheus also scrapes
+Grafana (`grafana:3000/metrics`, compose network only) is scraped too, and the existing `prometheus` self-scrape stays
+as it was. Trust: cAdvisor mounts the Docker socket (read-only does not restrict API calls: it is root-equivalent on
+the Docker host) and the host filesystem read-only; it is not published and the image is pinned. It runs with
+`no-new-privileges`, all capabilities dropped and a 256 MB memory limit. Cardinality and CPU choices:
+- cAdvisor flags: `--docker_only` (no systemd/host cgroups), 30 s housekeeping (default is 1 s) with dynamic
+  housekeeping off, `--disable_root_cgroup_stats`, `--disable_metrics` for percpu, process, sched, tcp, udp, advtcp,
+  hugetlb, referenced_memory, cpu_topology, cpuset, cpuLoad, memory_numa, resctrl, perf_event, pressure.
+  `--store_container_labels=false` plus `--whitelisted_container_labels` keeps only `com.docker.compose.service` and
+  `.project` (as `container_label_com_docker_compose_service` / `_project`); `name` and `image` are always there.
+- `cadvisor` job scrapes every 30 s (cAdvisor refreshes only each housekeeping; faster scrapes repeat values).
+  `metric_relabel_configs` keep only the families `containers.json` uses (CPU, working set, memory limit, network
+  rx/tx bytes, fs reads/writes bytes, start time, scrape error), drop series without a `name`, and drop `id` (cgroup
+  path with the container hash). Add a family to that `keep` regex when a panel needs it.
+- Docker Desktop (Windows, WSL2, cgroup v2): verified that names and compose labels resolve with the standard
+  read-only mounts and no `privileged`/devices. Only OOM-kill events are lost (no `/dev/kmsg`; the log warns once).
+  Because a daemon-wide view is shown, containers of other compose projects on the same Docker show up too (filter by
+  the `container_label_com_docker_compose_project` label, or by name).
+- Memory limits: compose sets none, so `container_spec_memory_limit_bytes` is 0 and the limit line is simply absent
+  (filtered with `> 0 < 1e15`, the upper bound covers cgroup v1's "unlimited"). "Without memory limit" counts them.
+- There is no restart counter in cAdvisor: the "Restarts" stat counts `changes(container_start_time_seconds)` over the range, so it covers restarts of containers
+  already present in the range (a container that first appears inside it shows 0). Of `/var/run` only `docker.sock` and `containerd/`
+  are mounted: with the Docker socket alone, cAdvisor v0.55 fails to register its Docker factory (it also needs the
+  containerd socket) and reports no containers.
+- Rates in the dashboard use `$__rate_interval`; with a 30 s scrape it is at least 60 s, so two samples fit.
+
 ## Grafana
 A `grafana` service (profile `app`, `grafana/grafana-oss` pinned in compose, volume `grafana-data`) is provisioned
 entirely from files, so it is ready after `make up`: http://127.0.0.1:3000 (bound to this machine), user `admin`,
@@ -219,8 +247,16 @@ sees the first event. Layout in `infra/grafana/`:
 - `provisioning/datasources/prometheus.yml`: datasource uid `prometheus` -> `http://prometheus:9090` (dashboards use that uid).
 - `provisioning/dashboards/dashboards.yml`: file provider reading `dashboards/` (mounted read-only, rescanned every 30 s).
 - `dashboards/pipeline.json`, `price-watches.json`, `api-bot.json`: uids `admon-pipeline`, `admon-watches`, `admon-api-bot`.
+- `dashboards/containers.json`: uid `admon-containers`. Rows: monitoring stack (scrape `up` of cAdvisor, Prometheus,
+  Grafana, cAdvisor's own error flag), containers (variables `project`, default `infra` = the compose project, i.e. the
+  `infra/` directory name, and `service` limited to it; CPU as % of one core, working set vs limit, network, disk,
+  uptime, restarts) and Go services (variable `job`, the six app services only; `process_*`/`go_*` per scrape
+  job: CPU, RSS, goroutines, heap in use, GC pause, open fds). Do not add `name:` to the compose file to pin the project
+  name: it would rename the volumes and orphan the Postgres and Kafka data.
+- `GF_PLUGINS_PREINSTALL_DISABLED=true` stops Grafana 11.x installing plugins (the default preinstalled list) on every
+  start; the dashboards use built-in panels only. `GF_METRICS_ENABLED` serves `/metrics` for Prometheus.
 
-Dashboards use only the `admon_*` metrics above (plus `up`). Counters are shown with `increase(...[$__rate_interval])`
+The other dashboards use only the `admon_*` metrics above (plus `up`). Counters are shown with `increase(...[$__rate_interval])`
 or `rate()`, latencies with `histogram_quantile` over `_bucket`. The "oldest successful scrape" stat goes red at 900 s,
 i.e. 3x the default `CRAWL_INTERVAL_MINUTES=5`; edit it if the interval changes.
 

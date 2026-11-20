@@ -19,3 +19,25 @@ scrape_configs:
     static_configs: [{targets: ["api:9100"]}]
   - job_name: prometheus
     static_configs: [{targets: ["localhost:9090"]}]
+
+  # --- container metrics (cAdvisor) and Grafana ---
+  - job_name: grafana
+    static_configs: [{targets: ["grafana:3000"]}]
+  - job_name: cadvisor
+    # Matches cAdvisor's 30 s housekeeping: scraping faster only repeats values.
+    scrape_interval: 30s
+    static_configs: [{targets: ["cadvisor:8080"]}]
+    metric_relabel_configs:
+      # Only the families infra/grafana/dashboards/containers.json uses; add a
+      # name here when a panel needs another one.
+      - source_labels: [__name__]
+        regex: container_(cpu_usage_seconds_total|memory_working_set_bytes|spec_memory_limit_bytes|network_(receive|transmit)_bytes_total|fs_(reads|writes)_bytes_total|start_time_seconds|scrape_error)
+        action: keep
+      # Series without a container name (not a Docker container): drop. Not
+      # container_scrape_error, which never has one (RE2 has no lookahead).
+      - source_labels: [__name__, name]
+        regex: container_(cpu|memory|spec|network|fs|start)_.*;
+        action: drop
+      # `id` is the cgroup path with the container hash; `name` identifies it.
+      - regex: id
+        action: labeldrop

@@ -167,10 +167,47 @@ services:
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
       GF_NEWS_NEWS_FEED_ENABLED: "false"
+      # No plugin downloads on start (the dashboards use built-in panels only).
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      # /metrics for Prometheus; compose network only.
+      GF_METRICS_ENABLED: "true"
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
+  # --- container metrics (cAdvisor) ---
+  # Per-container CPU, memory, network and disk for Prometheus. Not published to
+  # the host (no ports:); Prometheus reads cadvisor:8080 on the compose network.
+  # Cardinality and CPU are kept low: Docker containers only, 30 s housekeeping,
+  # the expensive metric groups off, and only the compose labels kept.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.55.1
+    restart: unless-stopped
+    profiles: [app]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 256m
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=30s
+      - --max_housekeeping_interval=30s
+      - --allow_dynamic_housekeeping=false
+      - --disable_root_cgroup_stats=true
+      - --store_container_labels=false
+      - --whitelisted_container_labels=com.docker.compose.service,com.docker.compose.project
+      - --disable_metrics=advtcp,cpu_topology,cpuset,cpuLoad,hugetlb,memory_numa,percpu,perf_event,pressure,process,referenced_memory,resctrl,sched,tcp,udp
+    volumes:
+      - /:/rootfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/containerd:/var/run/containerd:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
   # One-off maintenance: `make purge`, or `... --profile tools run --rm admin migrate`.
   admin:
     <<: *service
