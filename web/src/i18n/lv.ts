@@ -547,6 +547,24 @@ const lv: Messages = {
     E: 'Elektriskais',
     G: 'Gāze',
   },
+  toast: {
+    refreshed: 'Pārskats atjaunināts',
+    refreshFailed: 'Neizdevās atjaunināt pārskatu',
+    searchCreated: 'Meklējums “{name}” izveidots',
+    searchSaved: 'Meklējums “{name}” saglabāts',
+    searchDeleted: 'Meklējums “{name}” dzēsts',
+    searchPaused: 'Meklējums “{name}” apturēts',
+    searchResumed: 'Meklējums “{name}” atsākts',
+    watchCreated: 'Cenu sekošana “{name}” izveidota',
+    watchSaved: 'Cenu sekošana “{name}” saglabāta',
+    watchDeleted: 'Cenu sekošana “{name}” dzēsta',
+    watchPaused: 'Cenu sekošana “{name}” apturēta',
+    watchResumed: 'Cenu sekošana “{name}” atsākta',
+    watchChecked: 'Pārbaudīts: {price}',
+    watchCheckedNoPrice: 'Lapa pārbaudīta',
+    watchCheckedRecently: 'Nolasīts pirms mazāk nekā 30 sekundēm: {price}',
+    watchReset: 'Atskaites cena atiestatīta uz {price}',
+  },
 }
 
 export default lv

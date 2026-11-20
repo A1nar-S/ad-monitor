@@ -18,6 +18,7 @@ import SearchesView from './components/SearchesView.vue'
 import WatchEditor from './components/WatchEditor.vue'
 import WatchesView from './components/WatchesView.vue'
 import PreferencesMenu from './components/PreferencesMenu.vue'
+import ToastHost from './components/ToastHost.vue'
 import { api, ApiError, type Me } from './api'
 import { t } from './i18n'
 import { onLinkClick, route } from './router'
@@ -320,4 +321,5 @@ async function logout() {
       </section>
     </div>
   </main>
+  <ToastHost />
 </template>

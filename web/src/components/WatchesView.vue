@@ -15,6 +15,7 @@ import ToggleSwitch from './ToggleSwitch.vue'
 import { api, ApiError, type Me, type Watch } from '../api'
 import { formatMoney, formatRelative, t } from '../i18n'
 import { navigate, onLinkClick } from '../router'
+import { toast, toastError } from '../toast'
 import { showEveryone as everyone } from '../state'
 import { changePercent, formatChange, hostOf, ruleText } from '../watches'
 
@@ -44,26 +45,35 @@ async function load() {
   }
 }
 
-async function act(fn: () => Promise<void>) {
-  error.value = ''
+// Runs an action, says how it went, and reloads the list from the server.
+async function act(fn: () => Promise<void>, done: string) {
   try {
     await fn()
+    toast(done)
   } catch (reason) {
-    error.value =
-      reason instanceof ApiError ? reason.message : t('watches.actionFailed')
+    toastError(
+      reason instanceof ApiError ? reason.message : t('watches.actionFailed'),
+    )
   }
   await load()
 }
 
 function setEnabled(w: Watch, enabled: boolean) {
   w.enabled = enabled
-  void act(() => api.setWatchEnabled(w.id, enabled))
+  void act(
+    () => api.setWatchEnabled(w.id, enabled),
+    t(enabled ? 'toast.watchResumed' : 'toast.watchPaused', { name: w.name }),
+  )
 }
 
 function confirmDelete() {
   const w = deleting.value
   deleting.value = null
-  if (w) void act(() => api.deleteWatch(w.id))
+  if (w)
+    void act(
+      () => api.deleteWatch(w.id),
+      t('toast.watchDeleted', { name: w.name }),
+    )
 }
 
 function showEveryone(value: boolean) {

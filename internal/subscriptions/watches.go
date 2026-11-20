@@ -120,6 +120,9 @@ type WatchView struct {
 	Failures    int        `json:"failures"` // failed reads in a row
 	Failing     bool       `json:"failing"`  // watchers were told it can't be read
 	LastError   string     `json:"lastError"`
+	// Skipped: a "check now" found the page read under half a minute ago
+	// and showed that reading instead of reading it again.
+	Skipped bool `json:"skipped,omitempty"`
 
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`

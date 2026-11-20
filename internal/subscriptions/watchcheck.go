@@ -65,7 +65,8 @@ func (s *Service) CheckWatchNow(ctx context.Context, o Owner, id int64, r source
 		ID: w.targetID, LeaseSeconds: readLease.Seconds(), MinAgeSeconds: 30,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return w, nil // just read; nothing new to see
+		w.Skipped = true // just read; nothing new to see
+		return w, nil
 	}
 	if err != nil {
 		return WatchView{}, err

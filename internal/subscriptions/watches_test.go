@@ -300,10 +300,10 @@ func TestWatchValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := &fakeReader{queue: []any{int64(99900)}}
-	if v, err := svc.CheckWatchNow(ctx, ana, w.ID, r); err != nil || *v.PriceCents != 99900 || v.Below {
+	if v, err := svc.CheckWatchNow(ctx, ana, w.ID, r); err != nil || *v.PriceCents != 99900 || v.Below || v.Skipped {
 		t.Fatalf("check now: %+v %v", v, err)
 	}
-	if _, err := svc.CheckWatchNow(ctx, ana, w.ID, r); err != nil || r.reads != 1 {
-		t.Errorf("second check now read again: %d reads, %v", r.reads, err)
+	if v, err := svc.CheckWatchNow(ctx, ana, w.ID, r); err != nil || r.reads != 1 || !v.Skipped {
+		t.Errorf("second check now: %d reads, skipped %v, %v; want 1 read, skipped", r.reads, v.Skipped, err)
 	}
 }

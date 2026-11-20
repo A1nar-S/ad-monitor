@@ -198,6 +198,8 @@ export type Watch = {
   failures: number
   failing: boolean
   lastError: string
+  // A "check now" that found the page read under 30 s ago and did not read it again.
+  skipped?: boolean
   createdAt: string
   updatedAt: string
 }

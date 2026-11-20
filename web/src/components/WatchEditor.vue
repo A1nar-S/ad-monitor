@@ -47,6 +47,7 @@ import {
   tKey,
 } from '../i18n'
 import { navigate, onLinkClick, setLeaveGuard } from '../router'
+import { toast, toastError } from '../toast'
 import {
   changePercent,
   formatChange,
@@ -240,6 +241,17 @@ async function refresh() {
   alerts.value = detail.alerts
 }
 
+// After an action that worked: reload what the page shows. A failure here
+// keeps the page as it was; the action itself still succeeded.
+async function refreshAfter() {
+  try {
+    await refresh()
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function loadPage() {
   pageError.value = ''
   loadingPage.value = true
@@ -285,14 +297,15 @@ async function save() {
   try {
     if (watch.value) {
       await api.updateWatch(watch.value.id, input())
+      toast(t('toast.watchSaved', { name: input().name }))
       picking.value = false
       page.value = null
       reading.value = null
-      await refresh()
-      fill(watch.value)
+      if (await refreshAfter()) fill(watch.value)
       saved.value = fingerprint()
     } else {
       const created = await api.createWatch(input())
+      toast(t('toast.watchCreated', { name: created.name }))
       saved.value = fingerprint()
       page.value = null
       navigate(`/watches/${created.id}`, { replace: true })
@@ -308,13 +321,22 @@ async function save() {
 async function checkNow() {
   if (!watch.value) return
   checking.value = true
-  error.value = ''
   try {
-    await api.checkWatch(watch.value.id)
-    await refresh()
+    const w = await api.checkWatch(watch.value.id)
+    await refreshAfter()
+    const price =
+      w.priceCents !== null ? formatMoney(w.priceCents, w.currency) : ''
+    if (w.lastError) toastError(w.lastError)
+    else if (w.skipped && price)
+      toast(t('toast.watchCheckedRecently', { price }), 'info')
+    else if (price) toast(t('toast.watchChecked', { price }))
+    else toast(t('toast.watchCheckedNoPrice'))
   } catch (reason) {
-    error.value =
-      reason instanceof ApiError ? reason.message : t('watchEditor.checkFailed')
+    toastError(
+      reason instanceof ApiError
+        ? reason.message
+        : t('watchEditor.checkFailed'),
+    )
   } finally {
     checking.value = false
   }
@@ -322,13 +344,18 @@ async function checkNow() {
 
 async function resetReference() {
   if (!watch.value) return
-  error.value = ''
   try {
-    await api.resetWatch(watch.value.id)
-    await refresh()
+    const w = await api.resetWatch(watch.value.id)
+    await refreshAfter()
+    toast(
+      t('toast.watchReset', {
+        price: formatMoney(w.referenceCents, w.currency),
+      }),
+    )
   } catch (reason) {
-    error.value =
-      reason instanceof ApiError ? reason.message : t('watchEditor.saveFailed')
+    toastError(
+      reason instanceof ApiError ? reason.message : t('watchEditor.saveFailed'),
+    )
   }
 }
 
@@ -340,6 +367,7 @@ async function remove() {
     await api.deleteWatch(w.id)
     saved.value = fingerprint()
     page.value = null
+    toast(t('toast.watchDeleted', { name: w.name }))
     navigate('/watches', { replace: true })
   } catch (reason) {
     error.value =

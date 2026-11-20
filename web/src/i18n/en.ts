@@ -540,6 +540,25 @@ const en = {
     E: 'Electric',
     G: 'Gas',
   },
+  // Toasts after an action.
+  toast: {
+    refreshed: 'Overview updated',
+    refreshFailed: "Couldn't update the overview",
+    searchCreated: 'Search “{name}” created',
+    searchSaved: 'Search “{name}” saved',
+    searchDeleted: 'Search “{name}” deleted',
+    searchPaused: 'Search “{name}” paused',
+    searchResumed: 'Search “{name}” resumed',
+    watchCreated: 'Watch “{name}” created',
+    watchSaved: 'Watch “{name}” saved',
+    watchDeleted: 'Watch “{name}” deleted',
+    watchPaused: 'Watch “{name}” paused',
+    watchResumed: 'Watch “{name}” resumed',
+    watchChecked: 'Checked: {price}',
+    watchCheckedNoPrice: 'Checked the page',
+    watchCheckedRecently: 'Read under 30 seconds ago: {price}',
+    watchReset: 'Reference price reset to {price}',
+  },
 }
 
 export type Messages = typeof en

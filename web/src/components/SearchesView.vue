@@ -23,6 +23,7 @@ import {
 import { categoryName, formatNumber, t } from '../i18n'
 import { navigate, onLinkClick } from '../router'
 import { showEveryone as everyone } from '../state'
+import { toast, toastError } from '../toast'
 
 const props = defineProps<{ me: Me }>()
 
@@ -59,26 +60,35 @@ async function load() {
   }
 }
 
-async function act(fn: () => Promise<void>) {
-  error.value = ''
+// Runs an action, says how it went, and reloads the list from the server.
+async function act(fn: () => Promise<void>, done: string) {
   try {
     await fn()
+    toast(done)
   } catch (reason) {
-    error.value =
-      reason instanceof ApiError ? reason.message : t('searches.actionFailed')
+    toastError(
+      reason instanceof ApiError ? reason.message : t('searches.actionFailed'),
+    )
   }
   await load()
 }
 
 function setEnabled(s: Search, enabled: boolean) {
   s.enabled = enabled
-  void act(() => api.setEnabled(s.id, enabled))
+  void act(
+    () => api.setEnabled(s.id, enabled),
+    t(enabled ? 'toast.searchResumed' : 'toast.searchPaused', { name: s.name }),
+  )
 }
 
 function confirmDelete() {
   const s = deleting.value
   deleting.value = null
-  if (s) void act(() => api.deleteSearch(s.id))
+  if (s)
+    void act(
+      () => api.deleteSearch(s.id),
+      t('toast.searchDeleted', { name: s.name }),
+    )
 }
 
 function showEveryone(value: boolean) {

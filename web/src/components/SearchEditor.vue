@@ -36,6 +36,7 @@ import {
 } from '../api'
 import { navigate, onLinkClick, setLeaveGuard } from '../router'
 import { showEveryone } from '../state'
+import { toast } from '../toast'
 import { categoryName, fieldLabel, formatDate, t } from '../i18n'
 
 // Creates or edits one search on its own page (/searches/new, /searches/12).
@@ -182,9 +183,15 @@ async function save() {
   error.value = ''
   saving.value = true
   try {
-    if (search.value) await api.updateSearch(search.value.id, input())
-    else await api.createSearch(input())
-    snapshot.value = JSON.stringify(input())
+    const saved = input()
+    if (search.value) await api.updateSearch(search.value.id, saved)
+    else await api.createSearch(saved)
+    snapshot.value = JSON.stringify(saved)
+    toast(
+      t(search.value ? 'toast.searchSaved' : 'toast.searchCreated', {
+        name: saved.name,
+      }),
+    )
     navigate('/searches')
   } catch (reason) {
     error.value =
@@ -201,6 +208,7 @@ async function remove() {
   try {
     await api.deleteSearch(target.id)
     snapshot.value = JSON.stringify(input())
+    toast(t('toast.searchDeleted', { name: target.name }))
     navigate('/searches', { replace: true })
   } catch (reason) {
     error.value =

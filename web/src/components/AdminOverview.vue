@@ -18,6 +18,7 @@ import BaseDialog from './BaseDialog.vue'
 import EmptyState from './EmptyState.vue'
 import PageHeader from './PageHeader.vue'
 import { ApiError, readListingDetails } from '../api'
+import { toast, toastError } from '../toast'
 import { categoryName, formatDate, formatNumber, t, tKey } from '../i18n'
 
 type Listing = {
@@ -87,16 +88,25 @@ const page = ref(1)
 const openListing = ref<Listing | null>(null)
 const openSearch = ref<SavedSearch | null>(null)
 const failedImages = ref(new Set<number>())
+const refreshing = ref(false) // a refresh asked for with the button
 let timer: ReturnType<typeof setInterval> | undefined
 let typing: ReturnType<typeof setTimeout> | undefined
 let controller: AbortController | undefined
+// The button's "updated" toast is owed until a request finishes, even when a
+// filter change or the 30-second tick replaced the one the button started.
+let owesToast = false
+let gone = false // left the page: nothing to say any more
 
 // Asks the server for the current page; a newer request cancels an older one.
-async function refresh() {
+// The 30-second refresh is quiet; the button dims the page and says when done.
+async function refresh(manual = false) {
   controller?.abort()
   const mine = new AbortController()
   controller = mine
   loading.value = true
+  if (manual) owesToast = refreshing.value = true
+  // Long enough to see that the page reloaded, even when it was instant.
+  const shown = new Promise((done) => setTimeout(done, owesToast ? 400 : 0))
   const timeout = setTimeout(() => mine.abort(), 10000)
   const params = new URLSearchParams({
     view: view.value,
@@ -115,19 +125,24 @@ async function refresh() {
     if (response.status === 403) throw new Error(t('overview.adminsOnly'))
     if (!response.ok) throw new Error(t('overview.dbDown'))
     const next: Overview = await response.json()
-    if (controller !== mine) return
+    await shown
+    if (controller !== mine || gone) return
     data.value = next
     page.value = next.page // the server clamps past-the-end pages
     error.value = ''
+    if (owesToast) toast(t('toast.refreshed'))
+    owesToast = false
   } catch (reason) {
-    if (controller !== mine) return
+    if (controller !== mine || gone) return
     error.value =
       reason instanceof Error && reason.name !== 'AbortError'
         ? reason.message
         : t('overview.loadFailed')
+    if (owesToast) toastError(`${t('toast.refreshFailed')}: ${error.value}`)
+    owesToast = false
   } finally {
     clearTimeout(timeout)
-    if (controller === mine) loading.value = false
+    if (controller === mine) loading.value = refreshing.value = false
   }
 }
 
@@ -381,6 +396,7 @@ onMounted(() => {
   timer = setInterval(() => void refresh(), 30000)
 })
 onUnmounted(() => {
+  gone = true
   clearInterval(timer)
   clearTimeout(typing)
   controller?.abort()
@@ -395,8 +411,12 @@ onUnmounted(() => {
         class="mr-2 hidden text-small text-gray-500 tabular-nums sm:inline"
         >{{ t('overview.updated', { time: updatedAt }) }}</span
       >
-      <button class="btn-secondary" :disabled="loading" @click="refresh">
-        <RefreshCw :size="14" :class="{ 'animate-spin': loading }" />{{
+      <button
+        class="btn-secondary"
+        :disabled="refreshing"
+        @click="refresh(true)"
+      >
+        <RefreshCw :size="14" :class="{ 'animate-spin': refreshing }" />{{
           t('overview.refresh')
         }}
       </button>
@@ -412,7 +432,8 @@ onUnmounted(() => {
 
     <section
       :aria-label="t('overview.totals')"
-      class="grid grid-cols-2 gap-px overflow-hidden rounded-lg bg-gray-150 shadow-card md:grid-cols-4"
+      class="grid grid-cols-2 gap-px overflow-hidden rounded-lg bg-gray-150 shadow-card transition-opacity duration-150 md:grid-cols-4"
+      :class="{ 'opacity-50': refreshing }"
     >
       <div v-for="metric in metrics" :key="metric.name" class="bg-surface p-5">
         <p class="text-small text-gray-600">{{ metric.name }}</p>
@@ -558,7 +579,11 @@ onUnmounted(() => {
     </div>
     <div v-else class="mt-5" />
 
-    <div class="card overflow-hidden" :aria-busy="loading">
+    <div
+      class="card overflow-hidden transition-opacity duration-150"
+      :class="{ 'opacity-50': refreshing }"
+      :aria-busy="loading"
+    >
       <div
         v-if="!current && loading"
         class="divide-y divide-gray-100"
@@ -581,7 +606,7 @@ onUnmounted(() => {
         :title="t('overview.unavailableTitle')"
         :description="t('overview.unavailableBody')"
       >
-        <button class="btn-secondary" @click="refresh">
+        <button class="btn-secondary" @click="refresh(true)">
           <RefreshCw :size="14" />{{ t('common.tryAgain') }}
         </button>
       </EmptyState>
