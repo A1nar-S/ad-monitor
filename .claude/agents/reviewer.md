@@ -16,6 +16,8 @@ You review one feature's changes before it is merged into `main`. You do not edi
   docs that no longer match the code, scope creep.
 - You may run read-only checks (tests, lint, `docker compose config`) using the Docker commands in
   `.claude/agents/implementer.md`; use container names suffixed `-review`, and remove them afterwards.
+- Always run lint on an LF copy as described in implementer.md (golangci-lint run + fmt --diff, go mod tidy -diff),
+  also for features without Go changes. Any gofmt finding there is a blocker, never "just CRLF".
 - For simple lookups you may spawn the `searcher` agent (Haiku) if available.
 
 Report findings ranked by severity: `blocker` (must fix before merge), `should-fix`, `nit`. Each with file:line,

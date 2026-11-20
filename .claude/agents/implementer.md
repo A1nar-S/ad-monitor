@@ -41,10 +41,14 @@ docker network create am-<feature>; docker run -d --name am-pg-<feature> --netwo
   -e POSTGRES_PASSWORD=test -e POSTGRES_DB=test postgres:15
 #   TEST_DATABASE_URL=postgres://postgres:test@am-pg-<feature>:5432/test?sslmode=disable ; use -p 1
 
-# Lint (same version as CI); fall back to `go install .../golangci-lint/v2/cmd/golangci-lint@v2.15.0` in golang:1.26
-MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W):/src" -w /src -e GOFLAGS=-buildvcs=false \
-  -v gomod:/go/pkg/mod -v gocache:/root/.cache/go-build golangci/golangci-lint:v2.15.0 \
-  golangci-lint run --build-tags integration ./...
+# Lint exactly like CI, on an LF copy: the Windows checkout (core.autocrlf=true) has CRLF files that make
+# gofmt report false positives. Copy the tree with LF endings first, then lint the copy. Every gofmt finding
+# on the LF copy is real; never dismiss one as "CRLF".
+#   committed tree:  git -c core.autocrlf=false archive HEAD | tar -x -C <scratch>/lint
+#   working tree:    also copy changed/untracked files and strip CR (sed -i 's/\r$//')
+MSYS_NO_PATHCONV=1 docker run --rm -v "<scratch>/lint:/src" -w /src -e GOFLAGS=-buildvcs=false -e GOTOOLCHAIN=local \
+  -v gomod:/go/pkg/mod -v gocache:/root/.cache/go-build -v golangci-cache:/root/.cache/golangci-lint \
+  golangci/golangci-lint:v2.15.0 sh -c 'go mod tidy -diff && golangci-lint run --build-tags integration ./... && golangci-lint fmt --diff ./...'
 
 # Frontend: oven/bun:1.3.14, mount web/ and a named volume over /web/node_modules (never the host's node_modules)
 # sqlc: sqlc/sqlc:1.31.1 run inside internal/<slice>
