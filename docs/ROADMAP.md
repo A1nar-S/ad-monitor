@@ -92,6 +92,7 @@ Next:
 - [ ] Cross-store comparison: match variant, condition, seller, currency, and shipping/fees first.
   Start with manual product grouping.
 - [x] CI: lint, tests, integration tests, sqlc, dashboard and image builds, security scans.
-- [ ] Observability (Prometheus metrics, Grafana dashboards).
+- [x] Prometheus metrics for every service (`admon_*`, see PROJECT_NOTES).
+- [ ] Grafana dashboards.
 - [x] Dead-letter queues for Kafka records that fail or cannot be decoded (`make dlq`, `make dlq-replay`).
 - [ ] Protobuf, scheduler, and deployment tooling as needed.
