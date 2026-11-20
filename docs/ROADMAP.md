@@ -93,5 +93,5 @@ Next:
   Start with manual product grouping.
 - [x] CI: lint, tests, integration tests, sqlc, dashboard and image builds, security scans.
 - [ ] Observability (Prometheus metrics, Grafana dashboards).
-- [ ] Dead-letter queues for Kafka records that fail or cannot be decoded.
+- [x] Dead-letter queues for Kafka records that fail or cannot be decoded (`make dlq`, `make dlq-replay`).
 - [ ] Protobuf, scheduler, and deployment tooling as needed.
