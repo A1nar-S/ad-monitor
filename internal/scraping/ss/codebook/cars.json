@@ -3,6 +3,27 @@
   "fetched": "2026-11-08",
   "fields": [
     {
+      "key": "deal",
+      "label": "Darījuma veids",
+      "opt_ids": null,
+      "kind": "multi",
+      "from": "feed",
+      "options": [
+        {
+          "id": "sell",
+          "name": "Pārdod"
+        },
+        {
+          "id": "buy",
+          "name": "Pērk"
+        },
+        {
+          "id": "change",
+          "name": "Maina"
+        }
+      ]
+    },
+    {
       "key": "make",
       "label": "Marka",
       "opt_ids": [

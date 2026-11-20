@@ -76,12 +76,23 @@ const (
 	fromAd    = "ad"
 )
 
+// carDeals are the deals of the car list's own "Visi / Pārdod / Pērk / Maina"
+// switch, as the URL's last path part. Its "Remonts" and "Dažādi" are not
+// cars changing hands, and "Noma" is another category.
+var carDeals = []Option{
+	{ID: "sell", Name: "Pārdod"},
+	{ID: "buy", Name: "Pērk"},
+	{ID: "change", Name: "Maina"},
+}
+
 // carFields maps ss.com field IDs to our keys. The order is the order of the
 // form. IDs not listed (month, gears, VIN) are not worth filtering on.
 var carFields = []struct {
 	key, label, kind, from string
 	ids                    []string
 }{
+	// The deal is the feed: transport/cars/sell, /buy, /change (see feeds.go).
+	{"deal", "Darījuma veids", kindMulti, fromFeed, nil},
 	{"make", "Marka", kindMulti, fromList, []string{"31"}},
 	{"model", "Modelis", kindMulti, fromList, nil}, // per make, see Make.Models
 	{"year", "Izlaiduma gads", kindRange, fromList, []string{"18"}},
@@ -306,6 +317,8 @@ func (c *Client) BuildCarsCodebook(ctx context.Context, gap time.Duration) (*Cod
 	for _, spec := range carFields {
 		f := Field{Key: spec.key, Label: spec.label, OptIDs: spec.ids, Kind: spec.kind, From: spec.from}
 		switch {
+		case spec.key == "deal":
+			f.Options = carDeals
 		case spec.key == "region":
 			if f.Options, err = carRegions(); err != nil {
 				return nil, err

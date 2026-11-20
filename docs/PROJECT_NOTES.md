@@ -85,8 +85,12 @@ dashboard api ─┴─> subscriptions (users, channels, searches, logins) <─�
   same names, and ad pages are read through the same field IDs (`td#tdo_<id>`). `Catalog.Categories()` serves them to
   the bot's autocomplete and the dashboard's forms. A checked-in snapshot rather than a DB table: versioned, offline,
   reviewable diffs. Refresh with `go run ./cmd/admin ss-codebook` (~85 requests), then rebuild.
-- **Cars = one shared feed.** Every car search watches `transport/cars` (~1000 new ads/day, about 3.5 per 5 min), so one
-  request per cycle serves all users. Filters on list columns are free (make, model, year, engine, fuel, mileage, price).
+- **Cars = shared deal feeds.** The deal (Pārdod/Pērk/Maina) is the feed: `transport/cars/sell` (~1000 new ads/day,
+  about 3.5 per 5 min), `/buy`, `/change`, each one request per cycle for all users. A search with no deal is stored as
+  `transport/cars` and scraped as all three, never as the "Visi" page itself: that page cannot tell an ad's deal, and an
+  ad is announced only on first sight, so it would hide ads from deal searches. Ads keep the feed they were first seen
+  on, but a narrower one replaces it (older ads from `transport/cars` become `…/sell` when seen there).
+  Filters on list columns are free (make, model, year, engine, fuel, mileage, price).
   Ad-page-only fields (gearbox, body, color, inspection, equipment; flats: house type) are read **lazily by the matcher**
   (`sources.Enricher`): only for a new ad that passes every cheap filter of some search, at most once per ad, shared by all
   searches. If the ad page fails, candidates get the alert flagged "⚠️ Unconfirmed" rather than nothing; a removed ad

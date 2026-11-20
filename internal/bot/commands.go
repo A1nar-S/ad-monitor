@@ -118,6 +118,7 @@ func (b *Bot) filterParams(category string) []Param {
 	switch category {
 	case "cars":
 		return []Param{
+			choice("deal", "Pārdod = for sale, Pērk = wanted, Maina = swap; empty = any", "deal"),
 			text("make", "Makes, comma separated (Skoda, Toyota)"),
 			text("model", "Models of those makes (Octavia, Passat*)"),
 			{Name: "keywords", Description: "Words in the ad text, any of (quattro, 4x4). May load the ad page: set make/model too", Kind: Text, MaxLen: 300},

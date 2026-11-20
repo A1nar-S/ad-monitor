@@ -171,9 +171,13 @@ func TestPlanFeeds(t *testing.T) {
 		{"collapses many districts", []string{flats + "a/hand_over", flats + "b/hand_over", flats + "c/hand_over", flats + "d/hand_over"}, []string{flats + "all/hand_over"}},
 		{"city feed swallows districts", []string{flats + "all/hand_over", flats + "centre/hand_over"}, []string{flats + "all/hand_over"}},
 		{"deals stay separate", []string{flats + "all/hand_over", flats + "centre/sell"}, []string{flats + "all/hand_over", flats + "centre/sell"}},
-		{"collapses many car models into the make", []string{"transport/cars/audi/a1", "transport/cars/audi/a3", "transport/cars/audi/a4", "transport/cars/audi/a6"}, []string{"transport/cars/audi"}},
-		{"make swallows its models", []string{"transport/cars/audi", "transport/cars/audi/a4"}, []string{"transport/cars/audi"}},
-		{"never collapses past the make", []string{"transport/cars/audi", "transport/cars/bmw", "transport/cars/ford", "transport/cars/kia"}, []string{"transport/cars/audi", "transport/cars/bmw", "transport/cars/ford", "transport/cars/kia"}},
+		{"collapses many car models into the make", []string{"transport/cars/audi/a1/sell", "transport/cars/audi/a3/sell", "transport/cars/audi/a4/sell", "transport/cars/audi/a6/sell"}, []string{"transport/cars/audi/sell"}},
+		{"make swallows its models", []string{"transport/cars/audi/sell", "transport/cars/audi/a4/sell"}, []string{"transport/cars/audi/sell"}},
+		{"never collapses past the make", []string{"transport/cars/audi/sell", "transport/cars/bmw/sell", "transport/cars/ford/sell", "transport/cars/kia/sell"}, []string{"transport/cars/audi/sell", "transport/cars/bmw/sell", "transport/cars/ford/sell", "transport/cars/kia/sell"}},
+		{"cars without a deal are read per deal", []string{"transport/cars"}, []string{"transport/cars/buy", "transport/cars/change", "transport/cars/sell"}},
+		{"every-deal and sale searches share the sale feed", []string{"transport/cars", "transport/cars/sell"}, []string{"transport/cars/buy", "transport/cars/change", "transport/cars/sell"}},
+		{"sale searches alone read one feed", []string{"transport/cars/sell", "transport/cars/sell"}, []string{"transport/cars/sell"}},
+		{"a make without a deal is read per deal", []string{"transport/cars/audi", "transport/cars/audi/a4"}, []string{"transport/cars/audi/buy", "transport/cars/audi/change", "transport/cars/audi/sell"}},
 	}
 	c := NewClient(time.Second)
 	for _, tt := range tests {
@@ -189,6 +193,7 @@ func TestInScope(t *testing.T) {
 	const flats = "real-estate/flats/riga/"
 	rent := events.ListingDiscovered{Location: flats + "centre", Feed: flats + "all/hand_over"}
 	car := events.ListingDiscovered{Location: "transport/cars/audi/a4", Feed: "transport/cars/audi"}
+	forSale := events.ListingDiscovered{Location: "transport/cars/audi/a4", Feed: "transport/cars/sell"}
 	tests := []struct {
 		name   string
 		wanted []string
@@ -203,6 +208,10 @@ func TestInScope(t *testing.T) {
 		{"model via make scrape", []string{"transport/cars/audi/a4"}, car, true},
 		{"other model", []string{"transport/cars/audi/a6"}, car, false},
 		{"other make with shared prefix", []string{"transport/cars/aud"}, car, false},
+		{"every-deal search takes a sale", []string{"transport/cars"}, forSale, true},
+		{"sale search takes a sale", []string{"transport/cars/sell"}, forSale, true},
+		{"wanted search skips a sale", []string{"transport/cars/buy"}, forSale, false},
+		{"sale search skips an ad of unknown deal", []string{"transport/cars/sell"}, car, false},
 	}
 	c := NewClient(time.Second)
 	for _, tt := range tests {

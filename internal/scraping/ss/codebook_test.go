@@ -94,6 +94,32 @@ func TestCompileCarSearch(t *testing.T) {
 		t.Error("unknown category should fail")
 	}
 
+	// The deal picks the feeds; none, or all of them, is the whole category.
+	for _, d := range []struct {
+		deal  any
+		feeds []string
+		spec  any
+	}{
+		{"pardod", []string{"transport/cars/sell"}, []any{"Pārdod"}},
+		{[]any{"Pērk", "maina", "Pērk"}, []string{"transport/cars/buy", "transport/cars/change"}, []any{"Pērk", "Maina"}},
+		{[]any{"Pārdod", "Pērk", "Maina"}, []string{"transport/cars"}, []any{"Pārdod", "Pērk", "Maina"}},
+		{[]any{}, []string{"transport/cars"}, nil},
+	} {
+		got, err := c.CompileSearch(CategoryCars, map[string]any{"deal": d.deal, "make": []any{"Audi"}})
+		if err != nil {
+			t.Fatalf("deal %v: %v", d.deal, err)
+		}
+		if !reflect.DeepEqual(got.Feeds, d.feeds) || !reflect.DeepEqual(got.Spec["deal"], d.spec) {
+			t.Errorf("deal %v: feeds %v spec %v, want %v %v", d.deal, got.Feeds, got.Spec["deal"], d.feeds, d.spec)
+		}
+		if _, ok := got.Filters["deal"]; ok {
+			t.Errorf("deal %v left in filters: %v", d.deal, got.Filters)
+		}
+	}
+	if _, err := c.CompileSearch(CategoryCars, map[string]any{"deal": "Izīrē"}); err == nil || !strings.Contains(err.Error(), "deal") {
+		t.Errorf("a flat's deal for cars: err = %v", err)
+	}
+
 	// A trailing * takes every generation; the spec keeps the wildcard.
 	got, err = c.CompileSearch(CategoryCars, map[string]any{"make": []any{"Volkswagen"}, "model": []any{"passat*"}})
 	if err != nil {
@@ -134,7 +160,13 @@ func TestCategories(t *testing.T) {
 	if y := byKey["year"]; y.Kind != "range" || len(y.Options) != 0 {
 		t.Errorf("year field = %+v", y)
 	}
+	if d := byKey["deal"]; d.Required || d.Detail || !reflect.DeepEqual(d.Options, []string{"Pārdod", "Pērk", "Maina"}) {
+		t.Errorf("car deal field = %+v (optional, from the feed, three deals)", d)
+	}
 	for _, f := range cats[1].Fields {
+		if f.Key == "deal" && !f.Required {
+			t.Error("a flat's deal should be required")
+		}
 		if f.Key == "district" && len(f.OptionsBy["Rīga"]) < 50 {
 			t.Errorf("districts of Rīga = %d", len(f.OptionsBy["Rīga"]))
 		}

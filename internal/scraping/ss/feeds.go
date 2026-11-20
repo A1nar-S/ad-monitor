@@ -11,17 +11,19 @@ import (
 //
 //	real-estate/flats/riga/centre/hand_over   (rent, one district)
 //	real-estate/flats/riga/all/hand_over      (rent, whole city)
-//	transport/cars/audi/a4                    (one model)
-//	transport/cars/audi                       (whole make)
+//	transport/cars/sell                       (cars for sale)
+//	transport/cars                            (cars, every deal: see carDealFeeds)
 //
 // Real estate ends in a deal ("hand_over" = rent out, "sell", ...) and uses
-// "all" in place of a district; other categories are plain paths.
+// "all" in place of a district; cars may end in a deal ("sell", "buy",
+// "change"); other categories are plain paths.
 type feed struct {
 	scope string // category path without deal and "all"; ads under it are covered
-	deal  string // "" outside real estate
+	deal  string // "" = every deal
 }
 
-var deals = map[string]bool{"hand_over": true, "sell": true, "buy": true, "rent": true, "exchange": true}
+// Cars use "change" where real estate says "exchange".
+var deals = map[string]bool{"hand_over": true, "sell": true, "buy": true, "rent": true, "exchange": true, "change": true}
 
 func parseFeed(s string) feed {
 	parts := strings.Split(strings.Trim(s, "/"), "/")
@@ -39,10 +41,13 @@ func parseFeed(s string) feed {
 // path renders the feed's URL path; the inverse of parseFeed for a scope
 // that was collapsed from narrower ones.
 func (f feed) path() string {
-	if f.deal == "" {
+	switch {
+	case f.deal == "":
 		return f.scope
+	case strings.HasPrefix(f.scope, "real-estate/"):
+		return f.scope + "/all/" + f.deal
 	}
-	return f.scope + "/all/" + f.deal
+	return f.scope + "/" + f.deal // transport/cars/audi/sell
 }
 
 func (f feed) covers(location string) bool {
@@ -70,9 +75,11 @@ func (*Client) PlanFeeds(wanted []string, collapseAt int) []string {
 	have := map[feed]bool{}
 	raw := map[feed]string{}
 	for _, w := range wanted {
-		f := parseFeed(w)
-		have[f] = true
-		raw[f] = strings.Trim(w, "/")
+		for _, x := range carDealFeeds(w) {
+			f := parseFeed(x)
+			have[f] = true
+			raw[f] = strings.Trim(x, "/")
+		}
 	}
 
 	// Drop feeds contained in another wanted feed of the same deal.
@@ -107,14 +114,30 @@ func (*Client) PlanFeeds(wanted []string, collapseAt int) []string {
 	return slices.Compact(out)
 }
 
+// carDealFeeds turns a car feed without a deal (ss.com's "Visi") into one feed
+// per deal. That page cannot tell which deal an ad is, and an ad is announced
+// only on first sight, so mixing it with deal feeds would hide ads from the
+// deal searches. Other feeds come back as they are.
+func carDealFeeds(w string) []string {
+	f := parseFeed(w)
+	if f.deal != "" || !(f.scope == CarsCategory || strings.HasPrefix(f.scope, CarsCategory+"/")) {
+		return []string{w}
+	}
+	out := make([]string, len(carDeals))
+	for i, d := range carDeals {
+		out[i] = f.scope + "/" + d.ID
+	}
+	return out
+}
+
 // InScope checks that an ad lies under one of the wanted feeds and was found
-// in the same deal. The deal comes from the feed the ad was scraped on, since
-// an ad's own URL has none.
+// in the same deal; a wanted feed without a deal takes every deal. The deal
+// comes from the feed the ad was scraped on, since an ad's own URL has none.
 func (*Client) InScope(wanted []string, l events.ListingDiscovered) bool {
 	scraped := parseFeed(l.Feed)
 	for _, w := range wanted {
 		f := parseFeed(w)
-		if f.deal == scraped.deal && f.covers(l.Location) {
+		if (f.deal == "" || f.deal == scraped.deal) && f.covers(l.Location) {
 			return true
 		}
 	}

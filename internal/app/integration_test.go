@@ -45,7 +45,7 @@ const (
 	seedWindow = 3 * time.Second
 	flatsFeed  = "real-estate/flats/riga/centre/hand_over"
 	cityFeed   = "real-estate/flats/riga/all/hand_over"
-	carsFeed   = "transport/cars" // every car search watches the one shared feed
+	carsFeed   = "transport/cars/sell" // cars for sale, shared by every car search
 )
 
 // --- infrastructure ---------------------------------------------------------
@@ -384,7 +384,7 @@ func TestPipeline(t *testing.T) {
 	addSearch(t, subs, "bob", "bob-chan", "whole city, cheap", "flats",
 		map[string]any{"region": "Rīga", "deal": "Izīrē", "price": map[string]any{"max": 450.0}})
 	addSearch(t, subs, "alice-cars", "alice-cars-chan", "a4 2010+", "cars",
-		map[string]any{"make": "Audi", "model": "A4", "year": map[string]any{"min": 2010.0}, "price": map[string]any{"max": 8000.0}})
+		map[string]any{"deal": "Pārdod", "make": "Audi", "model": "A4", "year": map[string]any{"min": 2010.0}, "price": map[string]any{"max": 8000.0}})
 	eventually(t, 60*time.Second, "cars feed prefilled", func() bool { return countListings(t, pool) > 30+25 })
 	time.Sleep(seedWindow + time.Second) // the new feeds' seed windows end
 	consistently(t, 3*time.Second, "new feeds' existing ads did not notify anyone",
@@ -430,7 +430,7 @@ func (f *fakeSS) hitCount(feed string) int {
 	return f.hits[feed]
 }
 
-// --- cars: one shared feed, ad pages only for candidates, restart catch-up --
+// --- cars: shared deal feeds, ad pages only for candidates, restart catch-up
 
 const allCarsFeed = carsFeed
 
@@ -474,6 +474,10 @@ func TestCarsPipeline(t *testing.T) {
 
 	site := newFakeSS(t)
 	site.serve(allCarsFeed, "feed_cars_all.html", t)
+	// The Peugeot search takes every deal, so the wanted and swap lists are
+	// read too; nobody posts there.
+	site.layout("transport/cars/buy", "", nil)
+	site.layout("transport/cars/change", "", nil)
 	ad, err := os.ReadFile(filepath.Join("..", "scraping", "ss", "testdata", "ad_car.html"))
 	if err != nil {
 		t.Fatal(err)
@@ -490,7 +494,7 @@ func TestCarsPipeline(t *testing.T) {
 	addSearch(t, subs, "parents", "cars-chan", "automatic peugeot", "cars",
 		map[string]any{"make": []any{"peugeot"}, "gearbox": "automats", "price": map[string]any{"max": 8000.0}})
 	addSearch(t, subs, "parents", "cars-chan", "cheap opel", "cars",
-		map[string]any{"make": []any{"Opel"}, "price": map[string]any{"max": 3000.0}})
+		map[string]any{"deal": "Pārdod", "make": []any{"Opel"}, "price": map[string]any{"max": 3000.0}})
 	scraperCfg := config.Scraper{
 		Common: common, Source: "ss.com", CrawlInterval: time.Second, RequestGap: 10 * time.Millisecond, MaxPages: 3, FeedCollapseAt: 3,
 	}

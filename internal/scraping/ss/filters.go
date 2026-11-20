@@ -18,8 +18,10 @@ const (
 // CompileSearch implements sources.Catalog. Searches are written in the
 // terms of ss.com's own search forms and checked against the codebooks.
 //
-// Cars: every filter runs locally on the one shared transport/cars feed.
+// Cars: the deal chooses the feeds (transport/cars/sell, ...; none = every
+// deal); every other filter runs locally on those shared feeds.
 //
+//	deal: [Pārdod]
 //	make: [Skoda, Toyota]     model: [Octavia, "Passat*"]     fuel: [Dīzelis]
 //	gearbox: [Automāts]       year: {min: 2012}               equipment: [Kondicionieris]
 //	region: [Rīga, Rīgas rajons]   (read from the ad page, like gearbox)
@@ -38,8 +40,7 @@ func (*Client) CompileSearch(category string, filters map[string]any) (sources.C
 		if cb, err = CarsCodebook(); err != nil {
 			return c, err
 		}
-		c.Feeds = []string{CarsCategory}
-		c.Filters, c.Spec, err = cb.normalize(filters)
+		c.Feeds, c.Filters, c.Spec, err = cb.carSearch(filters)
 	case CategoryFlats:
 		var cb *Codebook
 		if cb, err = FlatsCodebook(); err != nil {
@@ -57,6 +58,44 @@ func (*Client) CompileSearch(category string, filters map[string]any) (sources.C
 		return sources.Compiled{}, err
 	}
 	return c, nil
+}
+
+// carSearch turns the deal into feeds and checks the rest. No deal is the
+// whole category, which PlanFeeds scrapes as one feed per deal.
+func (cb *Codebook) carSearch(in map[string]any) (feeds []string, filters, spec map[string]any, err error) {
+	dealNames, err := stringList("deal", in["deal"])
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	dealField, _ := cb.Field("deal")
+	var shownDeals []string
+	for _, n := range dealNames {
+		o, err := dealField.lookup(n)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("deal: %w", err)
+		}
+		if !slices.Contains(shownDeals, o.Name) {
+			feeds = append(feeds, CarsCategory+"/"+o.ID)
+			shownDeals = append(shownDeals, o.Name)
+		}
+	}
+	if len(feeds) == 0 || len(feeds) == len(dealField.Options) {
+		feeds = []string{CarsCategory}
+	}
+
+	rest := map[string]any{}
+	for k, v := range in {
+		if k != "deal" {
+			rest[k] = v
+		}
+	}
+	if filters, spec, err = cb.normalize(rest); err != nil {
+		return nil, nil, nil, err
+	}
+	if len(shownDeals) > 0 {
+		spec["deal"] = toAny(shownDeals)
+	}
+	return feeds, filters, spec, nil
 }
 
 // flatSearch turns region/district/deal into feeds and checks the rest.

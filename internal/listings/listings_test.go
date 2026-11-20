@@ -69,6 +69,31 @@ func TestIngestUpsert(t *testing.T) {
 	}
 }
 
+// The first feed sticks, but a narrower one that sees the ad again replaces
+// it: an ad from the all-deals car feed later seen on the sale feed is a sale.
+func TestFeedNarrows(t *testing.T) {
+	svc, pool := newTestService(t)
+	ctx := context.Background()
+	for _, step := range []struct{ seenOn, want string }{
+		{"transport/cars", "transport/cars"},
+		{"transport/cars/sell", "transport/cars/sell"},
+		{"transport/cars", "transport/cars/sell"},     // broader again: kept
+		{"transport/cars/buy", "transport/cars/sell"}, // a sibling: kept
+		{"transport/carsx/sell", "transport/cars/sell"},
+	} {
+		if _, err := svc.Ingest(ctx, listing("1", step.seenOn)); err != nil {
+			t.Fatal(err)
+		}
+		var feed string
+		if err := pool.QueryRow(ctx, `SELECT feed FROM listings WHERE external_id = '1'`).Scan(&feed); err != nil {
+			t.Fatal(err)
+		}
+		if feed != step.want {
+			t.Errorf("after %s: feed %q, want %q", step.seenOn, feed, step.want)
+		}
+	}
+}
+
 func TestSeedingAndOutbox(t *testing.T) {
 	svc, pool := newTestService(t)
 	ctx := context.Background()

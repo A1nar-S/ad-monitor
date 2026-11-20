@@ -361,7 +361,10 @@ INSERT INTO listings (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
 )
 ON CONFLICT (source, external_id) DO UPDATE SET
-    feed         = CASE WHEN listings.feed = '' THEN EXCLUDED.feed ELSE listings.feed END,
+    -- The first feed sticks, unless a narrower one now sees the ad (an ad
+    -- of transport/cars found on transport/cars/sell): that tells its deal.
+    feed         = CASE WHEN listings.feed = '' OR starts_with(EXCLUDED.feed, listings.feed || '/')
+                        THEN EXCLUDED.feed ELSE listings.feed END,
     title        = EXCLUDED.title,
     url          = EXCLUDED.url,
     location     = EXCLUDED.location,

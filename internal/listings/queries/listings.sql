@@ -7,7 +7,10 @@ INSERT INTO listings (
     @source, @external_id, @feed, @title, @url, @location, @attrs, @price, @price_value, @image_url, @posted_at
 )
 ON CONFLICT (source, external_id) DO UPDATE SET
-    feed         = CASE WHEN listings.feed = '' THEN EXCLUDED.feed ELSE listings.feed END,
+    -- The first feed sticks, unless a narrower one now sees the ad (an ad
+    -- of transport/cars found on transport/cars/sell): that tells its deal.
+    feed         = CASE WHEN listings.feed = '' OR starts_with(EXCLUDED.feed, listings.feed || '/')
+                        THEN EXCLUDED.feed ELSE listings.feed END,
     title        = EXCLUDED.title,
     url          = EXCLUDED.url,
     location     = EXCLUDED.location,

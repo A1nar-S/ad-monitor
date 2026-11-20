@@ -39,8 +39,9 @@ func (cb *Codebook) fieldSpecs() []sources.FieldSpec {
 	for _, f := range cb.Fields {
 		spec := sources.FieldSpec{
 			Key: f.Key, Label: f.Label, Kind: f.Kind, Detail: f.From == fromAd,
-			// Flats need a region and deal to pick feeds; a car's city is just a filter.
-			Required: f.From == fromFeed && (f.Key == "region" || f.Key == "deal"),
+			// Flats need a region and deal to pick feeds; a car's city is just a
+			// filter, and no car deal means every deal.
+			Required: cb.Category == FlatsCategory && f.From == fromFeed && (f.Key == "region" || f.Key == "deal"),
 			Options:  f.optionNames(),
 		}
 		switch f.Key {
