@@ -3,6 +3,11 @@
 // element's box model like browser dev tools (margin, border, padding,
 // content), clicking picks the element and reports a CSS selector for it
 // to the dashboard. The dashboard talks back through postMessage.
+//
+// In "remove" mode a click hides what is in the way instead (a cookie banner
+// the copy can't close, having no scripts). Cookie banners are hidden on
+// load too. Hidden elements stay in the document, so the selectors built
+// here still match the real page the watch reads.
 ;(() => {
   'use strict'
 
@@ -36,6 +41,7 @@
     .badge{padding:1px 6px;border-radius:3px;background:#0f6cbd;color:#fff;
       font:600 11px/16px 'Segoe UI',system-ui,-apple-system,sans-serif}
     .match{outline:2px dashed #e0a23a;outline-offset:1px}
+    .zap{outline:2px solid #c42b1c;outline-offset:-1px;background:rgba(196,43,28,.22)}
   </style>`
   const box = (cls) => {
     const d = document.createElement('div')
@@ -50,6 +56,7 @@
   const tip = box('tip')
   const pickedBox = box('picked')
   const badge = box('badge')
+  const zapBox = box('zap')
   let matchBoxes = []
   document.documentElement.appendChild(host)
 
@@ -61,6 +68,8 @@
   let matches = []
   let label = 'Price'
   let frame = 0
+  let mode = 'pick' // or 'remove'
+  const hidden = [] // {el, style, auto}, newest last
 
   const post = (msg) => parent.postMessage(msg, '*')
   const px = (v) => Math.max(0, parseFloat(v) || 0)
@@ -125,17 +134,28 @@
   const round = (n) => Math.round(n * 10) / 10
 
   function hideBoxModel() {
-    for (const d of [marginBox, borderBox, paddingBox, contentBox, tip]) d.style.display = 'none'
+    for (const d of [marginBox, borderBox, paddingBox, contentBox, tip, zapBox]) d.style.display = 'none'
+  }
+
+  // Remove mode shows the whole element in red: it is what a click hides.
+  function drawZap(el) {
+    drawBoxModel(el)
+    for (const d of [marginBox, borderBox, paddingBox, contentBox]) d.style.display = 'none'
+    const r = el.getBoundingClientRect()
+    place(zapBox, r.left, r.top, r.width, r.height)
   }
 
   function draw() {
     frame = 0
     if (pointer) {
       const el = document.elementFromPoint(pointer.x, pointer.y)
-      hovered = el && el !== document.documentElement ? el : null
+      hovered = el && el !== document.documentElement && el !== document.body ? el : null
     }
-    if (hovered) drawBoxModel(hovered)
-    else hideBoxModel()
+    if (hovered && mode === 'remove') drawZap(hovered)
+    else if (hovered) {
+      zapBox.style.display = 'none'
+      drawBoxModel(hovered)
+    } else hideBoxModel()
 
     const r = picked && picked.isConnected ? picked.getBoundingClientRect() : null
     // A hidden field or meta tag has no box to outline.
@@ -283,6 +303,107 @@
     return parts.join(' > ')
   }
 
+  // --- hiding what is in the way --------------------------------------------
+
+  function hide(el, auto) {
+    if (hidden.some((h) => h.el === el)) return
+    try {
+      const style = el.getAttribute('style')
+      el.style.setProperty('display', 'none', 'important')
+      hidden.push({ el, style, auto })
+    } catch {
+      // An element that can't be styled (an SVG part, say) stays.
+    }
+  }
+
+  function restore(h) {
+    if (h.style === null) h.el.removeAttribute('style')
+    else h.el.setAttribute('style', h.style)
+  }
+
+  function reportHidden() {
+    post({
+      type: 'hidden',
+      count: hidden.length,
+      auto: hidden.filter((h) => h.auto).length,
+    })
+  }
+
+  // A cookie wall that locked the page's scrolling leaves it locked once
+  // hidden. Only vertical scrolling: many pages hide horizontal overflow on
+  // purpose.
+  function unlockScroll() {
+    for (const el of [document.documentElement, document.body]) {
+      if (!el) continue
+      const cs = getComputedStyle(el)
+      // "overflow: hidden auto" is x then y; one value is both.
+      const y = cs.overflowY || (cs.overflow || '').split(' ').pop()
+      if (/hidden|clip/.test(y)) el.style.setProperty('overflow-y', 'auto', 'important')
+      if (el === document.body && cs.position === 'fixed')
+        el.style.setProperty('position', 'static', 'important')
+    }
+  }
+
+  // Consent tools that use neutral names.
+  const consentTools = [
+    '#onetrust-consent-sdk', '#CybotCookiebotDialog', '#CybotCookiebotDialogBodyUnderlay',
+    '#usercentrics-root', '#didomi-host', '#didomi-popup', '#qc-cmp2-container', '#cmpbox', '#cmpbox2',
+    '.cmpboxBG', '[id^="sp_message_container"]', '.fc-consent-root', '#truste-consent-track',
+    '.truste_overlay', '.truste_box_overlay', '#klaro', '.klaro', '#iubenda-cs-banner', '.cc-window',
+    '.cc-banner', '.cc-grower',
+  ]
+  // Anything else named for cookies or consent counts only when it floats
+  // over the page as a banner: a bakery's "cookie-card" product, a sticky
+  // header's "Cookie settings" link and a buy box's consent checkbox stay.
+  const consentNamed =
+    ':is([id*="cookie" i],[class*="cookie" i],[id*="consent" i],[class*="consent" i],' +
+    '[id*="gdpr" i],[class*="gdpr" i],[aria-label*="cookie" i],[aria-label*="consent" i])'
+  const content = 'main, h1, [itemprop="price"], [itemprop="offers"], [role="main"]'
+
+  // The banner a cookie-named element belongs to: itself or a close
+  // ancestor that is position: fixed (banners don't stick, headers do). An
+  // ancestor must be banner-sized, not an app shell filling the screen, and
+  // nothing holding the page's content or the picked element is a banner.
+  function banner(el) {
+    for (let cur = el, i = 0; cur && cur !== document.body && i < 4; cur = cur.parentElement, i++) {
+      if (getComputedStyle(cur).position !== 'fixed') continue
+      const r = cur.getBoundingClientRect()
+      const large = r.width * r.height > 0.5 * innerWidth * innerHeight
+      if (cur !== el && large) return null
+      if (cur.querySelector(content) || (picked && cur.contains(picked))) return null
+      return cur
+    }
+    return null
+  }
+
+  function hideCookieBanners() {
+    const before = hidden.length
+    for (const sel of consentTools) {
+      try {
+        document.querySelectorAll(sel).forEach((el) => hide(el, true))
+      } catch {
+        // A selector this browser can't read.
+      }
+    }
+    let named = []
+    try {
+      named = [...document.querySelectorAll(consentNamed)]
+    } catch {
+      return
+    }
+    for (const el of named) {
+      if (el === document.documentElement || el === document.body || host.contains(el)) continue
+      if (hidden.some((h) => h.el === el || h.el.contains(el))) continue
+      const top = banner(el)
+      if (top) hide(top, true)
+    }
+    if (hidden.length !== before) {
+      unlockScroll()
+      reportHidden()
+      schedule()
+    }
+  }
+
   // --- events ------------------------------------------------------------------
 
   addEventListener(
@@ -315,6 +436,13 @@
       block(e)
       const el = document.elementFromPoint(e.clientX, e.clientY) || e.target
       if (!(el instanceof Element) || el === document.documentElement) return
+      if (mode === 'remove') {
+        if (el === document.body) return
+        hide(el, false)
+        reportHidden()
+        schedule()
+        return
+      }
       origin = picked = el
       depth = 0
       matches = []
@@ -383,8 +511,20 @@
       matches = []
       syncMatchBoxes()
       schedule()
+    } else if (d.type === 'mode') {
+      mode = d.mode === 'remove' ? 'remove' : 'pick'
+      schedule()
+    } else if (d.type === 'unhide') {
+      // The last one hidden, or with all: every one.
+      const undo = d.all ? hidden.splice(0) : hidden.splice(-1)
+      undo.reverse().forEach(restore)
+      reportHidden()
+      schedule()
     }
   })
 
+  hideCookieBanners()
+  // Stylesheets that arrive late can make a banner float only now.
+  addEventListener('load', hideCookieBanners)
   post({ type: 'ready', title: document.title })
 })()

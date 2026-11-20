@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   CircleAlert,
   CircleCheck,
+  Eraser,
   ExternalLink,
   Info,
   MousePointerClick,
@@ -54,6 +55,19 @@ const reading = ref<ExtractorTest | null>(null)
 const testing = ref(false)
 const expired = ref(false)
 const showHint = ref(false)
+// What a click in the page does: pick the price, or hide what is in the way
+// (a cookie banner the script-free copy can't close).
+const mode = ref<'pick' | 'remove'>('pick')
+const hiddenCount = ref(0)
+const autoHidden = ref(0) // of those, hidden on load as cookie banners
+const modes = [
+  {
+    id: 'pick' as const,
+    icon: MousePointerClick,
+    label: 'picker.modePick' as const,
+  },
+  { id: 'remove' as const, icon: Eraser, label: 'picker.modeRemove' as const },
+]
 
 const isJSON = computed(() => props.page.kind === 'json')
 
@@ -87,8 +101,12 @@ function post(message: Record<string, unknown>) {
 function onMessage(event: MessageEvent) {
   if (!frame.value || event.source !== frame.value.contentWindow) return
   const data = event.data as { type?: string } & Record<string, unknown>
-  if (data.type === 'ready') {
+  if (data.type === 'hidden') {
+    hiddenCount.value = Number(data.count) || 0
+    autoHidden.value = Number(data.auto) || 0
+  } else if (data.type === 'ready') {
     post({ type: 'config', label: t('picker.badge') })
+    post({ type: 'mode', mode: mode.value })
     if (selector.value)
       post({
         type: 'highlight',
@@ -116,6 +134,19 @@ function onMessage(event: MessageEvent) {
 
 function selectDepth(depth: number) {
   post({ type: 'depth', depth })
+}
+
+function setMode(next: 'pick' | 'remove') {
+  mode.value = next
+  post({ type: 'mode', mode: next })
+}
+
+// Only cookie banners hidden on load: show them all again. Else undo the last.
+const onlyAuto = computed(
+  () => hiddenCount.value > 0 && autoHidden.value === hiddenCount.value,
+)
+function unhide() {
+  post({ type: 'unhide', all: onlyAuto.value })
 }
 
 // --- reading it back through the server ------------------------------------
@@ -213,6 +244,8 @@ watch(
     picked.value = null
     highlight.value = null
     expired.value = false
+    hiddenCount.value = autoHidden.value = 0
+    mode.value = 'pick'
     void test()
   },
 )
@@ -263,10 +296,62 @@ const host = computed(() => {
       <div
         class="flex h-10 items-center gap-2 border-b border-gray-150 bg-gray-25 px-3 text-small"
       >
-        <MousePointerClick :size="15" class="shrink-0 text-brand-600" />
-        <span class="min-w-0 flex-1 truncate text-gray-600">{{
-          isJSON ? t('picker.jsonHint') : t('picker.hint')
-        }}</span>
+        <MousePointerClick
+          v-if="isJSON"
+          :size="15"
+          class="shrink-0 text-brand-600"
+        />
+        <div
+          v-else
+          class="flex shrink-0 rounded-md bg-gray-150/80 p-0.5"
+          role="group"
+          :aria-label="t('picker.modes')"
+        >
+          <button
+            v-for="m in modes"
+            :key="m.id"
+            type="button"
+            :aria-pressed="mode === m.id"
+            :aria-label="t(m.label)"
+            :title="t(m.label)"
+            class="flex h-7 items-center gap-1.5 rounded-[5px] px-2 text-small transition-colors sm:px-2.5"
+            :class="
+              mode === m.id
+                ? 'bg-raised font-medium text-gray-900 shadow-card'
+                : 'text-gray-600 hover:text-gray-900'
+            "
+            @click="setMode(m.id)"
+          >
+            <component
+              :is="m.icon"
+              :size="14"
+              :class="
+                mode === m.id
+                  ? m.id === 'remove'
+                    ? 'text-danger-600'
+                    : 'text-brand-600'
+                  : ''
+              "
+            /><span class="hidden sm:inline">{{ t(m.label) }}</span>
+          </button>
+        </div>
+        <span
+          class="min-w-0 flex-1 truncate text-gray-600"
+          :title="
+            isJSON
+              ? undefined
+              : mode === 'remove'
+                ? t('picker.removeHint')
+                : t('picker.hint')
+          "
+          >{{
+            isJSON
+              ? t('picker.jsonHint')
+              : mode === 'remove'
+                ? t('picker.removeHint')
+                : t('picker.hint')
+          }}</span
+        >
         <a
           :href="page.url"
           target="_blank"
@@ -276,6 +361,21 @@ const host = computed(() => {
           ><span class="hidden max-w-48 truncate sm:inline">{{ host }}</span
           ><ExternalLink :size="13"
         /></a>
+      </div>
+      <div
+        v-if="!isJSON && hiddenCount"
+        class="flex items-center gap-2 border-b border-gray-150 px-3 py-1.5 text-small text-gray-600"
+        role="status"
+      >
+        <Eraser :size="14" class="shrink-0 text-gray-400" />
+        <span class="min-w-0 flex-1 truncate">{{
+          onlyAuto
+            ? t('picker.autoHidden', { n: autoHidden })
+            : t('picker.hiddenCount', { n: hiddenCount })
+        }}</span>
+        <button type="button" class="btn-subtle h-7 px-2" @click="unhide">
+          {{ onlyAuto ? t('picker.showAgain') : t('picker.undo') }}
+        </button>
       </div>
       <iframe
         v-if="!isJSON"
