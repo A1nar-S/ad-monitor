@@ -55,7 +55,7 @@ groups:
           __dashboardUid__: admon-pipeline
           __panelId__: '24'
           summary: '{{ $labels.job }} is down'
-          description: 'Prometheus cannot scrape {{ $labels.job }} ({{ $labels.instance }}): up = {{ $values.B.Value }}. The container is stopped, crash-looping or its /metrics is unreachable. Check `make ps` and `docker compose --env-file .env -f infra/docker-compose.yml --profile app logs {{ $labels.job }}`.'
+          description: 'Prometheus cannot scrape {{ $labels.job }} ({{ $labels.instance }}): up = {{ with $values.B }}{{ .Value }}{{ else }}?{{ end }}. The container is stopped, crash-looping or its /metrics is unreachable. Check `make ps` and `docker compose --env-file .env -f infra/docker-compose.yml --profile app logs {{ $labels.job }}`.'
         labels:
           severity: critical
       # critical; noData=Alerting, execErr=Error: 0 when kafka-exporter reports no broker or is itself down
@@ -102,7 +102,7 @@ groups:
           __dashboardUid__: admon-postgres-kafka
           __panelId__: '4'
           summary: 'Kafka is down or unreachable'
-          description: 'kafka-exporter reports no healthy broker (value {{ $values.B.Value }}; no value = the exporter is gone too). The whole pipeline stalls while Kafka is away. Check `docker compose ps kafka kafka-exporter` and the kafka container logs.'
+          description: 'kafka-exporter reports no healthy broker (value {{ with $values.B }}{{ .Value }}{{ else }}?{{ end }}; no value = the exporter is gone too). The whole pipeline stalls while Kafka is away. Check `docker compose ps kafka kafka-exporter` and the kafka container logs.'
         labels:
           severity: critical
           service: kafka
@@ -150,7 +150,7 @@ groups:
           __dashboardUid__: admon-postgres-kafka
           __panelId__: '1'
           summary: 'Postgres is down or not monitorable'
-          description: 'pg_up is {{ $values.B.Value }} (no value = no data): postgres-exporter cannot query the database. If Postgres itself is running, the usual cause is a missing MONITOR_DB_PASSWORD in .env (the read-only role admon_monitor is never created, so the exporter cannot log in); add it and run `make up`. Otherwise check the postgres container.'
+          description: 'pg_up is {{ with $values.B }}{{ .Value }}{{ else }}?{{ end }} (no value = no data): postgres-exporter cannot query the database. If Postgres itself is running, the usual cause is a missing MONITOR_DB_PASSWORD in .env (the read-only role admon_monitor is never created, so the exporter cannot log in); add it and run `make up`. Otherwise check the postgres container.'
         labels:
           severity: critical
           service: postgres
@@ -196,8 +196,6 @@ groups:
         for: 5m
         isPaused: false
         annotations:
-          __dashboardUid__: admon-containers
-          __panelId__: '2'
           summary: 'Monitoring component {{ $labels.job }} is not scraped'
           description: 'Prometheus cannot scrape {{ $labels.job }} ({{ $labels.instance }}). Dashboards and alerts that depend on it are blind. For job postgres this is postgres-exporter itself (a failed login shows up as the Postgres down alert instead).'
         labels:
@@ -250,8 +248,8 @@ groups:
         annotations:
           __dashboardUid__: admon-pipeline
           __panelId__: '9'
-          summary: 'No successful scrape cycle for {{ humanizeDuration $values.B.Value }} ({{ $labels.source }})'
-          description: 'The scraper''s last cycle without errors for source {{ $labels.source }} was {{ humanizeDuration $values.B.Value }} ago (limit 15 min). ss.com may be blocking or changed its layout, or the scraper is stuck. Check the scraper logs and the Feed fetches panel.'
+          summary: 'No successful scrape cycle for {{ with $values.B }}{{ humanizeDuration .Value }}{{ else }}?{{ end }} ({{ $labels.source }})'
+          description: 'The scraper''s last cycle without errors for source {{ $labels.source }} was {{ with $values.B }}{{ humanizeDuration .Value }}{{ else }}?{{ end }} ago (limit 15 min). ss.com may be blocking or changed its layout, or the scraper is stuck. Check the scraper logs and the Feed fetches panel.'
         labels:
           severity: critical
       # critical; noData=OK, execErr=Error: A dead letter that cannot be written to its .dlq topic is
@@ -298,7 +296,7 @@ groups:
           __dashboardUid__: admon-pipeline
           __panelId__: '21'
           summary: 'Cannot publish dead letters to {{ $labels.topic }}'
-          description: '{{ humanize $values.B.Value }} failed attempts in 10 min to write a failed record to {{ $labels.topic }}. The consumer retries until it works, so its partition is stuck and no new records are processed. Check Kafka health and the logs of the consuming service.'
+          description: '{{ with $values.B }}{{ humanize .Value }}{{ else }}?{{ end }} failed attempts in 10 min to write a failed record to {{ $labels.topic }}. The consumer retries until it works, so its partition is stuck and no new records are processed. Check Kafka health and the logs of the consuming service.'
         labels:
           severity: critical
       # warning; noData=OK, execErr=Error: Any event is worth a look, so no pending time (the 15 min window
@@ -345,7 +343,7 @@ groups:
         annotations:
           __dashboardUid__: admon-pipeline
           __panelId__: '20'
-          summary: '{{ humanize $values.B.Value }} new dead letter(s) on {{ $labels.topic }} ({{ $labels.reason }})'
+          summary: '{{ with $values.B }}{{ humanize .Value }}{{ else }}?{{ end }} new dead letter(s) on {{ $labels.topic }} ({{ $labels.reason }})'
           description: 'Records from {{ $labels.topic }} were given up on in the last 15 min (reason: {{ $labels.reason }}). List them with `make dlq TOPIC={{ $labels.topic }}`, fix the cause, then `make dlq-replay TOPIC={{ $labels.topic }}`.'
         labels:
           severity: warning
@@ -414,7 +412,7 @@ groups:
           __dashboardUid__: admon-postgres-kafka
           __panelId__: '17'
           summary: 'Consumer group {{ $labels.consumergroup }} is falling behind on {{ $labels.topic }}'
-          description: 'Lag is {{ humanize $values.C.Value }} records and has not shrunk for 10 min. The consuming service is slow, stuck or down (also see the dead-letter and target-down alerts).'
+          description: 'Lag is {{ with $values.C }}{{ humanize .Value }}{{ else }}?{{ end }} records and has not shrunk for 10 min. The consuming service is slow, stuck or down (also see the dead-letter and target-down alerts).'
         labels:
           severity: warning
       # warning; noData=OK, execErr=Error: Entries wait only until the relay's next poll, so 200 for 10 min
@@ -461,8 +459,8 @@ groups:
         annotations:
           __dashboardUid__: admon-pipeline
           __panelId__: '14'
-          summary: 'Outbox backlog is {{ humanize $values.B.Value }}'
-          description: '{{ humanize $values.B.Value }} outbox entries have waited for 10 min to be published to listings.new. The relay is failing or Kafka is unavailable; new ads are not announced until it recovers.'
+          summary: 'Outbox backlog is {{ with $values.B }}{{ humanize .Value }}{{ else }}?{{ end }}'
+          description: '{{ with $values.B }}{{ humanize .Value }}{{ else }}?{{ end }} outbox entries have waited for 10 min to be published to listings.new. The relay is failing or Kafka is unavailable; new ads are not announced until it recovers.'
         labels:
           severity: warning
           service: ingest
@@ -511,7 +509,7 @@ groups:
           __dashboardUid__: admon-pipeline
           __panelId__: '18'
           summary: 'Notifier deliveries failing ({{ $labels.kind }})'
-          description: '{{ humanize $values.B.Value }} failed delivery attempts in 15 min for kind {{ $labels.kind }}. Typical causes: an invalid DISCORD_BOT_TOKEN, missing channel permissions or a Discord outage. See the notifier logs.'
+          description: '{{ with $values.B }}{{ humanize .Value }}{{ else }}?{{ end }} failed delivery attempts in 15 min for kind {{ $labels.kind }}. Typical causes: an invalid DISCORD_BOT_TOKEN, missing channel permissions or a Discord outage. See the notifier logs.'
         labels:
           severity: warning
           service: notifier
@@ -564,8 +562,8 @@ groups:
         annotations:
           __dashboardUid__: admon-watches
           __panelId__: '5'
-          summary: '{{ humanizePercentage $values.B.Value }} of price watch checks are failing'
-          description: 'Over the last 30 min {{ humanizePercentage $values.B.Value }} of price-watch page checks failed or were blocked. The sites may block the scraper, or the network is down. See the Price watches dashboard.'
+          summary: '{{ with $values.B }}{{ humanizePercentage .Value }}{{ else }}Some{{ end }} of price watch checks are failing'
+          description: 'Over the last 30 min {{ with $values.B }}{{ humanizePercentage .Value }}{{ else }}some{{ end }} of price-watch page checks failed or were blocked. The sites may block the scraper, or the network is down. See the Price watches dashboard.'
         labels:
           severity: warning
           service: scraper
@@ -614,7 +612,7 @@ groups:
           __dashboardUid__: admon-api-bot
           __panelId__: '6'
           summary: 'API is returning 5xx errors'
-          description: '{{ humanize $values.B.Value }} responses with a 5xx code in the last 10 min. See the API & bot dashboard for the routes, and the api logs.'
+          description: '{{ with $values.B }}{{ humanize .Value }}{{ else }}?{{ end }} responses with a 5xx code in the last 10 min. See the API & bot dashboard for the routes, and the api logs.'
         labels:
           severity: warning
           job: api
@@ -660,9 +658,7 @@ groups:
         for: 5m
         isPaused: false
         annotations:
-          __dashboardUid__: admon-containers
-          __panelId__: '16'
-          summary: 'Container {{ $labels.name }} restarted {{ $values.B.Value }} times in 30 min'
-          description: '{{ $labels.name }} started {{ $values.B.Value }} times in the last 30 min. It is likely crash-looping (out of memory, bad config, failing dependency). Check its logs with `docker logs {{ $labels.name }}`.'
+          summary: 'Container {{ $labels.name }} restarted {{ with $values.B }}{{ .Value }}{{ else }}?{{ end }} times in 30 min'
+          description: '{{ $labels.name }} started {{ with $values.B }}{{ .Value }}{{ else }}?{{ end }} times in the last 30 min. It is likely crash-looping (out of memory, bad config, failing dependency). Check its logs with `docker logs {{ $labels.name }}`.'
         labels:
           severity: warning
