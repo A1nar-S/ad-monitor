@@ -37,6 +37,7 @@ type Searches interface {
 	RecentMatches(ctx context.Context, o subscriptions.Owner, searchID int64, limit int) ([]subscriptions.MatchRef, error)
 	Categories() map[string][]sources.Category
 	Preview(in subscriptions.SearchInput, candidates []events.ListingDiscovered) (subscriptions.Preview, error)
+	CompileFeeds(in subscriptions.SearchInput) (source string, feeds []string, err error)
 }
 
 // Listings looks up stored ads: to show matches, to preview a search
@@ -75,6 +76,7 @@ type server struct {
 	Config
 	secure bool
 	watch  *watchState
+	live   liveLimiter
 }
 
 type ctxKey struct{}
@@ -86,7 +88,7 @@ func New(cfg Config) http.Handler {
 	mux.HandleFunc("GET /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.logout)
 	mux.Handle("GET /api/me", s.auth(s.me))
-	mux.Handle("GET /api/categories", s.auth(s.categories))
+	mux.Handle("GET /api/sources", s.auth(s.listSources))
 	mux.Handle("GET /api/channels", s.auth(s.channels))
 	mux.Handle("GET /api/searches", s.auth(s.listSearches))
 	mux.Handle("POST /api/searches", s.auth(s.createSearch))
@@ -95,6 +97,7 @@ func New(cfg Config) http.Handler {
 	mux.Handle("DELETE /api/searches/{id}", s.auth(s.deleteSearch))
 	mux.Handle("GET /api/matches", s.auth(s.matches))
 	mux.Handle("POST /api/searches/preview", s.auth(s.previewSearch))
+	mux.Handle("POST /api/searches/preview/live", s.auth(s.previewLive))
 	mux.Handle("POST /api/listings/{id}/details", s.auth(s.listingDetails))
 	s.routeWatches(mux)
 	if cfg.Overview != nil {
@@ -205,12 +208,32 @@ func (s *server) me(w http.ResponseWriter, _ *http.Request, o subscriptions.Owne
 	writeJSON(w, http.StatusOK, me)
 }
 
-func (s *server) categories(w http.ResponseWriter, _ *http.Request, _ subscriptions.Owner) {
-	cats := s.Searches.Categories()[subscriptions.DefaultSource]
-	if cats == nil {
-		cats = []sources.Category{}
+// sourceView is one site a search can watch, with what can be searched on it.
+type sourceView struct {
+	ID         string             `json:"id"` // "ss.com", "rrr.lt"
+	Categories []sources.Category `json:"categories"`
+}
+
+// listSources lists the searchable sites, the default one first: the editor's
+// tabs.
+func (s *server) listSources(w http.ResponseWriter, _ *http.Request, _ subscriptions.Owner) {
+	cats := s.Searches.Categories()
+	out := make([]sourceView, 0, len(cats))
+	for name, cs := range cats {
+		if len(cs) > 0 {
+			out = append(out, sourceView{ID: name, Categories: cs})
+		}
 	}
-	writeJSON(w, http.StatusOK, cats)
+	slices.SortFunc(out, func(a, b sourceView) int {
+		if da, db := a.ID == subscriptions.DefaultSource, b.ID == subscriptions.DefaultSource; da != db {
+			if da {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *server) channels(w http.ResponseWriter, r *http.Request, o subscriptions.Owner) {
@@ -230,7 +253,10 @@ func (s *server) listSearches(w http.ResponseWriter, r *http.Request, o subscrip
 }
 
 type searchBody struct {
-	Name      string         `json:"name"`
+	Name string `json:"name"`
+	// Source is the site; empty means subscriptions.DefaultSource (and, on an
+	// update, the site the search already watches).
+	Source    string         `json:"source"`
 	Category  string         `json:"category"`
 	Filters   map[string]any `json:"filters"`
 	ChannelID int64          `json:"channelId"`
@@ -243,7 +269,7 @@ func (s *server) createSearch(w http.ResponseWriter, r *http.Request, o subscrip
 		return
 	}
 	v, err := s.Searches.CreateSearch(r.Context(), o, subscriptions.SearchInput{
-		Name: b.Name, Category: b.Category, Filters: b.Filters, ChannelID: b.ChannelID, Origin: "web",
+		Name: b.Name, Source: b.Source, Category: b.Category, Filters: b.Filters, ChannelID: b.ChannelID, Origin: "web",
 	})
 	if s.fail(w, err) {
 		return
@@ -261,7 +287,7 @@ func (s *server) updateSearch(w http.ResponseWriter, r *http.Request, o subscrip
 		return
 	}
 	v, err := s.Searches.UpdateSearch(r.Context(), o, id, subscriptions.SearchInput{
-		Name: b.Name, Category: b.Category, Filters: b.Filters, ChannelID: b.ChannelID,
+		Name: b.Name, Source: b.Source, Category: b.Category, Filters: b.Filters, ChannelID: b.ChannelID,
 	})
 	if s.fail(w, err) {
 		return
@@ -357,6 +383,8 @@ type previewAd struct {
 }
 
 type previewView struct {
+	// Live: the ads were just read from the site, not from the store.
+	Live       bool        `json:"live,omitempty"`
 	Scanned    int         `json:"scanned"` // stored ads looked at
 	InScope    int         `json:"inScope"` // of those, in the search's category and area
 	Matched    int         `json:"matched"`
@@ -373,7 +401,11 @@ func (s *server) previewSearch(w http.ResponseWriter, r *http.Request, _ subscri
 	if !ok {
 		return
 	}
-	stored, err := s.Listings.Recent(r.Context(), subscriptions.DefaultSource, previewLimit)
+	source := b.Source
+	if source == "" {
+		source = subscriptions.DefaultSource
+	}
+	stored, err := s.Listings.Recent(r.Context(), source, previewLimit)
 	if s.fail(w, err) {
 		return
 	}
@@ -381,7 +413,7 @@ func (s *server) previewSearch(w http.ResponseWriter, r *http.Request, _ subscri
 	for i, st := range stored {
 		candidates[i] = st.Listing
 	}
-	p, err := s.Searches.Preview(subscriptions.SearchInput{Category: b.Category, Filters: b.Filters}, candidates)
+	p, err := s.Searches.Preview(subscriptions.SearchInput{Source: source, Category: b.Category, Filters: b.Filters}, candidates)
 	if s.fail(w, err) {
 		return
 	}

@@ -20,8 +20,10 @@ import (
 // fakeSearches: session "s-alice" is Alice (user 1), "s-admin" an admin;
 // search 7 belongs to Alice.
 type fakeSearches struct {
-	created []subscriptions.SearchInput
-	enabled map[int64]bool
+	created   []subscriptions.SearchInput
+	previewed []subscriptions.SearchInput
+	previewOf func([]events.ListingDiscovered) subscriptions.Preview // nil: an empty preview
+	enabled   map[int64]bool
 }
 
 var (
@@ -45,8 +47,21 @@ func (*fakeSearches) SessionOwner(_ context.Context, session string) (subscripti
 	return subscriptions.Owner{}, subscriptions.ErrBadToken
 }
 func (*fakeSearches) Logout(context.Context, string) error { return nil }
-func (*fakeSearches) Preview(subscriptions.SearchInput, []events.ListingDiscovered) (subscriptions.Preview, error) {
+func (f *fakeSearches) Preview(in subscriptions.SearchInput, candidates []events.ListingDiscovered) (subscriptions.Preview, error) {
+	f.previewed = append(f.previewed, in)
+	if f.previewOf != nil {
+		return f.previewOf(candidates), nil
+	}
 	return subscriptions.Preview{}, nil
+}
+
+// CompileFeeds: category "parts" on "fake" watches two feeds; anything else
+// is a mistake in the search.
+func (*fakeSearches) CompileFeeds(in subscriptions.SearchInput) (string, []string, error) {
+	if in.Category != "parts" {
+		return "", nil, &sources.InvalidSearch{Msg: "unknown category"}
+	}
+	return "fake", []string{"a", "b"}, nil
 }
 func (*fakeSearches) ListSearches(_ context.Context, o subscriptions.Owner, all bool) ([]subscriptions.SearchView, error) {
 	if o.UserID != alice.UserID && (!all || !o.Admin) {
@@ -87,7 +102,11 @@ func (*fakeSearches) RecentMatches(context.Context, subscriptions.Owner, int64, 
 	return []subscriptions.MatchRef{{SearchID: 7, Source: "ss.com", ExternalID: "42"}, {SearchID: 7, Source: "ss.com", ExternalID: "gone"}}, nil
 }
 func (*fakeSearches) Categories() map[string][]sources.Category {
-	return map[string][]sources.Category{"ss.com": {{ID: "cars", Label: "Cars"}}}
+	return map[string][]sources.Category{
+		"rrr.lt": {{ID: "parts", Label: "Car parts"}},
+		"ss.com": {{ID: "cars", Label: "Cars"}},
+		"empty":  nil,
+	}
 }
 
 type fakeListings struct{}
@@ -196,10 +215,27 @@ func TestSearchEndpoints(t *testing.T) {
 		t.Errorf("delete: %d", w.Code)
 	}
 
-	var cats []sources.Category
-	w = do(h, "GET", "/api/categories", "s-alice", "", false)
-	if err := json.Unmarshal(w.Body.Bytes(), &cats); err != nil || len(cats) != 1 || cats[0].ID != "cars" {
-		t.Errorf("categories: %s", w.Body)
+	// The editor's tabs: the default site first, sites without categories left out.
+	var srcs []sourceView
+	w = do(h, "GET", "/api/sources", "s-alice", "", false)
+	if err := json.Unmarshal(w.Body.Bytes(), &srcs); err != nil || len(srcs) != 2 ||
+		srcs[0].ID != "ss.com" || srcs[0].Categories[0].ID != "cars" || srcs[1].ID != "rrr.lt" {
+		t.Errorf("sources: %s", w.Body)
+	}
+
+	// The site goes through to the service, for saving and for previews.
+	w = do(h, "POST", "/api/searches", "s-alice", `{"name":"Turbo","source":"rrr.lt","category":"parts","filters":{"make":["BMW"]},"channelId":3}`, true)
+	if w.Code != http.StatusCreated || f.created[len(f.created)-1].Source != "rrr.lt" {
+		t.Errorf("create on rrr.lt: %d %s %+v", w.Code, w.Body, f.created)
+	}
+	for body, want := range map[string]string{
+		`{"source":"rrr.lt","category":"parts","filters":{}}`: "rrr.lt",
+		`{"category":"cars","filters":{}}`:                    subscriptions.DefaultSource,
+	} {
+		w = do(h, "POST", "/api/searches/preview", "s-alice", body, true)
+		if w.Code != http.StatusOK || f.previewed[len(f.previewed)-1].Source != want {
+			t.Errorf("preview %s: %d %s, source %q, want %q", body, w.Code, w.Body, f.previewed[len(f.previewed)-1].Source, want)
+		}
 	}
 	w = do(h, "GET", "/api/matches", "s-alice", "", false)
 	if !strings.Contains(w.Body.String(), `"title":"Skoda"`) || strings.Count(w.Body.String(), `"listing"`) != 1 {
