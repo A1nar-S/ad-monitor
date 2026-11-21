@@ -251,6 +251,9 @@ func TestAdminOnlyAndSPA(t *testing.T) {
 	if w := do(h, "GET", "/api/overview", "s-admin", "", false); w.Code != http.StatusOK {
 		t.Errorf("overview for the admin: %d", w.Code)
 	}
+	if w := do(h, "POST", "/api/listings/1/details", "s-alice", "", true); w.Code != http.StatusForbidden {
+		t.Errorf("reading an ad page for a user: %d, want 403", w.Code)
+	}
 	if w := do(h, "GET", "/api/searches?all=1", "s-admin", "", false); !strings.Contains(w.Body.String(), `"name":"cars"`) {
 		t.Errorf("admin all searches: %s", w.Body)
 	}

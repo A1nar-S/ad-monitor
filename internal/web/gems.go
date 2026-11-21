@@ -26,17 +26,6 @@ func (s *server) routeGems(mux *http.ServeMux) {
 	mux.Handle("POST /api/gems/scan", s.auth(s.admin(s.requestGemScan)))
 }
 
-// admin lets only admins through.
-func (s *server) admin(h ownerHandler) ownerHandler {
-	return func(w http.ResponseWriter, r *http.Request, o subscriptions.Owner) {
-		if !o.Admin {
-			writeError(w, http.StatusForbidden, "admins only")
-			return
-		}
-		h(w, r, o)
-	}
-}
-
 // gemScan reports the latest scan (null before the first).
 func (s *server) gemScan(w http.ResponseWriter, r *http.Request, _ subscriptions.Owner) {
 	scan, ok, err := s.Gems.LatestScan(r.Context(), s.GemSource)
