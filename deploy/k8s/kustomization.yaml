@@ -22,10 +22,10 @@ patches:
 # newName and digest here for every service when a v* tag is pushed; :local
 # is the k3s.sh images import, used until the first release.
 images:
-  - {name: admon/scraper, newTag: local}
-  - {name: admon/ingest, newTag: local}
-  - {name: admon/matcher, newTag: local}
-  - {name: admon/notifier, newTag: local}
-  - {name: admon/bot, newTag: local}
-  - {name: admon/api, newTag: local}
-  - {name: admon/admin, newTag: local}
+  - {name: admon/scraper, newName: ghcr.io/a1nar-s/advertisiment-monitoring/scraper, digest: 'sha256:8248ae936198fd7c2b36d346a6a8ee667ada1063b639a5fce77ff5554100b7ad'}
+  - {name: admon/ingest, newName: ghcr.io/a1nar-s/advertisiment-monitoring/ingest, digest: 'sha256:3c13a158306a34237650f4fce3b329beaf8c9d6cb17a8a8e436eb8cbf5656dc4'}
+  - {name: admon/matcher, newName: ghcr.io/a1nar-s/advertisiment-monitoring/matcher, digest: 'sha256:947763276de67aeb39999cbcb227b87ebfbc6b8f25ba34bdb09e252935750d7d'}
+  - {name: admon/notifier, newName: ghcr.io/a1nar-s/advertisiment-monitoring/notifier, digest: 'sha256:ed13eca162d9a3972609eb99951064f669cae6fe4e6bdd747e8d841c2c208c92'}
+  - {name: admon/bot, newName: ghcr.io/a1nar-s/advertisiment-monitoring/bot, digest: 'sha256:9eb838f790ec0a884c8eb5062abb9723a9cb6902d8bbe3ca756df00124a275d3'}
+  - {name: admon/api, newName: ghcr.io/a1nar-s/advertisiment-monitoring/api, digest: 'sha256:8dfa54784b948e503059c50918a191f1673d8d26077e219c6df8a0790acb7e1b'}
+  - {name: admon/admin, newName: ghcr.io/a1nar-s/advertisiment-monitoring/admin, digest: 'sha256:e7d170d0d4bc4d55b42e62da9c7341ca1f18bf70a5a30a5a3184d0694ff9ae34'}
