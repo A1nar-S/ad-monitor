@@ -25,18 +25,31 @@ const fold = (s: string) =>
     .normalize('NFD')
     .replace(/\p{Diacritic}/gu, '')
 
+// Best first: options that start with the text, then those with a word that
+// does ("rim" finds "R16 alloy rim" before "Door trim"), then the rest that
+// contain it. Without text, the options keep the order the API gave them.
+const wordChar = /[\p{L}\p{N}]/u
+// startsWord: q occurs in f right after a non-letter (or at the start).
+function startsWord(f: string, q: string) {
+  for (let i = f.indexOf(q); i !== -1; i = f.indexOf(q, i + 1))
+    if (i === 0 || !wordChar.test(f.charAt(i - 1))) return true
+  return false
+}
+
 const matches = computed(() => {
   const q = fold(query.value.trim())
   const chosen = new Set(model.value)
   const starts: string[] = []
+  const words: string[] = []
   const inside: string[] = []
   for (const o of props.options) {
     if (chosen.has(o)) continue
     const f = fold(o)
     if (f.startsWith(q)) starts.push(o)
+    else if (startsWord(f, q)) words.push(o)
     else if (f.includes(q)) inside.push(o)
   }
-  return [...starts, ...inside].slice(0, 50)
+  return [...starts, ...words, ...inside].slice(0, 50)
 })
 
 const listShown = computed(
@@ -59,6 +72,17 @@ function remove(value: string) {
 function onInput() {
   open.value = true
   active.value = 0
+}
+
+// A category path ("Engine › Turbocharger › Turbo") reads best as its last
+// name, with the groups above it in grey: chips stay short, and options with
+// the same name in different groups can still be told apart.
+const pathSep = ' › '
+function split(option: string): { group: string; name: string } {
+  const i = option.lastIndexOf(pathSep)
+  return i < 0
+    ? { group: '', name: option }
+    : { group: option.slice(0, i), name: option.slice(i + pathSep.length) }
 }
 
 function onEnter() {
@@ -95,11 +119,12 @@ function move(step: number) {
       <span
         v-for="value in model"
         :key="value"
-        class="inline-flex h-6 items-center gap-0.5 rounded bg-gray-100 pr-0.5 pl-2 text-small text-gray-900"
-        >{{ value
-        }}<button
+        class="inline-flex h-6 max-w-full min-w-0 items-center gap-0.5 rounded bg-gray-100 pr-0.5 pl-2 text-small text-gray-900"
+        :title="value"
+        ><span class="truncate">{{ split(value).name }}</span
+        ><button
           type="button"
-          class="grid size-5 place-items-center rounded-sm text-gray-500 hover:bg-gray-200 hover:text-gray-900"
+          class="grid size-5 shrink-0 place-items-center rounded-sm text-gray-500 hover:bg-gray-200 hover:text-gray-900"
           :aria-label="t('multiSelect.remove', { value })"
           @click="remove(value)"
         >
@@ -136,10 +161,16 @@ function move(step: number) {
         :aria-selected="index === active"
         class="cursor-pointer rounded-md px-2.5 py-1.5 text-sm text-gray-900"
         :class="{ 'bg-gray-100': index === active }"
+        :title="split(option).group ? option : undefined"
         @mousedown.prevent="add(option)"
         @mouseenter="active = index"
       >
-        {{ option }}
+        <span class="block truncate">{{ split(option).name }}</span>
+        <span
+          v-if="split(option).group"
+          class="block truncate text-xs text-gray-500"
+          >{{ split(option).group }}</span
+        >
       </li>
       <li
         v-if="allowFree && query.trim() && !matches.includes(query.trim())"
