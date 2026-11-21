@@ -32,6 +32,8 @@ type Listing struct {
 	Feed        string
 	Details     []byte
 	DetailedAt  pgtype.Timestamptz
+	Fingerprint string
+	SeenByFeed  bool
 }
 
 type ListingsOutbox struct {

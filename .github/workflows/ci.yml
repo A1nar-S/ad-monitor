@@ -95,7 +95,7 @@ jobs:
           sqlc-version: "1.31.1"
       - name: Generated code matches the queries
         run: |
-          for slice in listings notifications subscriptions; do
+          for slice in gems listings notifications subscriptions; do
             (cd "internal/$slice" && sqlc diff)
           done
 

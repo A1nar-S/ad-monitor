@@ -62,7 +62,7 @@ const DefaultSeedWindow = 2 * time.Minute
 // the same transaction, for the relay to publish. It reports whether the
 // listing was new.
 func (s *Service) Ingest(ctx context.Context, l events.ListingDiscovered) (bool, error) {
-	var isNew bool
+	var isNew, repost bool
 	var result string
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
@@ -80,9 +80,15 @@ func (s *Service) Ingest(ctx context.Context, l events.ListingDiscovered) (bool,
 		if err != nil {
 			return err
 		}
+		// An ad only a full scan stored is still unseen to the feeds.
+		scannedOnly, err := q.ScannedOnly(ctx, listingsdb.ScannedOnlyParams{Source: l.Source, ExternalID: l.ExternalID})
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("check %s/%s: %w", l.Source, l.ExternalID, err)
+		}
 		if isNew, err = q.UpsertListing(ctx, params); err != nil {
 			return fmt.Errorf("upsert %s/%s: %w", l.Source, l.ExternalID, err)
 		}
+		isNew = isNew || scannedOnly != nil && *scannedOnly
 		if !isNew || seeding {
 			result = "known"
 			if isNew {
@@ -91,6 +97,10 @@ func (s *Service) Ingest(ctx context.Context, l events.ListingDiscovered) (bool,
 			return nil
 		}
 		result = "new"
+		if l.RepostOf, err = repostOf(ctx, q, l); err != nil {
+			return err
+		}
+		repost = l.RepostOf != nil
 		payload, err := json.Marshal(l)
 		if err != nil {
 			return err
@@ -100,8 +110,34 @@ func (s *Service) Ingest(ctx context.Context, l events.ListingDiscovered) (bool,
 	})
 	if err == nil {
 		ingested.WithLabelValues(result).Inc()
+		if repost {
+			reposts.Inc()
+		}
 	}
 	return isNew, err
+}
+
+// repostOf looks for earlier ads of l's item; nil when there are none or
+// the source cannot tell.
+func repostOf(ctx context.Context, q *listingsdb.Queries, l events.ListingDiscovered) (*events.Repost, error) {
+	if l.Fingerprint == "" {
+		return nil, nil
+	}
+	if err := q.LockFingerprint(ctx, listingsdb.LockFingerprintParams{Source: l.Source, Fingerprint: l.Fingerprint}); err != nil {
+		return nil, fmt.Errorf("lock %s/%s: %w", l.Source, l.ExternalID, err)
+	}
+	r, err := q.EarlierListing(ctx, listingsdb.EarlierListingParams{Source: l.Source, Fingerprint: l.Fingerprint, ExternalID: l.ExternalID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("earlier ads of %s/%s: %w", l.Source, l.ExternalID, err)
+	}
+	slog.Debug("repost", "source", l.Source, "id", l.ExternalID, "earlier", r.ExternalID, "times", r.Times)
+	return &events.Repost{
+		ExternalID: r.ExternalID, FirstListed: r.FirstListed.Time, Times: int(r.Times),
+		Price: r.Price, PriceValue: r.PriceValue,
+	}, nil
 }
 
 // RelayOutbox publishes up to batch unpublished outbox entries through
@@ -268,6 +304,97 @@ func (s *Service) SaveDetails(ctx context.Context, before, enriched events.Listi
 	})
 }
 
+// PeerQuery picks the stored ads a car is priced against.
+type PeerQuery struct {
+	Source, Make, Model string
+	YearMin, YearMax    int
+	Exclude             string // the car's own external ID
+	Fingerprint         string // its item's; its earlier ads are left out too. "" = none
+}
+
+// Peer is a stored ad a car may be priced against. Feed and Location let the
+// caller ask the source whether it is a car for sale.
+type Peer struct {
+	Feed, Location string
+	Price          float64
+	Year           int
+	MileageKm      float64  // 0 = unknown
+	Fuel           string   // as the source writes it; "" = unknown
+	Equipment      []string // from the ad page, as the source names it; none = never read, or nothing ticked
+}
+
+// CarPeers returns stored ads of the same make and model as q, newest first.
+func (s *Service) CarPeers(ctx context.Context, q PeerQuery) ([]Peer, error) {
+	rows, err := s.q.CarPeers(ctx, listingsdb.CarPeersParams{
+		Source: q.Source, Make: q.Make, Model: q.Model,
+		YearMin: float64(q.YearMin), YearMax: float64(q.YearMax), Exclude: q.Exclude, Fingerprint: q.Fingerprint,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Peer, len(rows))
+	for i, r := range rows {
+		out[i] = Peer{Feed: r.Feed, Location: r.Location, Price: r.Price, Year: int(r.Year), MileageKm: r.MileageKm, Fuel: r.Fuel}
+		if json.Unmarshal(r.Equipment, &out[i].Equipment) != nil || len(out[i].Equipment) == 0 {
+			out[i].Equipment = nil // none, or a list of something else
+		}
+	}
+	return out, nil
+}
+
+// StoreScanned keeps what a full scan saw, announcing nothing: a new row
+// stays unseen for the feeds, so its first regular sight is still new.
+func (s *Service) StoreScanned(ctx context.Context, l events.ListingDiscovered) error {
+	params, err := upsertParams(l)
+	if err != nil {
+		return err
+	}
+	return s.q.StoreScanned(ctx, listingsdb.StoreScannedParams(params))
+}
+
+// UnseenSince lists the active ads of source not seen since since, with
+// only Source, ExternalID, Feed and Location set.
+func (s *Service) UnseenSince(ctx context.Context, source string, since time.Time) ([]events.ListingDiscovered, error) {
+	rows, err := s.q.UnseenSince(ctx, listingsdb.UnseenSinceParams{Source: source, Since: pgtype.Timestamptz{Time: since, Valid: true}})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]events.ListingDiscovered, len(rows))
+	for i, r := range rows {
+		out[i] = events.ListingDiscovered{Source: source, ExternalID: r.ExternalID, Feed: r.Feed, Location: r.Location}
+	}
+	return out, nil
+}
+
+// MarkGoneIDs records that these ads left the site; returns how many were
+// still active.
+func (s *Service) MarkGoneIDs(ctx context.Context, source string, ids []string) (int64, error) {
+	return s.q.MarkGoneIDs(ctx, listingsdb.MarkGoneIDsParams{Source: source, Ids: ids})
+}
+
+// StoredCar is a stored ad with a make and a price, ad-page details merged.
+type StoredCar struct {
+	ID       int64
+	Listing  events.ListingDiscovered
+	Active   bool
+	Detailed bool // its ad page was read
+}
+
+// StoredCars returns every stored ad of source with a make and a price.
+func (s *Service) StoredCars(ctx context.Context, source string) ([]StoredCar, error) {
+	rows, err := s.q.StoredCars(ctx, source)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]StoredCar, len(rows))
+	for i, r := range rows {
+		l := fromRow(source, r.ExternalID, r.Feed, r.Title, r.Url, r.Location, r.Price, r.PriceValue, r.ImageUrl, r.Attrs, r.PostedAt)
+		l.Fingerprint = r.Fingerprint
+		out[i] = StoredCar{ID: r.ID, Listing: l, Active: r.IsActive, Detailed: r.Detailed}
+	}
+	return out, nil
+}
+
 // MarkGone records that a listing's ad page is gone.
 func (s *Service) MarkGone(ctx context.Context, source, externalID string) error {
 	return s.q.MarkListingGone(ctx, listingsdb.MarkListingGoneParams{Source: source, ExternalID: externalID})
@@ -308,16 +435,17 @@ func upsertParams(l events.ListingDiscovered) (listingsdb.UpsertListingParams, e
 		attrs = []byte("{}") // the column is NOT NULL; "null" would be valid JSON but not an object
 	}
 	return listingsdb.UpsertListingParams{
-		Source:     l.Source,
-		ExternalID: l.ExternalID,
-		Feed:       l.Feed,
-		Title:      l.Title,
-		Url:        l.URL,
-		Location:   l.Location,
-		Attrs:      attrs,
-		Price:      l.Price,
-		PriceValue: l.PriceValue,
-		ImageUrl:   l.ImageURL,
-		PostedAt:   pgtype.Timestamptz{Time: l.PostedAt, Valid: !l.PostedAt.IsZero()},
+		Source:      l.Source,
+		ExternalID:  l.ExternalID,
+		Feed:        l.Feed,
+		Title:       l.Title,
+		Url:         l.URL,
+		Location:    l.Location,
+		Attrs:       attrs,
+		Price:       l.Price,
+		PriceValue:  l.PriceValue,
+		ImageUrl:    l.ImageURL,
+		PostedAt:    pgtype.Timestamptz{Time: l.PostedAt, Valid: !l.PostedAt.IsZero()},
+		Fingerprint: l.Fingerprint,
 	}, nil
 }

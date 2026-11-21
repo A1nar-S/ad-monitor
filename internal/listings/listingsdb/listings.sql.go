@@ -11,6 +11,87 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const carPeers = `-- name: CarPeers :many
+SELECT feed, location, price_value::float8 AS price,
+       (attrs->>'year')::float8 AS year,
+       COALESCE(CASE WHEN jsonb_typeof(attrs->'mileage_km') = 'number' THEN (attrs->>'mileage_km')::float8 END, 0)::float8 AS mileage_km,
+       COALESCE(attrs->>'fuel', '')::text AS fuel,
+       (CASE WHEN jsonb_typeof(details->'equipment') = 'array' THEN details->'equipment' ELSE '[]'::jsonb END)::jsonb AS equipment
+FROM listings
+WHERE source = $1
+  AND attrs->>'make' = $2::text
+  AND attrs->>'model' = $3::text
+  AND (CASE WHEN jsonb_typeof(attrs->'year') = 'number' THEN (attrs->>'year')::float8 END) BETWEEN $4::float8 AND $5::float8
+  AND price_value IS NOT NULL
+  AND external_id <> $6::text
+  -- The car's own earlier ads (reposts) would price it against itself.
+  AND ($7::text = '' OR fingerprint <> $7::text)
+ORDER BY last_seen_at DESC
+LIMIT 2000
+`
+
+type CarPeersParams struct {
+	Source      string
+	Make        string
+	Model       string
+	YearMin     float64
+	YearMax     float64
+	Exclude     string
+	Fingerprint string
+}
+
+type CarPeersRow struct {
+	Feed      string
+	Location  string
+	Price     float64
+	Year      float64
+	MileageKm float64
+	Fuel      string
+	Equipment []byte
+}
+
+// Stored ads to price a car against: same make and model, a year in range.
+// Only the list-page attrs are read, as every ad has them; fuel comes back
+// for the caller to compare in its own terms. The caller also checks each
+// is a car for sale, from feed and location, so the limit leaves room for
+// the wanted and exchange ads it drops. Mileage 0 is unknown; equipment
+// comes from the ad page, so it is [] for an ad whose page was never read.
+func (q *Queries) CarPeers(ctx context.Context, arg CarPeersParams) ([]CarPeersRow, error) {
+	rows, err := q.db.Query(ctx, carPeers,
+		arg.Source,
+		arg.Make,
+		arg.Model,
+		arg.YearMin,
+		arg.YearMax,
+		arg.Exclude,
+		arg.Fingerprint,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CarPeersRow
+	for rows.Next() {
+		var i CarPeersRow
+		if err := rows.Scan(
+			&i.Feed,
+			&i.Location,
+			&i.Price,
+			&i.Year,
+			&i.MileageKm,
+			&i.Fuel,
+			&i.Equipment,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const claimOutbox = `-- name: ClaimOutbox :many
 SELECT id, payload FROM listings_outbox
 WHERE published_at IS NULL
@@ -42,6 +123,50 @@ func (q *Queries) ClaimOutbox(ctx context.Context, batch int32) ([]ClaimOutboxRo
 		return nil, err
 	}
 	return items, nil
+}
+
+const earlierListing = `-- name: EarlierListing :one
+SELECT l.external_id, l.price, l.price_value,
+       (SELECT count(*) FROM listings o
+        WHERE o.source = $1 AND o.fingerprint = $2 AND o.fingerprint <> ''
+          AND o.external_id <> $3)::int AS times,
+       (SELECT min(o.first_seen_at) FROM listings o
+        WHERE o.source = $1 AND o.fingerprint = $2 AND o.fingerprint <> ''
+          AND o.external_id <> $3)::timestamptz AS first_listed
+FROM listings l
+WHERE l.source = $1 AND l.fingerprint = $2 AND l.fingerprint <> '' AND l.external_id <> $3
+ORDER BY l.first_seen_at DESC, l.id DESC
+LIMIT 1
+`
+
+type EarlierListingParams struct {
+	Source      string
+	Fingerprint string
+	ExternalID  string
+}
+
+type EarlierListingRow struct {
+	ExternalID  string
+	Price       string
+	PriceValue  *float64
+	Times       int32
+	FirstListed pgtype.Timestamptz
+}
+
+// The latest other stored ad of the same item, with how many there are and
+// when the item was first seen: what a repost alert says about its past.
+// fingerprint <> ” lets the partial index serve it.
+func (q *Queries) EarlierListing(ctx context.Context, arg EarlierListingParams) (EarlierListingRow, error) {
+	row := q.db.QueryRow(ctx, earlierListing, arg.Source, arg.Fingerprint, arg.ExternalID)
+	var i EarlierListingRow
+	err := row.Scan(
+		&i.ExternalID,
+		&i.Price,
+		&i.PriceValue,
+		&i.Times,
+		&i.FirstListed,
+	)
+	return i, err
 }
 
 const feedSeen = `-- name: FeedSeen :one
@@ -171,7 +296,7 @@ func (q *Queries) InsertOutbox(ctx context.Context, payload []byte) error {
 }
 
 const knownIDs = `-- name: KnownIDs :many
-SELECT external_id FROM listings WHERE source = $1 AND external_id = ANY($2::text[])
+SELECT external_id FROM listings WHERE source = $1 AND external_id = ANY($2::text[]) AND seen_by_feed
 `
 
 type KnownIDsParams struct {
@@ -180,7 +305,8 @@ type KnownIDsParams struct {
 }
 
 // Which of these ads are already stored. The scraper uses it to see where the
-// ads it saw before begin, also right after a restart.
+// ads it saw before begin, also right after a restart. Ads only a full scan
+// stored don't count: to the feeds they are still unseen.
 func (q *Queries) KnownIDs(ctx context.Context, arg KnownIDsParams) ([]string, error) {
 	rows, err := q.db.Query(ctx, knownIDs, arg.Source, arg.Ids)
 	if err != nil {
@@ -199,6 +325,39 @@ func (q *Queries) KnownIDs(ctx context.Context, arg KnownIDsParams) ([]string, e
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockFingerprint = `-- name: LockFingerprint :exec
+SELECT pg_advisory_xact_lock(hashtext($1::text || '|' || $2::text))
+`
+
+type LockFingerprintParams struct {
+	Source      string
+	Fingerprint string
+}
+
+// Held to the end of the transaction, so two ads of one item ingested at
+// once are seen in turn: the second one finds the first.
+func (q *Queries) LockFingerprint(ctx context.Context, arg LockFingerprintParams) error {
+	_, err := q.db.Exec(ctx, lockFingerprint, arg.Source, arg.Fingerprint)
+	return err
+}
+
+const markGoneIDs = `-- name: MarkGoneIDs :execrows
+UPDATE listings SET is_active = FALSE WHERE source = $1 AND external_id = ANY($2::text[]) AND is_active
+`
+
+type MarkGoneIDsParams struct {
+	Source string
+	Ids    []string
+}
+
+func (q *Queries) MarkGoneIDs(ctx context.Context, arg MarkGoneIDsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markGoneIDs, arg.Source, arg.Ids)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const markListingGone = `-- name: MarkListingGone :exec
@@ -334,6 +493,142 @@ func (q *Queries) SaveListingDetails(ctx context.Context, arg SaveListingDetails
 	return err
 }
 
+const scannedOnly = `-- name: ScannedOnly :one
+SELECT NOT seen_by_feed FROM listings WHERE source = $1 AND external_id = $2 FOR UPDATE
+`
+
+type ScannedOnlyParams struct {
+	Source     string
+	ExternalID string
+}
+
+// Whether only a full scan has stored this ad, locking the row to the end of
+// the transaction: of two ingests of it at once, one sees true, then false.
+func (q *Queries) ScannedOnly(ctx context.Context, arg ScannedOnlyParams) (*bool, error) {
+	row := q.db.QueryRow(ctx, scannedOnly, arg.Source, arg.ExternalID)
+	var column_1 *bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const storeScanned = `-- name: StoreScanned :exec
+INSERT INTO listings (
+    source, external_id, feed, title, url, location, attrs, price, price_value, image_url, posted_at, fingerprint, seen_by_feed
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, FALSE
+)
+ON CONFLICT (source, external_id) DO UPDATE SET
+    feed         = CASE WHEN listings.feed = '' OR starts_with(EXCLUDED.feed, listings.feed || '/')
+                        THEN EXCLUDED.feed ELSE listings.feed END,
+    title        = EXCLUDED.title,
+    url          = EXCLUDED.url,
+    location     = EXCLUDED.location,
+    attrs        = EXCLUDED.attrs,
+    price        = EXCLUDED.price,
+    price_value  = EXCLUDED.price_value,
+    image_url    = EXCLUDED.image_url,
+    fingerprint  = CASE WHEN EXCLUDED.fingerprint <> '' THEN EXCLUDED.fingerprint ELSE listings.fingerprint END,
+    last_seen_at = now(),
+    is_active    = TRUE
+`
+
+type StoreScannedParams struct {
+	Source      string
+	ExternalID  string
+	Feed        string
+	Title       string
+	Url         string
+	Location    string
+	Attrs       []byte
+	Price       string
+	PriceValue  *float64
+	ImageUrl    string
+	PostedAt    pgtype.Timestamptz
+	Fingerprint string
+}
+
+// Stores what a full scan saw without announcing it: a new row is marked
+// not yet seen by a feed (see UpsertListing); a known one is refreshed.
+func (q *Queries) StoreScanned(ctx context.Context, arg StoreScannedParams) error {
+	_, err := q.db.Exec(ctx, storeScanned,
+		arg.Source,
+		arg.ExternalID,
+		arg.Feed,
+		arg.Title,
+		arg.Url,
+		arg.Location,
+		arg.Attrs,
+		arg.Price,
+		arg.PriceValue,
+		arg.ImageUrl,
+		arg.PostedAt,
+		arg.Fingerprint,
+	)
+	return err
+}
+
+const storedCars = `-- name: StoredCars :many
+SELECT id, external_id, feed, location, title, url, price, price_value, image_url,
+       (attrs || COALESCE(details, '{}'::jsonb))::jsonb AS attrs, posted_at, fingerprint, is_active,
+       (detailed_at IS NOT NULL)::boolean AS detailed
+FROM listings
+WHERE source = $1 AND attrs ? 'make' AND price_value IS NOT NULL
+`
+
+type StoredCarsRow struct {
+	ID          int64
+	ExternalID  string
+	Feed        string
+	Location    string
+	Title       string
+	Url         string
+	Price       string
+	PriceValue  *float64
+	ImageUrl    string
+	Attrs       []byte
+	PostedAt    pgtype.Timestamptz
+	Fingerprint string
+	IsActive    bool
+	Detailed    bool
+}
+
+// Every stored ad of a source with a make and a price, ad-page details
+// merged: what a gem scan rates and compares with.
+func (q *Queries) StoredCars(ctx context.Context, source string) ([]StoredCarsRow, error) {
+	rows, err := q.db.Query(ctx, storedCars, source)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []StoredCarsRow
+	for rows.Next() {
+		var i StoredCarsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ExternalID,
+			&i.Feed,
+			&i.Location,
+			&i.Title,
+			&i.Url,
+			&i.Price,
+			&i.PriceValue,
+			&i.ImageUrl,
+			&i.Attrs,
+			&i.PostedAt,
+			&i.Fingerprint,
+			&i.IsActive,
+			&i.Detailed,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const touchFeed = `-- name: TouchFeed :one
 INSERT INTO feed_state (source, feed) VALUES ($1, $2)
 ON CONFLICT (source, feed) DO UPDATE SET source = EXCLUDED.source
@@ -354,11 +649,49 @@ func (q *Queries) TouchFeed(ctx context.Context, arg TouchFeedParams) (float64, 
 	return age_seconds, err
 }
 
+const unseenSince = `-- name: UnseenSince :many
+SELECT external_id, feed, location FROM listings
+WHERE source = $1 AND is_active AND last_seen_at < $2
+`
+
+type UnseenSinceParams struct {
+	Source string
+	Since  pgtype.Timestamptz
+}
+
+type UnseenSinceRow struct {
+	ExternalID string
+	Feed       string
+	Location   string
+}
+
+// Active ads not seen since a scan began: gone from the site if the scan
+// covered them (the caller decides, from feed and location).
+func (q *Queries) UnseenSince(ctx context.Context, arg UnseenSinceParams) ([]UnseenSinceRow, error) {
+	rows, err := q.db.Query(ctx, unseenSince, arg.Source, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UnseenSinceRow
+	for rows.Next() {
+		var i UnseenSinceRow
+		if err := rows.Scan(&i.ExternalID, &i.Feed, &i.Location); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertListing = `-- name: UpsertListing :one
 INSERT INTO listings (
-    source, external_id, feed, title, url, location, attrs, price, price_value, image_url, posted_at
+    source, external_id, feed, title, url, location, attrs, price, price_value, image_url, posted_at, fingerprint
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
 )
 ON CONFLICT (source, external_id) DO UPDATE SET
     -- The first feed sticks, unless a narrower one now sees the ad (an ad
@@ -372,27 +705,33 @@ ON CONFLICT (source, external_id) DO UPDATE SET
     price        = EXCLUDED.price,
     price_value  = EXCLUDED.price_value,
     image_url    = EXCLUDED.image_url,
+    -- A row the source can no longer tell (a mileage removed) keeps its
+    -- fingerprint; older rows gain one.
+    fingerprint  = CASE WHEN EXCLUDED.fingerprint <> '' THEN EXCLUDED.fingerprint ELSE listings.fingerprint END,
     last_seen_at = now(),
-    is_active    = TRUE
+    is_active    = TRUE,
+    seen_by_feed = TRUE
 RETURNING (xmax = 0)::boolean AS is_new
 `
 
 type UpsertListingParams struct {
-	Source     string
-	ExternalID string
-	Feed       string
-	Title      string
-	Url        string
-	Location   string
-	Attrs      []byte
-	Price      string
-	PriceValue *float64
-	ImageUrl   string
-	PostedAt   pgtype.Timestamptz
+	Source      string
+	ExternalID  string
+	Feed        string
+	Title       string
+	Url         string
+	Location    string
+	Attrs       []byte
+	Price       string
+	PriceValue  *float64
+	ImageUrl    string
+	PostedAt    pgtype.Timestamptz
+	Fingerprint string
 }
 
 // Inserts a listing or refreshes a known one. xmax is zero only on a fresh
-// insert, which tells the caller whether the listing is new.
+// insert, which tells the caller whether the listing is new (see also
+// ScannedOnly).
 func (q *Queries) UpsertListing(ctx context.Context, arg UpsertListingParams) (bool, error) {
 	row := q.db.QueryRow(ctx, upsertListing,
 		arg.Source,
@@ -406,6 +745,7 @@ func (q *Queries) UpsertListing(ctx context.Context, arg UpsertListingParams) (b
 		arg.PriceValue,
 		arg.ImageUrl,
 		arg.PostedAt,
+		arg.Fingerprint,
 	)
 	var is_new bool
 	err := row.Scan(&is_new)

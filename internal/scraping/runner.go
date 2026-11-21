@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"sync"
 	"time"
 
 	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
@@ -54,6 +55,9 @@ type Runner struct {
 	Interval time.Duration
 	Gap      time.Duration // minimum time between two requests
 	MaxPages int
+	// Throttle, when set, spaces requests instead of Gap, shared with other
+	// work on the same site (a gem scan).
+	Throttle *Throttle
 
 	lastReq time.Time
 	// seen holds the IDs from the previous cycle per feed, covering the time
@@ -274,10 +278,32 @@ func (r *Runner) feedSeen(ctx context.Context, feed string) bool {
 
 // throttle waits until Gap has passed since the previous request.
 func (r *Runner) throttle(ctx context.Context) bool {
+	if r.Throttle != nil {
+		return r.Throttle.Wait(ctx)
+	}
 	if wait := r.Gap - time.Since(r.lastReq); wait > 0 && !sleep(ctx, wait) {
 		return false
 	}
 	r.lastReq = time.Now()
+	return true
+}
+
+// Throttle spaces requests to one site across goroutines: each waits until
+// Gap has passed since the previous one, whoever made it.
+type Throttle struct {
+	Gap  time.Duration
+	mu   sync.Mutex
+	last time.Time
+}
+
+// Wait blocks until the next request may go; false if ctx ended first.
+func (t *Throttle) Wait(ctx context.Context) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if wait := t.Gap - time.Since(t.last); wait > 0 && !sleep(ctx, wait) {
+		return false
+	}
+	t.last = time.Now()
 	return true
 }
 

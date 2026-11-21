@@ -54,9 +54,9 @@ flowchart LR
 
 | Service | Job |
 |---|---|
-| scraper | Polls the feeds searches need, through each site's adapter; publishes every ad seen |
-| ingest | Stores ads; outboxes the new ones |
-| matcher | Matches new ads to searches; reads the ad page only when a filter needs it |
+| scraper | Polls the feeds searches need, through each site's adapter; publishes every ad seen; runs gem scans |
+| ingest | Stores ads; outboxes the new ones (reposts marked) |
+| matcher | Matches new ads to searches; reads ad pages when needed; rates car alerts |
 | notifier | Delivers alerts, idempotent, with burst digests |
 | bot | Chat commands: `/watch`, `/searches`, `/dashboard` |
 | api | Dashboard and JSON API; search preview; admin overview; the price picker |
@@ -101,9 +101,10 @@ flowchart TB
     listings[listings] --- t1[(listings, listings_outbox, feed_state)]
     subs[subscriptions] --- t2[(users, channels, searches, matches, sessions, login_tokens, settings, watch_targets, watches, watch_prices, watch_alerts)]
     notif[notifications] --- t3[(deliveries, digest_queue)]
+    gemsl[gems] --- t4[(gem_scans, gems)]
     scraping[sources + scraping: one adapter per site]
 
-    listings & subs & notif & scraping -.-> events
+    listings & subs & notif & gemsl & scraping -.-> events
 ```
 
 ## Adding a website
@@ -113,11 +114,12 @@ flowchart LR
     adapter[New adapter<br/>internal/scraping/site] -- implements --> src[sources.Source<br/>FetchFeed · PlanFeeds · InScope]
     adapter -. optional .-> cat[sources.Catalog<br/>search form fields]
     adapter -. optional .-> enr[sources.Enricher<br/>ad page details]
+    adapter -. optional .-> car[sources.CarAds<br/>car verdicts]
     src --> reg[app.KnownSources<br/>register once]
 ```
 
-Two adapters exist: `scraping/ss` (HTML feed pages, ad pages as `Enricher`) and `scraping/rrr` (rrr.lt's GraphQL API,
-one query per search). The dashboard's editor shows a tab per registered `Catalog` (`GET /api/sources`).
+Two adapters exist: `scraping/ss` (HTML feed pages, ad pages as `Enricher`, cars as `CarAds`) and `scraping/rrr`
+(rrr.lt's GraphQL API, one query per search). The dashboard's editor shows a tab per registered `Catalog` (`GET /api/sources`).
 
 ## Price watches
 

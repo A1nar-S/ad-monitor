@@ -191,13 +191,21 @@ type fakeDiscord struct {
 	sent []sent
 }
 
-type sent struct{ target, listingID, text string }
+type sent struct {
+	target, listingID, text string
+	fields                  []events.Field
+	repostOf                string // the earlier ad's ID, for a repost
+}
 
 func (*fakeDiscord) Kind() string { return "discord" }
 func (d *fakeDiscord) NotifyListing(_ context.Context, target string, l events.ListingDiscovered) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.sent = append(d.sent, sent{target: target, listingID: l.ExternalID})
+	s := sent{target: target, listingID: l.ExternalID, fields: l.Fields}
+	if l.RepostOf != nil {
+		s.repostOf = l.RepostOf.ExternalID
+	}
+	d.sent = append(d.sent, s)
 	return nil
 }
 func (d *fakeDiscord) NotifyText(_ context.Context, target, msg string) error {
@@ -322,6 +330,12 @@ func TestPipeline(t *testing.T) {
 	t.Cleanup(pool.Close)
 
 	site := newFakeSS(t)
+	// Car alerts read the ad page; an empty one is ss.com's "removed" page.
+	ad, err := os.ReadFile(filepath.Join("..", "scraping", "ss", "testdata", "ad_car.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	site.adPage = string(ad)
 	site.serve(flatsFeed, "feed_district.html", t)
 	site.serve(cityFeed, "feed_city.html", t)
 	site.serve(carsFeed, "feed_cars_model.html", t)
@@ -523,13 +537,27 @@ func TestCarsPipeline(t *testing.T) {
 	// 2. A new Peugeot: its ad page is read once; it is automatic, so alert.
 	site.addAd(allCarsFeed, "58220110", "99100001")
 	eventually(t, 60*time.Second, "automatic peugeot alert", func() bool { return len(discord.listings()) == 1 })
-	// 3. A new cheap Opel: alert without reading its ad page (the Peugeot
-	// search already fails on make).
+	// The fake site posts it as a copy of a prefilled ad: a repost.
+	if got := discord.listings()[0].repostOf; got != "58220110" {
+		t.Errorf("peugeot repost of %q, want 58220110 (the ad it was copied from)", got)
+	}
+	// A car for sale is rated: its engine's reputation (a 2017 1.6 diesel)
+	// and the equipment its ad page lists. Too few stored 508s to price it.
+	verdicts := map[string]string{}
+	for _, f := range discord.listings()[0].fields {
+		verdicts[f.Name] = f.Value
+	}
+	if !strings.HasPrefix(verdicts["🔧 Engine verdict"], "😐 OK: 1.5/1.6 TDCi/HDi (later)") ||
+		verdicts["🧰 Equipment verdict"] == "" || verdicts["⭐ Overall"] == "" || verdicts["🏷️ Price verdict"] != "" {
+		t.Errorf("peugeot verdicts = %q, want engine, equipment and overall, no price", verdicts)
+	}
+	// 3. A new cheap Opel: no search needs its ad page (the Peugeot search
+	// already fails on make), but its alert rates it, so it is read once.
 	site.addAd(allCarsFeed, "58269130", "99100002")
 	eventually(t, 60*time.Second, "cheap opel alert", func() bool { return len(discord.listings()) == 2 })
 	consistently(t, 2*time.Second, "no extra alerts", func() bool { return len(discord.listings()) == 2 })
-	if site.adHits() != 1 {
-		t.Errorf("ad pages read = %d, want 1 (only the Peugeot candidate)", site.adHits())
+	if site.adHits() != 2 {
+		t.Errorf("ad pages read = %d, want 2 (one per alerted car)", site.adHits())
 	}
 
 	// 4. Scraper down while 45 cheap Opels are posted, with an old ad bumped

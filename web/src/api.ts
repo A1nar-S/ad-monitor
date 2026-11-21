@@ -11,6 +11,63 @@ export type Me = {
   maxWatches: number
   // Check intervals a price watch may use, in minutes.
   watchIntervals: number[]
+  // The admin's gem finder is on.
+  gems: boolean
+}
+
+// A full scan of every car for sale, rated: the gem finder.
+export type GemScan = {
+  id: number
+  status: 'requested' | 'running' | 'done' | 'failed'
+  requestedAt: string
+  startedAt?: string
+  finishedAt?: string
+  pages: number
+  ads: number
+  gone: number
+  rated: number
+  error?: string
+  // The crawl reached the end and sold cars were marked; note says why not.
+  complete: boolean
+  note?: string
+}
+
+export type GemBuy = 'good' | 'average' | 'bad' | 'check'
+
+export type Gem = {
+  externalId: string
+  title: string
+  url: string
+  imageUrl: string
+  make: string
+  model: string
+  year: number
+  mileageKm: number
+  fuel: string
+  price: string
+  priceValue: number
+  buy: GemBuy
+  overall: string
+  fields: { name: string; value: string }[]
+}
+
+export type GemQuery = {
+  make?: string
+  model?: string
+  buy?: GemBuy | ''
+  maxPrice?: number
+  minYear?: number
+  maxMileage?: number
+  sort?: '' | 'price' | 'year'
+  page?: number
+}
+
+export type GemPage = {
+  items: Gem[]
+  total: number
+  page: number
+  pageSize: number
+  models: { make: string; model: string; count: number }[]
 }
 
 export type FieldSpec = {
@@ -129,6 +186,16 @@ export const api = {
     call<void>('PATCH', `/api/searches/${id}`, { enabled }),
   deleteSearch: (id: number) => call<void>('DELETE', `/api/searches/${id}`),
   matches: (limit = 50) => call<Match[]>('GET', `/api/matches?limit=${limit}`),
+
+  gemScan: () => call<GemScan | null>('GET', '/api/gems/scan'),
+  requestGemScan: () => call<GemScan>('POST', '/api/gems/scan'),
+  gems: (q: GemQuery) => {
+    const params = new URLSearchParams()
+    for (const [key, value] of Object.entries(q))
+      if (value !== undefined && value !== '' && value !== 0)
+        params.set(key, String(value))
+    return call<GemPage>('GET', `/api/gems?${params}`)
+  },
 
   watches: (all = false) =>
     call<Watch[]>('GET', `/api/watches${all ? '?all=1' : ''}`),

@@ -98,6 +98,32 @@ type Enricher interface {
 	Enrich(ctx context.Context, l events.ListingDiscovered) (events.ListingDiscovered, error)
 }
 
+// CarAds is optionally implemented by a source that lists whole cars (ss.com).
+// The matcher rates such ads for the alert: overall, price and equipment
+// against similar stored ones, engine and gearbox reputation (see
+// internal/deals). Car parts carry a make and model too, which is why the
+// source must say which ads are cars.
+type CarAds interface {
+	// RateableCar reports whether l is a car offered for sale that can be
+	// compared with others (not one filed under a catch-all "other" model).
+	// It is also asked of stored ads, which carry only Source, Feed and
+	// Location.
+	RateableCar(l events.ListingDiscovered) bool
+	// CarTerm translates one of the source's attr values into the English
+	// vocabulary internal/deals rates in: for "fuel" petrol, diesel, hybrid
+	// or electric; for "gearbox" automatic or manual; for "equipment" a
+	// feature name such as "climate control". "" = no equivalent. The site's
+	// own words stay in its adapter.
+	CarTerm(key, value string) string
+}
+
+// CarScan is optionally implemented by a car source whose every car for
+// sale an admin can scan and rate at once (the gem finder, internal/gems).
+type CarScan interface {
+	// CarSaleFeed is the feed listing every car for sale.
+	CarSaleFeed() string
+}
+
 // ErrGone is returned by Enrich for an ad that was removed meanwhile.
 var ErrGone = errors.New("listing no longer exists")
 

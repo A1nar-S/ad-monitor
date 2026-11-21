@@ -63,6 +63,9 @@ type Config struct {
 	Watches    Watches
 	Pages      Pages
 	MaxWatches int
+	// The admin's gem finder; nil or no source turns it off.
+	Gems      Gems
+	GemSource string
 }
 
 const (
@@ -100,6 +103,7 @@ func New(cfg Config) http.Handler {
 	mux.Handle("POST /api/searches/preview/live", s.auth(s.previewLive))
 	mux.Handle("POST /api/listings/{id}/details", s.auth(s.listingDetails))
 	s.routeWatches(mux)
+	s.routeGems(mux)
 	if cfg.Overview != nil {
 		mux.Handle("GET /api/overview", s.auth(func(w http.ResponseWriter, r *http.Request, o subscriptions.Owner) {
 			if !o.Admin {
@@ -201,6 +205,7 @@ func (s *server) me(w http.ResponseWriter, _ *http.Request, o subscriptions.Owne
 	me := map[string]any{
 		"name": o.Name, "platform": o.Platform, "admin": o.Admin, "maxSearches": s.MaxSearches,
 		"maxWatches": s.MaxWatches, "watchIntervals": []int{},
+		"gems": o.Admin && s.Gems != nil && s.GemSource != "",
 	}
 	if s.Watches != nil {
 		me["watchIntervals"] = s.Watches.AllowedWatchIntervals()

@@ -92,9 +92,16 @@ dashboard api ─┴─> subscriptions (users, channels, searches, logins) <─�
   on, but a narrower one replaces it (older ads from `transport/cars` become `…/sell` when seen there).
   Filters on list columns are free (make, model, year, engine, fuel, mileage, price).
   Ad-page-only fields (gearbox, body, color, inspection, equipment; flats: house type) are read **lazily by the matcher**
-  (`sources.Enricher`): only for a new ad that passes every cheap filter of some search, at most once per ad, shared by all
-  searches. If the ad page fails, candidates get the alert flagged "⚠️ Unconfirmed" rather than nothing; a removed ad
-  matches nothing. ss.com's own server search was rejected: it is POST + session, 2 requests per search per cycle.
+  (`sources.Enricher`): only for a new ad that passes every cheap filter of some search (or is an alerted car), at most
+  once per ad, shared by all searches. If the ad page fails, candidates get the alert flagged "⚠️ Unconfirmed" rather than nothing; a removed ad
+  is announced to no one. ss.com's own server search was rejected: it is POST + session, 2 requests per search per cycle.
+- **Reposts:** sources set `Fingerprint` (the item, not the ad; ss.com: `scraping/ss/reposts.go`). A new ad with a known
+  fingerprint is still announced, as an orange "♻️ Reposted listing" with its price history.
+- **Gem finder** (`internal/gems`, admin tab): scans every ss.com car for sale, marks vanished ones sold, rates all,
+  reads the top 50 ad pages. Scanned-only rows have `seen_by_feed = false`, so alerts behave as if no scan ran.
+- **Car verdicts** (`internal/deals`): overall, price vs similar stored ads, engine/gearbox reputation and trim level
+  (`deals/codebook/*.json`). English only; sources translate via `CarAds.CarTerm` (ss.com: `scraping/ss/cars.go`).
+  Car alerts read the ad page if no filter did already (one request; a failed read is tolerated).
 - **Flats:** `region`/`district`/`deal` compile into feed paths (shared by everyone watching the area); the rest are local
   filters.
 - **rrr.lt** (`internal/scraping/rrr`, used car parts): read through the site's own GraphQL API (`POST /graphql`,
@@ -204,6 +211,7 @@ The same code runs in several processes (e.g. `admon_kafka_*` in every service),
 | `admon_scraper_cycle_duration_seconds` | histogram | `source` | Cycle duration |
 | `admon_scraper_last_success_timestamp_seconds` | gauge | `source` | Unix time of the last cycle without errors (alert on `time() - x`) |
 | `admon_ingest_listings_total` | counter | `result` (new, seeded, known) | Listings stored; `new` is announced, `seeded` is new but silent (feed seed window) |
+| `admon_ingest_reposts_total` | counter | — | New ads announced as reposts |
 | `admon_outbox_relayed_total` | counter | `result` (published, failed) | Outbox relay to `listings.new` |
 | `admon_outbox_backlog` | gauge | none | Outbox entries not yet published (read from Postgres at scrape time; NaN if unreadable) |
 | `admon_matcher_listings_total` | counter | `source`, `result` (matched, unmatched) | New listings fully handled by the matcher, counted once after recording (`unknown` source for unregistered ones) |

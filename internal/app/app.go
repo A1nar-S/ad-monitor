@@ -22,6 +22,7 @@ import (
 	"github.com/A1nar-S/advertisiment-monitoring/internal/bot/discordbot"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/dashboard"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/gems"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/listings"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/notifications"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/config"
@@ -59,6 +60,10 @@ func Scraper(ctx context.Context, cfg config.Scraper, reg sources.Registry) erro
 	if err := history.Migrate(ctx); err != nil {
 		return err
 	}
+	gemScans := gems.NewService(pool)
+	if err := gemScans.Migrate(ctx); err != nil {
+		return err
+	}
 
 	producer, err := kafka.NewProducer(cfg.KafkaBrokers)
 	if err != nil {
@@ -91,6 +96,11 @@ func Scraper(ctx context.Context, cfg config.Scraper, reg sources.Registry) erro
 	alert(ctx, fmt.Sprintf("🚀 **Scraper started**\nSources: %v, every %s", reg.Names(), cfg.CrawlInterval))
 
 	var wg sync.WaitGroup
+	// One request spacing per site, shared by its scraping and gem scans.
+	throttles := map[string]*scraping.Throttle{}
+	for _, name := range reg.Names() {
+		throttles[name] = &scraping.Throttle{Gap: cfg.RequestGap}
+	}
 	for _, name := range reg.Names() {
 		src := reg[name]
 		runner := &scraping.Runner{
@@ -104,6 +114,7 @@ func Scraper(ctx context.Context, cfg config.Scraper, reg sources.Registry) erro
 			Interval: cfg.CrawlInterval,
 			Gap:      cfg.RequestGap,
 			MaxPages: cfg.MaxPages,
+			Throttle: throttles[name],
 		}
 		wg.Add(1)
 		go func() {
@@ -111,6 +122,7 @@ func Scraper(ctx context.Context, cfg config.Scraper, reg sources.Registry) erro
 			runner.Run(ctx)
 		}()
 	}
+	runGemScans(ctx, gemScans, history, reg, throttles, &wg)
 	// Price watches: pinned pages, read on their own schedule.
 	wg.Add(1)
 	go func() {
@@ -265,9 +277,12 @@ func Matcher(ctx context.Context, cfg config.Matcher, reg sources.Registry) erro
 	}
 	defer pool.Close()
 	// Ad pages the matcher reads are saved, so the dashboard can show a
-	// car's region, gearbox, ... without reading the page again.
+	// car's region, gearbox, ... without reading the page again. The stored
+	// ads also price car alerts (addDealFields).
 	store := listings.NewService(pool, listings.DefaultSeedWindow)
-	subs := subscriptions.NewService(pool, reg, cfg.FeedCollapseAt).WithAdPageHook(adPageSaver(store))
+	subs := subscriptions.NewService(pool, reg, cfg.FeedCollapseAt).
+		WithAdPageHook(adPageSaver(store)).
+		WithAdPageFor(rateableCar(reg)) // its equipment, for the alert's verdict
 	if err := subs.Migrate(ctx); err != nil {
 		return err
 	}
@@ -285,6 +300,7 @@ func Matcher(ctx context.Context, cfg config.Matcher, reg sources.Registry) erro
 			if err != nil {
 				return err
 			}
+			addDealFields(ctx, store, reg, ns)
 			for _, n := range ns {
 				key := strconv.FormatInt(n.UserID, 10) // one user's messages stay in order
 				if err := producer.Publish(ctx, cfg.Topic(events.TopicNotificationsRequested), key, n.NotificationRequested); err != nil {
@@ -409,7 +425,8 @@ func API(ctx context.Context, cfg config.API, reg sources.Registry) error {
 	subs := subscriptions.NewService(pool, reg, cfg.FeedCollapseAt).WithLimits(cfg.MaxSearches, cfg.Admins).
 		WithWatchLimits(cfg.MaxWatches, cfg.MinWatchInterval).WithPublicURL(cfg.PublicURL)
 	store := listings.NewService(pool, listings.DefaultSeedWindow)
-	for _, m := range []func(context.Context) error{subs.Migrate, store.Migrate} {
+	gemList := gems.NewService(pool)
+	for _, m := range []func(context.Context) error{subs.Migrate, store.Migrate, gemList.Migrate} {
 		if err := m(ctx); err != nil {
 			return err
 		}
@@ -427,6 +444,7 @@ func API(ctx context.Context, cfg config.API, reg sources.Registry) error {
 			// Pages for the price picker, read on the user's behalf; the
 			// timeout fits the server's write timeout.
 			Watches: subs, Pages: pages.New(10*time.Second, cfg.RequestGap), MaxWatches: cfg.MaxWatches,
+			Gems: gemList, GemSource: gemSource(reg),
 		})),
 		ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: time.Minute,
 	}
