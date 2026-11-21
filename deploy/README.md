@@ -54,8 +54,8 @@ a rollback is `git revert` of the deploy commit, and anything changed by hand in
 - `flux get kustomizations` shows what was applied and why something failed; `flux reconcile kustomization admon
   --with-source` applies main right away.
 - Until the first release the images list says `:local`: `bash deploy/k3s.sh images` imports those, as before.
-- Secrets are not in git: `secrets` and `tunnel-token` stay manual. Grafana rereads alert rules only at start:
-  `kubectl -n monitoring rollout restart deploy/grafana` after changing them.
+- Secrets are not in git: `secrets` and `tunnel-token` stay manual. A change to the alert rules in
+  `infra/grafana/provisioning/alerting` restarts Grafana (it reads them at start only).
 - Without Flux, `bash deploy/k3s.sh images && bash deploy/k3s.sh apply` still deploys the working tree.
 
 Grafana runs on the laptop: watching it from elsewhere needs `ssh -L 3000:127.0.0.1:3000` or Tailscale, not

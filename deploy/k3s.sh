@@ -86,6 +86,7 @@ tunnel-token)
 apply)
 	# A Job's spec is immutable; both are idempotent, so just run them again.
 	$KUBECTL -n "$NS" delete job kafka-topics pg-monitor-init --ignore-not-found
+	$KUBECTL -n "$MON" delete job grafana-restart --ignore-not-found   # reruns: restarts Grafana
 	$KUBECTL apply -k deploy/k8s
 	# Monitoring: the Helm install brings the PodMonitor type; wait for it.
 	$KUBECTL apply --server-side --force-conflicts -k deploy/k8s/monitoring/stack
@@ -97,8 +98,6 @@ apply)
 	$KUBECTL wait --for condition=established --timeout=60s crd/podmonitors.monitoring.coreos.com
 	$KUBECTL kustomize --load-restrictor LoadRestrictionsNone deploy/k8s/monitoring |
 		$KUBECTL apply --server-side --force-conflicts -f -
-	# Grafana reads the provisioned alert rules at start only.
-	$KUBECTL -n "$MON" rollout restart deploy/grafana 2>/dev/null || true
 	# The images keep their :local tag, so a rebuild needs a restart to be used.
 	restart_apps
 	deploys=$($KUBECTL -n "$NS" get deploy -l tier=app -o name)

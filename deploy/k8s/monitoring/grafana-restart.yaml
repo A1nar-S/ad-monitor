@@ -1,0 +1,75 @@
+# Grafana reads the provisioned alert rules (ConfigMap admon-alerting) at start
+# only. This Job restarts it when they change: it mounts admon-alerting-rev,
+# the same files under a content-hashed name (kustomization.yaml), so a rule
+# change renames that ConfigMap, which changes this Job's spec, and Flux
+# recreates it (force: a Job's spec is immutable) and so runs it once.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grafana-restart
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: grafana-restart
+  namespace: monitoring
+rules:
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [grafana]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: grafana-restart
+  namespace: monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: grafana-restart
+subjects:
+  - kind: ServiceAccount
+    name: grafana-restart
+    namespace: monitoring
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: grafana-restart
+  namespace: monitoring
+  annotations:
+    kustomize.toolkit.fluxcd.io/force: enabled
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      serviceAccountName: grafana-restart
+      enableServiceLinks: false
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: restart
+          image: registry.k8s.io/kubectl:v1.37.2
+          args: [-n, monitoring, rollout, restart, deploy/grafana]
+          env:
+            - {name: HOME, value: /tmp}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {memory: 64Mi}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: rules, mountPath: /rules, readOnly: true}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+        # Not read: only its (hashed) name matters.
+        - name: rules
+          configMap: {name: admon-alerting-rev}

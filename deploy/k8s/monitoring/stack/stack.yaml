@@ -112,7 +112,7 @@ spec:
         limits: {memory: 384Mi}
       # Only the dashboards sidecar (it loads Kubernetes' and the app's dashboards).
       # Each sidecar costs ~80Mi, so the datasource and the alert rules are plain
-      # files instead; Grafana rereads the rules only at start (k3s.sh apply restarts it).
+      # files instead; Grafana rereads the rules only at start (../grafana-restart.yaml).
       sidecar:
         # Python; it peaks while listing ConfigMaps at start (96Mi got OOM-killed).
         resources:

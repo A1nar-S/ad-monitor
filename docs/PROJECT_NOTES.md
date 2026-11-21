@@ -401,7 +401,8 @@ Deploying: k3s + Cloudflare Tunnel (`deploy/`). Gotchas:
 - GitOps: a `v*` tag makes the Release workflow push images to GHCR and commit their digests to `deploy/k8s/kustomization.yaml`
   (`images:`); Flux (`deploy/flux`) applies main. Before the first release the list maps to `:local` imports.
 - Jobs carry `kustomize.toolkit.fluxcd.io/force: enabled` (immutable spec), no TTL (Flux would rerun them every sync);
-  namespaces carry `prune: disabled`. The monitoring stack is its own Kustomization: PodMonitors need its CRDs first.
+  namespaces carry `prune: disabled`.
+  Alert rule changes restart Grafana: Job `grafana-restart` mounts a content-hashed copy of the rules ConfigMap. The monitoring stack is its own Kustomization: PodMonitors need its CRDs first.
 - `PUBLIC_URL` stays in `.env` (Secret `admon-env`): the public repo never names the domain.
 - Init containers wait for Postgres and the topics Job; they run as numeric uids because pods are `runAsNonRoot`.
 - Monitoring: kube-prometheus-stack via k3s's HelmChart (`deploy/k8s/monitoring`), no Alertmanager or default rules.
