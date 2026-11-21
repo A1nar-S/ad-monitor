@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/textutil"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/sources"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/subscriptions"
 )
@@ -26,7 +27,7 @@ func (s *server) fail(w http.ResponseWriter, err error) bool {
 	case errors.Is(err, subscriptions.ErrWatchNotFound):
 		writeError(w, http.StatusNotFound, "no such watch")
 	default:
-		slog.Error("dashboard api", "err", err)
+		slog.Error("dashboard api", "err", textutil.OneLine(err.Error()))
 		writeError(w, http.StatusInternalServerError, "something went wrong")
 	}
 	return true

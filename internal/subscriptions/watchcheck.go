@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/textutil"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/sources"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/subscriptions/subscriptionsdb"
 )
@@ -94,7 +95,7 @@ func (s *Service) checkTarget(ctx context.Context, r sources.PageReader, id int6
 		readErr = s.validateReading(ctx, r, url, x, prev, &reading)
 	}
 	if readErr != nil {
-		slog.Info("watch read failed", "target", id, "url", url, "err", readErr)
+		slog.Info("watch read failed", "target", id, "url", textutil.OneLine(url), "err", textutil.OneLine(readErr.Error()))
 	}
 	err = s.recordReading(ctx, id, reading, readErr)
 	if err == nil && ctx.Err() == nil {

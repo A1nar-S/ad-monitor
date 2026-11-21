@@ -286,9 +286,15 @@ type MatchRef struct {
 	At         time.Time `json:"at"`
 }
 
+// maxRecentMatches caps one RecentMatches call.
+const maxRecentMatches = 1000
+
 // RecentMatches lists the owner's latest matches, newest first: of one
 // search, or of all of them when searchID is 0.
 func (s *Service) RecentMatches(ctx context.Context, o Owner, searchID int64, limit int) ([]MatchRef, error) {
+	if limit < 0 || limit > maxRecentMatches {
+		limit = maxRecentMatches
+	}
 	p := subscriptionsdb.ListUserMatchesParams{UserID: o.UserID, MaxRows: int32(limit)}
 	if searchID != 0 {
 		p.SearchID = &searchID

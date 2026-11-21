@@ -45,20 +45,8 @@ func PickerHTML(p *Page, nonce string) ([]byte, error) {
 	}
 	revealStreamed(doc)
 	doc.Find(removed).Remove()
-	doc.Find("*").Each(func(_ int, s *goquery.Selection) {
-		n := s.Get(0)
-		kept := n.Attr[:0]
-		for _, a := range n.Attr {
-			key := strings.ToLower(a.Key)
-			if strings.HasPrefix(key, "on") || key == "srcdoc" || key == "formaction" ||
-				isURLAttr(key) && strings.HasPrefix(strings.ToLower(strings.TrimSpace(a.Val)), "javascript:") {
-				continue
-			}
-			kept = append(kept, a)
-		}
-		n.Attr = kept
-	})
 	// Lazy images keep the real address in data-src until a script swaps it.
+	// Swapped before the attributes are cleaned, so they are cleaned too.
 	doc.Find("img[data-src], img[data-srcset], source[data-srcset]").Each(func(_ int, s *goquery.Selection) {
 		if v := s.AttrOr("data-src", ""); v != "" && (s.AttrOr("src", "") == "" || strings.HasPrefix(s.AttrOr("src", ""), "data:")) {
 			s.SetAttr("src", v)
@@ -66,6 +54,19 @@ func PickerHTML(p *Page, nonce string) ([]byte, error) {
 		if v := s.AttrOr("data-srcset", ""); v != "" && s.AttrOr("srcset", "") == "" {
 			s.SetAttr("srcset", v)
 		}
+	})
+	doc.Find("*").Each(func(_ int, s *goquery.Selection) {
+		n := s.Get(0)
+		kept := n.Attr[:0]
+		for _, a := range n.Attr {
+			key := strings.ToLower(a.Key)
+			if strings.HasPrefix(key, "on") || key == "srcdoc" || key == "formaction" ||
+				isURLAttr(key) && unsafeURL(a.Val) {
+				continue
+			}
+			kept = append(kept, a)
+		}
+		n.Attr = kept
 	})
 
 	head := doc.Find("head")
@@ -172,6 +173,20 @@ func moveChildren(from, parent, before *html.Node) {
 		parent.InsertBefore(c, before)
 		c = next
 	}
+}
+
+// unsafeURL reports whether an address runs code or loads a document
+// inline. Browsers skip whitespace and control characters in a scheme, so
+// "java\tscript:" counts too; data: images are fine.
+func unsafeURL(v string) bool {
+	v = strings.ToLower(strings.Map(func(r rune) rune {
+		if r <= ' ' {
+			return -1
+		}
+		return r
+	}, v))
+	return strings.HasPrefix(v, "javascript:") || strings.HasPrefix(v, "vbscript:") ||
+		strings.HasPrefix(v, "data:") && !strings.HasPrefix(v, "data:image/")
 }
 
 func isURLAttr(key string) bool {

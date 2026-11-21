@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/textutil"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/scraping/pages"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/sources"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/subscriptions"
@@ -224,7 +225,7 @@ func (s *server) pageError(w http.ResponseWriter, err error) {
 	case errors.Is(err, context.DeadlineExceeded):
 		writeError(w, http.StatusGatewayTimeout, "The page took too long to load.")
 	default:
-		slog.Info("load page", "err", err)
+		slog.Info("load page", "err", textutil.OneLine(err.Error()))
 		writeError(w, http.StatusBadGateway, "Couldn't load the page: "+err.Error())
 	}
 }

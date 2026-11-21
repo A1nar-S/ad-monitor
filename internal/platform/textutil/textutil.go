@@ -18,6 +18,12 @@ var accents = strings.NewReplacer(
 	"ę", "e", "ė", "e", "į", "i", "ų", "u", "ł", "l",
 )
 
+// OneLine flattens line breaks, so text from users or sites can't fake
+// extra log lines.
+func OneLine(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, "\n", " "), "\r", " ")
+}
+
 // Fold makes text comparable: lower case, no accents, trimmed; inner spaces
 // are kept.
 func Fold(s string) string { return accents.Replace(strings.ToLower(strings.TrimSpace(s))) }

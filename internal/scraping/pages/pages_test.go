@@ -332,3 +332,20 @@ func TestLiveStrandberg(t *testing.T) {
 		t.Logf("suggestion %s %s: %q = %s", s.Kind, s.Label, s.Raw, s.Price)
 	}
 }
+
+func TestUnsafeURL(t *testing.T) {
+	for v, want := range map[string]bool{
+		"javascript:alert(1)":           true,
+		" JavaScript:alert(1)":          true,
+		"java\tscript:alert(1)":         true,
+		"\x01vbscript:msgbox(1)":        true,
+		"data:text/html,<script>":       true,
+		"data:image/png;base64,iVBORw0": false,
+		"https://shop.example/a.jpg":    false,
+		"/images/a.jpg":                 false,
+	} {
+		if got := unsafeURL(v); got != want {
+			t.Errorf("unsafeURL(%q) = %v", v, got)
+		}
+	}
+}
