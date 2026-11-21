@@ -173,7 +173,7 @@ func (b *Bot) run(ctx context.Context, u User, c Call) (Reply, error) {
 		if err != nil {
 			return Reply{}, err
 		}
-		return Reply{Text: fmt.Sprintf("🔐 Your dashboard login link (single use, valid 10 minutes, don't share it):\n%s/api/login?token=%s",
+		return Reply{Text: fmt.Sprintf("🔐 Your dashboard login link (single use, valid 10 minutes, don't share it):\n<%s/api/login?token=%s>",
 			b.publicURL, token)}, nil
 	}
 	return Reply{}, fmt.Errorf("unknown command %q", c.Command)

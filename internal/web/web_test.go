@@ -139,6 +139,14 @@ func do(h http.Handler, method, path, session, body string, csrf bool) *httptest
 
 func TestLoginFlow(t *testing.T) {
 	h, _ := newServer(t)
+	// A chat app's link preview must leave the token for the person.
+	r := httptest.NewRequest("GET", "/api/login?token=good", nil)
+	r.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)")
+	pw := httptest.NewRecorder()
+	h.ServeHTTP(pw, r)
+	if pw.Code != http.StatusNoContent || len(pw.Result().Cookies()) != 0 {
+		t.Fatalf("preview fetch: %d %+v", pw.Code, pw.Result().Cookies())
+	}
 	w := do(h, "GET", "/api/login?token=good", "", "", false)
 	c := w.Result().Cookies()
 	if w.Code != http.StatusSeeOther || len(c) != 1 || c[0].Value != "s-alice" || !c[0].HttpOnly || !c[0].Secure || c[0].SameSite != http.SameSiteLaxMode {

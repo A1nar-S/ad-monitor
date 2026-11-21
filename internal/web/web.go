@@ -117,6 +117,13 @@ func New(cfg Config) http.Handler {
 
 // login trades the bot's one-time link for a session cookie.
 func (s *server) login(w http.ResponseWriter, r *http.Request) {
+	// Chat apps fetch links to build previews; that GET must not use up the
+	// single-use token before the person clicks it.
+	if linkPreviewer(r.UserAgent()) {
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	session, _, err := s.Searches.Login(r.Context(), r.URL.Query().Get("token"))
 	if err != nil {
 		if !errors.Is(err, subscriptions.ErrBadToken) {
@@ -130,6 +137,17 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode, MaxAge: int(subscriptions.SessionTTL / time.Second),
 	})
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// linkPreviewer reports whether a User-Agent is a chat app's link-preview fetcher.
+func linkPreviewer(ua string) bool {
+	ua = strings.ToLower(ua)
+	for _, bot := range []string{"discordbot", "slackbot", "telegrambot", "twitterbot", "facebookexternalhit", "whatsapp", "skypeuripreview"} {
+		if strings.Contains(ua, bot) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *server) logout(w http.ResponseWriter, r *http.Request) {
