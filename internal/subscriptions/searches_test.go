@@ -245,12 +245,47 @@ func TestNotificationsEnrichOnce(t *testing.T) {
 		t.Errorf("unconfirmed listing not flagged: %+v", f)
 	}
 
-	// A removed ad matches nothing that needed its page.
+	// A removed ad is announced to no one, also not to the search that
+	// matched without its page.
 	src.err = sources.ErrGone
 	l.ExternalID = "9"
-	got, _ = svc.Notifications(ctx, l)
-	if len(got) != 1 || got[0].SearchName != "cheap" {
-		t.Errorf("gone: %+v, want only the cheap search", got)
+	if got, _ = svc.Notifications(ctx, l); len(got) != 0 {
+		t.Errorf("gone: %+v, want none", got)
+	}
+}
+
+// WithAdPageFor reads the page of a matched ad no filter needed it for,
+// and an ad that turns out removed is announced to no one.
+func TestNotificationsAdPageFor(t *testing.T) {
+	src := &enrichingSource{}
+	svc, _ := newTestService(t, src)
+	svc.WithAdPageFor(func(l events.ListingDiscovered) bool { return l.Location == "cars" })
+	ctx := context.Background()
+	alice, aliceDM := user(t, svc, "111")
+	if _, err := svc.CreateSearch(ctx, alice, SearchInput{Name: "cheap", Category: "cars", ChannelID: aliceDM.ID,
+		Filters: map[string]any{"price": map[string]any{"max": 6000.0}}}); err != nil {
+		t.Fatal(err)
+	}
+	l := events.ListingDiscovered{Source: "ss.com", ExternalID: "1", Location: "cars", PriceValue: ptr(5000.0)}
+
+	got, err := svc.Notifications(ctx, l)
+	if err != nil || len(got) != 1 || src.calls != 1 {
+		t.Fatalf("%d notifications, %d reads, err %v; want 1 and 1", len(got), src.calls, err)
+	}
+	if v, _ := got[0].Listing.Str("gearbox"); v != "Automāts" {
+		t.Error("notification lacks what the page added")
+	}
+
+	src.err = errors.New("403")
+	l.ExternalID = "2"
+	if got, _ := svc.Notifications(ctx, l); len(got) != 1 || len(got[0].Listing.Fields) != 0 {
+		t.Errorf("page failed: %+v, want the alert as it was, unflagged", got)
+	}
+
+	src.err = sources.ErrGone
+	l.ExternalID = "3"
+	if got, _ := svc.Notifications(ctx, l); len(got) != 0 {
+		t.Errorf("removed ad announced: %+v", got)
 	}
 }
 

@@ -223,6 +223,33 @@ func TestInScope(t *testing.T) {
 	}
 }
 
+func TestRateableCar(t *testing.T) {
+	tests := []struct {
+		name           string
+		location, feed string
+		want           bool
+	}{
+		{"sale via all-makes feed", "transport/cars/audi/a4", "transport/cars/sell", true},
+		{"sale via model feed", "transport/cars/audi/a4", "transport/cars/audi/a4/sell", true},
+		{"wanted ad", "transport/cars/audi/a4", "transport/cars/audi/buy", false},
+		{"exchange ad", "transport/cars/audi/a4", "transport/cars/change", false},
+		{"unknown deal", "transport/cars/audi/a4", "transport/cars/audi", false},
+		{"flat for sale", "real-estate/flats/riga/centre", "real-estate/flats/riga/all/sell", false},
+	}
+	c := NewClient(time.Second)
+	other := events.ListingDiscovered{Location: "transport/cars/bmw/others", Feed: "transport/cars/bmw/sell", Attrs: map[string]any{"model": "Citi"}}
+	if c.RateableCar(other) {
+		t.Error("a catch-all model is rateable; it has nothing to be compared with")
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := c.RateableCar(events.ListingDiscovered{Location: tt.location, Feed: tt.feed}); got != tt.want {
+				t.Errorf("RateableCar = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // The all-makes feed puts make and model in one "Marka" cell ("Opel<br>Zafira").
 func TestParseAllCarsFeed(t *testing.T) {
 	ads := parseFile(t, "testdata/feed_cars_all.html")

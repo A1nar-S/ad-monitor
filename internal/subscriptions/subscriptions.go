@@ -40,7 +40,8 @@ type Service struct {
 	maxSearches int             // per user; 0 = unlimited
 	admins      map[string]bool // Discord IDs
 
-	adPage AdPageHook // optional; see WithAdPageHook
+	adPage   AdPageHook                          // optional; see WithAdPageHook
+	adPageOf func(events.ListingDiscovered) bool // optional; see WithAdPageFor
 
 	// Price watches (see watches.go).
 	maxWatches       int // per user; 0 = unlimited
@@ -57,6 +58,15 @@ type AdPageHook func(ctx context.Context, before, enriched events.ListingDiscove
 // facts are not thrown away after the alert.
 func (s *Service) WithAdPageHook(h AdPageHook) *Service {
 	s.adPage = h
+	return s
+}
+
+// WithAdPageFor makes the matcher read the ad page of every matched listing
+// that want accepts, not only of those a search filter needs it for (car
+// alerts rate the equipment only the page lists). It is still read once per
+// listing, and only when someone is told about it.
+func (s *Service) WithAdPageFor(want func(events.ListingDiscovered) bool) *Service {
+	s.adPageOf = want
 	return s
 }
 
@@ -147,33 +157,32 @@ func (s *Service) Notifications(ctx context.Context, l events.ListingDiscovered)
 	// Pass 2: one ad-page read for this listing, shared by every waiting
 	// search of every user.
 	if len(pending) > 0 {
-		enriched, err := enricher.Enrich(ctx, l)
-		switch {
+		switch enriched, err := s.readAdPage(ctx, enricher, l); {
 		case errors.Is(err, sources.ErrGone):
-			slog.Info("ad removed before its page was read", "id", l.ExternalID)
-			adPageReads.WithLabelValues(l.Source, "gone").Inc()
-			if s.adPage != nil {
-				s.adPage(ctx, l, l, true)
-			}
+			matched = nil // removed: announced to no one
 		case err != nil:
 			// Better an unconfirmed alert than a missed deal: tell the
 			// candidates, flagged, rather than failing (and so dropping) the
 			// listing for everyone.
-			slog.Warn("ad page unavailable; notifying unconfirmed", "id", l.ExternalID, "err", err)
-			adPageReads.WithLabelValues(l.Source, "failed").Inc()
 			l.Fields = append(l.Fields, events.Field{Name: "⚠️ Unconfirmed", Value: "Could not read the ad page to check: " + strings.Join(pendingKeys(pending, l, enrichable), ", ")})
 			matched = append(matched, pending...)
 		default:
-			adPageReads.WithLabelValues(l.Source, "ok").Inc()
-			if s.adPage != nil {
-				s.adPage(ctx, l, enriched, false)
-			}
 			l = enriched
 			for _, search := range pending {
 				if search.Evaluate(src, l, nil) == Matched {
 					matched = append(matched, search)
 				}
 			}
+		}
+	} else if len(matched) > 0 && enricher != nil && s.adPageOf != nil && s.adPageOf(l) {
+		// Pass 3: someone is told about it and the caller wants its page
+		// anyway. Failing to read it only costs what the page would add, but
+		// an ad that turns out removed is announced to no one.
+		switch enriched, err := s.readAdPage(ctx, enricher, l); {
+		case errors.Is(err, sources.ErrGone):
+			matched = nil
+		case err == nil:
+			l = enriched
 		}
 	}
 
@@ -189,6 +198,29 @@ func (s *Service) Notifications(ctx context.Context, l events.ListingDiscovered)
 		}})
 	}
 	return out, nil
+}
+
+// readAdPage reads l's ad page through enricher, counting and logging the
+// outcome and telling the ad-page hook.
+func (s *Service) readAdPage(ctx context.Context, enricher sources.Enricher, l events.ListingDiscovered) (events.ListingDiscovered, error) {
+	enriched, err := enricher.Enrich(ctx, l)
+	switch {
+	case errors.Is(err, sources.ErrGone):
+		slog.Info("ad removed before its page was read", "id", l.ExternalID)
+		adPageReads.WithLabelValues(l.Source, "gone").Inc()
+		if s.adPage != nil {
+			s.adPage(ctx, l, l, true)
+		}
+	case err != nil:
+		slog.Warn("ad page unavailable", "id", l.ExternalID, "err", err)
+		adPageReads.WithLabelValues(l.Source, "failed").Inc()
+	default:
+		adPageReads.WithLabelValues(l.Source, "ok").Inc()
+		if s.adPage != nil {
+			s.adPage(ctx, l, enriched, false)
+		}
+	}
+	return enriched, err
 }
 
 // pendingKeys lists the filters that could not be checked, for the warning.
