@@ -17,6 +17,7 @@ import {
 import BaseDialog from './BaseDialog.vue'
 import EmptyState from './EmptyState.vue'
 import PageHeader from './PageHeader.vue'
+import TabBar from './TabBar.vue'
 import { ApiError, readListingDetails } from '../api'
 import { toast, toastError } from '../toast'
 import { categoryName, formatDate, formatNumber, t, tKey } from '../i18n'
@@ -34,7 +35,7 @@ type Listing = {
   attrs: Record<string, unknown>
   // When the ad's own page was last read (region, gearbox, ...); null = never.
   detailedAt?: string | null
-  category: 'cars' | 'flats' | null
+  category: 'cars' | 'flats' | 'parts' | null
   hasAdPage: boolean // the server can read this ad's page for details
 }
 type SavedSearch = {
@@ -76,11 +77,12 @@ const error = ref('')
 const view = ref<'listings' | 'searches'>('listings')
 const query = ref('')
 const source = ref('all')
-const category = ref<'all' | 'cars' | 'flats'>('all')
+const category = ref<'all' | 'cars' | 'flats' | 'parts'>('all')
 const categoryOptions = [
   { value: 'all', label: () => t('overview.all') },
   { value: 'cars', label: () => categoryName('cars') },
   { value: 'flats', label: () => categoryName('flats') },
+  { value: 'parts', label: () => categoryName('parts') },
 ] as const
 const status = ref('all')
 const sort = ref('newest')
@@ -448,48 +450,24 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <div
-      class="mt-10 flex gap-6 border-b border-gray-200"
-      role="tablist"
-      :aria-label="t('overview.records')"
-    >
-      <button
-        v-for="item in [
-          {
-            id: 'listings' as const,
-            label: t('overview.tabListings'),
-            count: data?.stats.listings,
-          },
-          {
-            id: 'searches' as const,
-            label: t('overview.tabSearches'),
-            count: data?.stats.searches,
-          },
-        ]"
-        :key="item.id"
-        role="tab"
-        :aria-selected="view === item.id"
-        class="relative -mb-px flex h-10 items-center gap-2 text-sm transition-colors"
-        :class="
-          view === item.id
-            ? 'font-medium text-gray-900'
-            : 'text-gray-600 hover:text-gray-900'
-        "
-        @click="changeView(item.id)"
-      >
-        {{ item.label }}
-        <span
-          v-if="item.count !== undefined"
-          class="text-small font-normal text-gray-500 tabular-nums"
-          >{{ formatNumber(item.count) }}</span
-        >
-        <span
-          v-if="view === item.id"
-          class="absolute inset-x-0 bottom-0 h-[3px] rounded-full bg-brand-600"
-          aria-hidden="true"
-        />
-      </button>
-    </div>
+    <TabBar
+      class="mt-10"
+      :model-value="view"
+      :label="t('overview.records')"
+      :tabs="[
+        {
+          id: 'listings',
+          label: t('overview.tabListings'),
+          count: data?.stats.listings,
+        },
+        {
+          id: 'searches',
+          label: t('overview.tabSearches'),
+          count: data?.stats.searches,
+        },
+      ]"
+      @update:model-value="changeView"
+    />
 
     <div v-if="hasRecords" class="mt-5 mb-4 flex flex-wrap items-center gap-2">
       <label

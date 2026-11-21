@@ -59,7 +59,7 @@ const lv: Messages = {
 
   searches: {
     title: 'Meklējumi',
-    lead: 'Jauni atbilstoši ss.com sludinājumi tiek nosūtīti jums, tiklīdz tie publicēti.',
+    lead: 'Jauni atbilstoši ss.com un rrr.lt sludinājumi tiek nosūtīti jums, tiklīdz tie publicēti.',
     used: 'Izmantoti {used} no {max}',
     whose: 'Kuru meklējumi',
     mine: 'Mani',
@@ -111,7 +111,9 @@ const lv: Messages = {
     generalLead:
       'Nosaukums redzams tikai jums. Paziņojumi tiek sūtīti uz šeit izvēlēto čatu.',
     name: 'Nosaukums',
-    namePlaceholder: 'piem., Ģimenes auto līdz 7000 €',
+    namePlaceholder: 'piem., Manā budžetā',
+    site: 'Vietne',
+    siteLocked: 'Meklējums paliek vietnē, kurai tas izveidots.',
     category: 'Kategorija',
     categoryLocked: 'Pēc izveides to nevar mainīt.',
     sendTo: 'Sūtīt paziņojumus uz',
@@ -137,6 +139,11 @@ const lv: Messages = {
     hintAll: 'Automašīnai jābūt visam izvēlētajam.',
     hintText: 'Jebkurš no šiem vārdiem, piem., quattro.',
     hintRegion: 'Atstājiet tukšu visam reģionam.',
+    hintPart: 'Grupa ietver visu, kas tajā, piem., Engine › Turbocharger.',
+    hintPartsText:
+      'Jebkurš no šiem detaļu numuriem vai vārdiem, piem., 8V0941005.',
+    hintSide:
+      'Kreisā ietver arī kreiso priekšējo un aizmugurējo. Detaļas bez norādītas puses netiek rādītas.',
     previewTitle: 'Priekšskatījums',
     previewLead:
       'Jau savāktie sludinājumi, kas atbilstu šiem filtriem, lai tos varētu pārbaudīt pirms saglabāšanas. Atjaunojas rediģēšanas laikā; nekas netiek nosūtīts.',
@@ -168,7 +175,7 @@ const lv: Messages = {
       'Atbilst {matched} no {inScope} savāktajiem {kind} sludinājumiem',
       'Atbilst {matched} no {inScope} savāktajiem {kind} sludinājumiem',
     ),
-    kinds: { cars: 'auto', flats: 'dzīvokļu' },
+    kinds: { cars: 'auto', flats: 'dzīvokļu', parts: 'auto detaļu' },
     moreUnchecked: plural(
       'vēl {n} nepārbaudīts',
       'vēl {n} nepārbaudīti',
@@ -184,7 +191,22 @@ const lv: Messages = {
     unchecked: 'Nepārbaudīts',
     nothingTitle: 'Vēl nav ko pārbaudīt',
     nothingBody:
-      'ss.com tiek lasīts tikai tam, ko vēro kāds meklējums, tāpēc šeit vēl nav vēstures. Saglabājiet meklējumu, un jauni sludinājumi sāks pienākt.',
+      'Vietne tiek lasīta tikai tam, ko vēro kāds meklējums, tāpēc šeit vēl nav vēstures. Saglabājiet meklējumu, un jauni sludinājumi sāks pienākt.',
+    liveButton: 'Pārbaudīt {site} tagad',
+    liveHint:
+      'Vienreiz nolasa jaunākos {site} sludinājumus un parāda atbilstošos. Nekas netiek saglabāts.',
+    liveBack: 'Atpakaļ pie savāktajiem',
+    liveLine: plural(
+      '{matched} no {scanned} jaunākajiem {site} sludinājumiem atbilst',
+      '{matched} no {scanned} jaunākajiem {site} sludinājumiem atbilst',
+      '{matched} no {scanned} jaunākajiem {site} sludinājumiem atbilst',
+    ),
+    liveFrom: 'Tikko nolasīts no {site}, pirmā lapa',
+    liveFailed: 'Pašlaik neizdevās nolasīt vietni.',
+    liveNothingTitle: 'Vietnē nekā nav',
+    liveNothingBody: '{site} šim meklējumam pašlaik nav sludinājumu.',
+    liveNoMatchBody:
+      'Neviens no jaunākajiem {site} sludinājumiem neatbilst šiem filtriem. Paplašiniet kādu, piem., cenu vai gadus.',
     noMatchTitle: 'Nav atbilstību',
     noMatchBody:
       'Neviens savāktais sludinājums neatbilst šiem filtriem. Mēģiniet kādu paplašināt, piemēram, cenas vai gadu diapazonu.',
@@ -293,7 +315,7 @@ const lv: Messages = {
     filters: 'Filtri',
     noFilters: 'Nav filtru, tāpēc atbilst katrs jaunais sludinājums.',
     feeds: 'Plūsmas',
-    feedsLead: 'ss.com lapas, ko šis meklējums vēro.',
+    feedsLead: 'Vietnes lapas vai vaicājumi, ko šis meklējums vēro.',
     noFeeds: 'Nav plūsmu.',
     orMore: '{n} un vairāk',
     upTo: 'Līdz {n}',
@@ -501,6 +523,10 @@ const lv: Messages = {
   },
 
   fields: {
+    part: 'Detaļa',
+    quality: 'Stāvoklis',
+    side: 'Puse',
+    code: 'Detaļas numurs vai vārdi',
     make: 'Marka',
     model: 'Modelis',
     keywords: 'Atslēgvārdi aprakstā',
@@ -552,6 +578,7 @@ const lv: Messages = {
   categories: {
     cars: 'Automašīnas',
     flats: 'Dzīvokļi',
+    parts: 'Auto detaļas',
   },
 
   fuelCodes: {

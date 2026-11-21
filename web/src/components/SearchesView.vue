@@ -16,9 +16,9 @@ import {
   api,
   ApiError,
   describe,
-  type Category,
   type Me,
   type Search,
+  type Source,
 } from '../api'
 import { categoryName, formatNumber, t } from '../i18n'
 import { navigate, onLinkClick } from '../router'
@@ -28,7 +28,7 @@ import { toast, toastError } from '../toast'
 const props = defineProps<{ me: Me }>()
 
 const searches = ref<Search[]>([])
-const categories = ref<Category[]>([])
+const sources = ref<Source[]>([])
 const deleting = ref<Search | null>(null)
 const error = ref('')
 const loading = ref(true)
@@ -40,17 +40,23 @@ const atLimit = computed(
     searches.value.length >= props.me.maxSearches,
 )
 
-const fieldsOf = (category: string) =>
-  categories.value.find((c) => c.id === category)?.fields
-const categoryLabel = (id: string) =>
-  categoryName(id, categories.value.find((c) => c.id === id)?.label ?? id)
+const categoryOf = (s: Search) =>
+  sources.value
+    .find((src) => src.id === s.source)
+    ?.categories.find((c) => c.id === s.category)
+const fieldsOf = (s: Search) => categoryOf(s)?.fields
+// "rrr.lt · Car parts" once there is more than one site to tell apart.
+const badgeOf = (s: Search) => {
+  const label = categoryName(s.category, categoryOf(s)?.label ?? s.category)
+  return sources.value.length > 1 ? `${s.source} · ${label}` : label
+}
 
 async function load() {
   error.value = ''
   try {
-    ;[searches.value, categories.value] = await Promise.all([
+    ;[searches.value, sources.value] = await Promise.all([
       api.searches(everyone.value),
-      api.categories(),
+      api.sources(),
     ])
   } catch (reason) {
     error.value =
@@ -217,21 +223,19 @@ onMounted(load)
                   @click="onLinkClick($event, `/searches/${s.id}`)"
                   >{{ s.name }}</a
                 >
-                <span class="badge-neutral">{{
-                  categoryLabel(s.category)
-                }}</span>
+                <span class="badge-neutral">{{ badgeOf(s) }}</span>
                 <span v-if="!s.enabled" class="badge-warning">{{
                   t('common.paused')
                 }}</span>
               </div>
               <p
                 class="mt-0.5 truncate text-small text-gray-500"
-                :title="describe(s.filters, fieldsOf(s.category))"
+                :title="describe(s.filters, fieldsOf(s))"
               >
                 <span v-if="everyone" class="text-gray-700"
                   >{{ s.userName }} ·
                 </span>
-                {{ describe(s.filters, fieldsOf(s.category)) }}
+                {{ describe(s.filters, fieldsOf(s)) }}
               </p>
             </div>
 

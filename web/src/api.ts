@@ -26,6 +26,9 @@ export type FieldSpec = {
 
 export type Category = { id: string; label: string; fields: FieldSpec[] }
 
+// A site searches can watch ("ss.com", "rrr.lt") and what it offers.
+export type Source = { id: string; categories: Category[] }
+
 export type Channel = {
   id: number
   kind: string
@@ -54,6 +57,7 @@ export type Search = {
 
 export type SearchInput = {
   name: string
+  source: string
   category: string
   filters: Filters
   channelId: number
@@ -113,7 +117,7 @@ async function call<T>(
 export const api = {
   me: () => call<Me>('GET', '/api/me'),
   logout: () => call<void>('POST', '/api/logout'),
-  categories: () => call<Category[]>('GET', '/api/categories'),
+  sources: () => call<Source[]>('GET', '/api/sources'),
   channels: () => call<Channel[]>('GET', '/api/channels'),
   searches: (all = false) =>
     call<Search[]>('GET', `/api/searches${all ? '?all=1' : ''}`),
@@ -305,6 +309,7 @@ export type PreviewAd = {
 }
 
 export type Preview = {
+  live?: boolean // read from the site just now, not from collected ads
   scanned: number
   inScope: number
   matched: number
@@ -314,8 +319,15 @@ export type Preview = {
   ads: PreviewAd[]
 }
 
+// Asks the site for its newest ads now (a button press; rate-limited).
+export const previewLive = (input: {
+  source: string
+  category: string
+  filters: Filters
+}) => call<Preview>('POST', '/api/searches/preview/live', input)
+
 export const previewSearch = (
-  input: { category: string; filters: Filters },
+  input: { source: string; category: string; filters: Filters },
   signal?: AbortSignal,
 ) => call<Preview>('POST', '/api/searches/preview', input, signal)
 

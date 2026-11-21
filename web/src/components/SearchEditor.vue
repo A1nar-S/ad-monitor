@@ -21,11 +21,11 @@ import MultiSelect from './MultiSelect.vue'
 import PageHeader from './PageHeader.vue'
 import SearchPreview from './SearchPreview.vue'
 import SearchSwitcher from './SearchSwitcher.vue'
+import TabBar from './TabBar.vue'
 import {
   api,
   ApiError,
   describe,
-  type Category,
   type Channel,
   type FieldSpec,
   type Filters,
@@ -33,6 +33,7 @@ import {
   type Preview,
   type Range,
   type Search,
+  type Source,
 } from '../api'
 import { navigate, onLinkClick, setLeaveGuard } from '../router'
 import { showEveryone } from '../state'
@@ -40,17 +41,18 @@ import { toast } from '../toast'
 import { categoryName, fieldLabel, formatDate, t } from '../i18n'
 
 // Creates or edits one search on its own page (/searches/new, /searches/12).
-// The form is built from the source's catalog (/api/categories), so new
-// fields on ss.com need no frontend change.
+// A tab per website (/api/sources); the form is built from that site's
+// catalog, so new fields on a site need no frontend change.
 const props = defineProps<{ me: Me; id: number | 'new' }>()
 
-const categories = ref<Category[]>([])
+const sources = ref<Source[]>([])
 const channels = ref<Channel[]>([])
 const searches = ref<Search[]>([])
 const search = ref<Search>()
 const state = ref<'loading' | 'ready' | 'missing' | 'failed'>('loading')
 
 const name = ref('')
+const source = ref('')
 const category = ref('')
 const channelId = ref(0)
 const lists = reactive<Record<string, string[]>>({})
@@ -67,11 +69,35 @@ const deleting = ref(false)
 const pendingLeave = ref<(() => void) | null>(null)
 const nameInput = ref<HTMLInputElement>()
 
+const categories = computed(
+  () => sources.value.find((s) => s.id === source.value)?.categories ?? [],
+)
 const fields = computed(
   () => categories.value.find((c) => c.id === category.value)?.fields ?? [],
 )
+// An existing search stays on its site, so its tab is the only one.
+const siteTabs = computed(() =>
+  sources.value
+    .filter((s) => !search.value || s.id === search.value.source)
+    .map((s) => ({ id: s.id, label: s.id })),
+)
+// Any site's category: the switcher lists searches of every site.
 const categoryLabel = (id: string) =>
-  categoryName(id, categories.value.find((c) => c.id === id)?.label ?? id)
+  categoryName(
+    id,
+    sources.value.flatMap((s) => s.categories).find((c) => c.id === id)
+      ?.label ?? id,
+  )
+// ss.com lists some models per generation; "Passat*" takes them all.
+const wildcardModels = computed(() => source.value === 'ss.com')
+
+// Another site: its first category, with nothing filled in.
+function changeSource(next: string) {
+  if (search.value || next === source.value) return
+  source.value = next
+  category.value = categories.value[0]?.id ?? ''
+  fillFilters({})
+}
 const sections = computed(() =>
   [
     {
@@ -125,6 +151,7 @@ function collect(): Filters {
 
 const input = () => ({
   name: name.value.trim(),
+  source: source.value,
   category: category.value,
   filters: collect(),
   channelId: channelId.value,
@@ -144,9 +171,9 @@ async function load() {
   state.value = 'loading'
   error.value = ''
   try {
-    if (!categories.value.length)
-      [categories.value, channels.value] = await Promise.all([
-        api.categories(),
+    if (!sources.value.length)
+      [sources.value, channels.value] = await Promise.all([
+        api.sources(),
         api.channels(),
       ])
     searches.value = await api.searches(showEveryone.value)
@@ -163,6 +190,7 @@ async function load() {
     }
     search.value = found
     name.value = found?.name ?? ''
+    source.value = found?.source ?? sources.value[0]?.id ?? ''
     category.value = found?.category ?? categories.value[0]?.id ?? ''
     channelId.value = found?.channel.id ?? channels.value[0]?.id ?? 0
     fillFilters(found?.filters ?? {})
@@ -256,9 +284,15 @@ function optionsFor(f: FieldSpec): string[] {
 }
 
 function hint(f: FieldSpec): string {
-  if (f.key === 'model') return t('editor.hintModel')
+  if (f.key === 'model')
+    return wildcardModels.value ? t('editor.hintModel') : ''
+  if (f.key === 'part') return t('editor.hintPart')
+  if (f.key === 'side') return t('editor.hintSide')
   if (f.kind === 'all') return t('editor.hintAll')
-  if (f.kind === 'text') return t('editor.hintText')
+  if (f.kind === 'text')
+    return wildcardModels.value
+      ? t('editor.hintText')
+      : t('editor.hintPartsText')
   if (f.dependsOn === 'region') return t('editor.hintRegion')
   return ''
 }
@@ -275,7 +309,7 @@ const created = computed(() =>
 </script>
 
 <template>
-  <section>
+  <section class="flex flex-1 flex-col">
     <nav
       :aria-label="t('editor.breadcrumb')"
       class="mb-3 flex min-w-0 items-center gap-1 text-small"
@@ -343,7 +377,7 @@ const created = computed(() =>
       </EmptyState>
     </div>
 
-    <form v-else @submit.prevent="save">
+    <form v-else class="flex flex-1 flex-col" @submit.prevent="save">
       <PageHeader :title="search ? search.name : t('searches.new')">
         <template #description>
           <template v-if="search">
@@ -374,8 +408,16 @@ const created = computed(() =>
         </button>
       </PageHeader>
 
+      <TabBar
+        :model-value="source"
+        :tabs="siteTabs"
+        :label="t('editor.site')"
+        :title="search ? t('editor.siteLocked') : undefined"
+        @update:model-value="changeSource"
+      />
+
       <section
-        class="grid gap-x-12 gap-y-4 border-t border-gray-200 py-8 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)]"
+        class="grid gap-x-12 gap-y-4 py-8 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)]"
         aria-labelledby="general-heading"
       >
         <div>
@@ -499,7 +541,9 @@ const created = computed(() =>
               :id="`f-${f.key}`"
               v-model="lists[f.key]"
               :options="optionsFor(f)"
-              :allow-free="f.key === 'model' || f.kind === 'text'"
+              :allow-free="
+                (f.key === 'model' && wildcardModels) || f.kind === 'text'
+              "
               :placeholder="
                 f.kind === 'all'
                   ? t('editor.mustHave')
@@ -510,7 +554,9 @@ const created = computed(() =>
             />
             <p v-if="hint(f)" class="field-hint">{{ hint(f) }}</p>
             <p
-              v-if="f.kind === 'text'"
+              v-if="
+                f.kind === 'text' && sections.some((s) => s.id === 'details')
+              "
               class="mt-1.5 flex items-start gap-1.5 text-xs text-warning-700"
             >
               <TriangleAlert :size="13" class="mt-px shrink-0" />{{
@@ -535,6 +581,7 @@ const created = computed(() =>
           </p>
         </div>
         <SearchPreview
+          :source="source"
           :category="category"
           :category-label="categoryLabel(category)"
           :filters="currentFilters"

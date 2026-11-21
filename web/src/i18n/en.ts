@@ -64,7 +64,7 @@ const en = {
 
   searches: {
     title: 'Searches',
-    lead: "New ss.com ads that match are sent to you as soon as they're posted.",
+    lead: "New ads on ss.com and rrr.lt that match are sent to you as soon as they're posted.",
     used: '{used} of {max} used',
     whose: 'Whose searches',
     mine: 'Mine',
@@ -112,7 +112,9 @@ const en = {
     generalLead:
       'The name is only for you. Alerts go to the chat you pick here.',
     name: 'Name',
-    namePlaceholder: 'e.g. Family car under €7,000',
+    namePlaceholder: 'e.g. Within my budget',
+    site: 'Website',
+    siteLocked: 'A search stays on the website it was created for.',
     category: 'Category',
     categoryLocked: "Can't be changed after creating.",
     sendTo: 'Send alerts to',
@@ -137,6 +139,10 @@ const en = {
     hintAll: 'The car must have all of these.',
     hintText: 'Any of these words, e.g. quattro.',
     hintRegion: 'Leave empty for the whole region.',
+    hintPart: 'A group takes everything in it, e.g. Engine › Turbocharger.',
+    hintPartsText: 'Any of these part numbers or words, e.g. 8V0941005.',
+    hintSide:
+      'Left also takes left front and left rear. Parts with no side marked are left out.',
     previewTitle: 'Preview',
     previewLead:
       'Ads already collected that these filters would have matched, so you can check them before saving. Updates as you edit; nothing is sent.',
@@ -167,7 +173,7 @@ const en = {
       '{matched} of {inScope} collected {kind} ads matches',
       '{matched} of {inScope} collected {kind} ads match',
     ),
-    kinds: { cars: 'car', flats: 'flat' },
+    kinds: { cars: 'car', flats: 'flat', parts: 'car part' },
     moreUnchecked: plural('{n} more unchecked', '{n} more unchecked'),
     noneYet: 'No collected {kind} ads yet',
     from: 'From the {n} newest ads collected since {date}',
@@ -178,7 +184,21 @@ const en = {
     unchecked: 'Unchecked',
     nothingTitle: 'Nothing to check yet',
     nothingBody:
-      "ss.com is only read for what someone's search watches, so there's no history here yet. Save the search and new ads start arriving.",
+      "A website is only read for what someone's search watches, so there's no history here yet. Save the search and new ads start arriving.",
+    liveButton: 'Check {site} now',
+    liveHint:
+      'Read the newest ads on {site} once and show which match. Nothing is saved.',
+    liveBack: 'Back to collected ads',
+    liveLine: plural(
+      '{matched} of the {scanned} newest ads on {site} matches',
+      '{matched} of the {scanned} newest ads on {site} match',
+    ),
+    liveFrom: 'Read from {site} just now, first page',
+    liveFailed: 'Could not read the site right now.',
+    liveNothingTitle: 'Nothing on the site',
+    liveNothingBody: '{site} has no ads for this search right now.',
+    liveNoMatchBody:
+      'None of the newest ads on {site} fit these filters. Try widening one, such as the price or year range.',
     noMatchTitle: 'No matches',
     noMatchBody:
       'None of the collected ads fit these filters. Try widening one, such as the price or year range.',
@@ -287,7 +307,7 @@ const en = {
     filters: 'Filters',
     noFilters: 'No filters, so it matches every new ad.',
     feeds: 'Feeds',
-    feedsLead: 'The ss.com pages polled for this search.',
+    feedsLead: 'The website pages or queries polled for this search.',
     noFeeds: 'No feeds.',
     orMore: '{n} or more',
     upTo: 'Up to {n}',
@@ -489,6 +509,10 @@ const en = {
   // Search fields, by the API's key. The API sends ss.com's Latvian form
   // labels; these replace them.
   fields: {
+    part: 'Part',
+    quality: 'Condition',
+    side: 'Side',
+    code: 'Part number or words',
     make: 'Make',
     model: 'Model',
     keywords: 'Words in description',
@@ -541,6 +565,7 @@ const en = {
   categories: {
     cars: 'Cars',
     flats: 'Flats',
+    parts: 'Car parts',
   },
 
   fuelCodes: {
