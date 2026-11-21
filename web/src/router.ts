@@ -10,6 +10,7 @@ export type Route =
   | { name: 'watch'; id: number | 'new' }
   | { name: 'alerts' }
   | { name: 'overview' }
+  | { name: 'gems' }
 
 const path = ref(location.pathname)
 
@@ -17,6 +18,7 @@ export const route = computed<Route>(() => {
   const parts = path.value.split('/').filter(Boolean)
   if (parts[0] === 'alerts') return { name: 'alerts' }
   if (parts[0] === 'overview') return { name: 'overview' }
+  if (parts[0] === 'gems') return { name: 'gems' }
   if (parts[0] === 'watches' && parts[1] === 'new')
     return { name: 'watch', id: 'new' }
   if (parts[0] === 'watches' && /^\d+$/.test(parts[1] ?? ''))

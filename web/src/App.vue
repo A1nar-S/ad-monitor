@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import {
   Bell,
   CircleAlert,
+  Gem,
   LayoutGrid,
   LogOut,
   Radar,
@@ -12,6 +13,7 @@ import {
   TriangleAlert,
 } from 'lucide-vue-next'
 import AdminOverview from './components/AdminOverview.vue'
+import GemsView from './components/GemsView.vue'
 import MatchesView from './components/MatchesView.vue'
 import SearchEditor from './components/SearchEditor.vue'
 import SearchesView from './components/SearchesView.vue'
@@ -55,14 +57,25 @@ const navigation = [
     icon: Bell,
   },
 ]
-const adminNavigation = [
+const adminNavigation = computed(() => [
   {
     id: 'overview' as const,
     href: '/overview',
     label: 'app.overview' as const,
     icon: LayoutGrid,
   },
-]
+  // Only when the server has a source to scan.
+  ...(me.value?.gems
+    ? [
+        {
+          id: 'gems' as const,
+          href: '/gems',
+          label: 'app.gems' as const,
+          icon: Gem,
+        },
+      ]
+    : []),
+])
 const initials = computed(() =>
   (me.value?.name ?? '')
     .split(/[\s._-]+/)
@@ -249,6 +262,7 @@ async function logout() {
         <WatchesView v-else-if="route.name === 'watches'" :me="me" />
         <MatchesView v-else-if="route.name === 'alerts'" />
         <AdminOverview v-else-if="route.name === 'overview' && me.admin" />
+        <GemsView v-else-if="route.name === 'gems' && me.gems" />
         <SearchesView v-else :me="me" />
       </div>
     </main>
