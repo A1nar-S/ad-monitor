@@ -1,8 +1,9 @@
-// Command admin runs one-off maintenance: migrate, purge old data, refresh the ss.com codebooks.
+// Command admin runs one-off maintenance: migrate, purge old data, refresh the ss.com and rrr.lt codebooks.
 //
 //	admin migrate
 //	admin purge [-older-than 1440h]
 //	admin ss-codebook [-only cars|flats]
+//	admin rrr-codebook
 //	admin dlq list [-limit 50] <topic>
 //	admin dlq replay <topic>
 package main
@@ -25,6 +26,7 @@ import (
 	"github.com/A1nar-S/advertisiment-monitoring/internal/notifications"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/config"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/db"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/scraping/rrr"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/scraping/ss"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/subscriptions"
 )
@@ -40,7 +42,7 @@ func run() error {
 	_ = godotenv.Load() // optional
 
 	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: admin migrate | purge [-older-than 1440h] | ss-codebook [-only cars|flats] | dlq list|replay <topic>")
+		return fmt.Errorf("usage: admin migrate | purge [-older-than 1440h] | ss-codebook [-only cars|flats] | rrr-codebook | dlq list|replay <topic>")
 	}
 	cmd, args := os.Args[1], os.Args[2:]
 	if cmd == "dlq" {
@@ -48,6 +50,9 @@ func run() error {
 	}
 	if cmd == "ss-codebook" {
 		return ssCodebook(args) // needs no database
+	}
+	if cmd == "rrr-codebook" {
+		return rrrCodebook(args) // needs no database
 	}
 
 	cfg, err := config.AdminFromEnv()
@@ -144,5 +149,34 @@ func ssCodebook(args []string) error {
 		}
 		slog.Info("wrote codebook", "file", path, "fields", len(cb.Fields), "makes", len(cb.Makes), "regions", len(cb.Regions))
 	}
+	return nil
+}
+
+// rrrCodebook refreshes the rrr.lt taxonomy snapshot (part categories, makes
+// and models): one API request.
+func rrrCodebook(args []string) error {
+	fs := flag.NewFlagSet("rrr-codebook", flag.ExitOnError)
+	out := fs.String("out", "internal/scraping/rrr/codebook/parts.json", "where to write the snapshot")
+	timeout := fs.Duration("timeout", time.Minute, "request timeout")
+	_ = fs.Parse(args)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	cb, err := rrr.NewClient(*timeout).BuildCodebook(ctx)
+	if err != nil {
+		return err
+	}
+	raw, err := cb.MarshalIndent()
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(*out, raw, 0o644); err != nil {
+		return err
+	}
+	models := 0
+	for _, m := range cb.Makes {
+		models += len(m.Models)
+	}
+	slog.Info("wrote codebook", "file", *out, "categories", len(cb.Categories), "makes", len(cb.Makes), "models", models)
 	return nil
 }

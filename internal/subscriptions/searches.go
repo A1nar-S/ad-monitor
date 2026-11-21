@@ -185,6 +185,9 @@ func (s *Service) UpdateSearch(ctx context.Context, o Owner, id int64, in Search
 	if in.ChannelID == 0 {
 		in.ChannelID = cur.Channel.ID
 	}
+	if in.Source == "" { // the bot edits without naming the site
+		in.Source = cur.Source
+	}
 	c, err := s.compile(ctx, Owner{UserID: cur.UserID, Admin: o.Admin}, in)
 	if err != nil {
 		return SearchView{}, err
@@ -370,6 +373,13 @@ func (s *Service) compileFilters(in SearchInput) (string, sources.Source, source
 		return "", nil, sources.Compiled{}, Filters{}, &sources.InvalidSearch{Msg: err.Error()}
 	}
 	return source, src, c, filters, nil
+}
+
+// CompileFeeds validates a search and returns its source and the feeds it
+// would watch, without saving it: what a live preview fetches.
+func (s *Service) CompileFeeds(in SearchInput) (string, []string, error) {
+	source, _, c, _, err := s.compileFilters(in)
+	return source, c.Feeds, err
 }
 
 // Preview is how a search, as written, fares against stored listings.

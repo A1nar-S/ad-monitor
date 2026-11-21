@@ -233,8 +233,8 @@ func (b *Bot) watch(ctx context.Context, o subscriptions.Owner, c Call) (string,
 		return "", err
 	}
 	v, created, err := b.searches.SaveSearchByName(ctx, o, subscriptions.SearchInput{
-		Name: argString(c.Args, "name"), Category: c.Sub, Filters: FiltersFromArgs(c.Args),
-		ChannelID: ch.ID, Origin: b.m.Platform(),
+		Name: argString(c.Args, "name"), Source: subscriptions.DefaultSource, Category: c.Sub,
+		Filters: FiltersFromArgs(c.Args), ChannelID: ch.ID, Origin: b.m.Platform(),
 	})
 	if err != nil {
 		return "", err

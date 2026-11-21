@@ -3,6 +3,7 @@ package app
 import (
 	"time"
 
+	"github.com/A1nar-S/advertisiment-monitoring/internal/scraping/rrr"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/scraping/ss"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/sources"
 )
@@ -14,6 +15,6 @@ import (
 func KnownSources(requestTimeout, gap time.Duration) sources.Registry {
 	return sources.NewRegistry(
 		ss.NewClient(requestTimeout).WithGap(gap),
-		// city24.NewClient(...), vinted.NewClient(...)
+		rrr.NewClient(requestTimeout).WithGap(gap),
 	)
 }

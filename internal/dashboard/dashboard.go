@@ -26,7 +26,7 @@ type Query struct {
 	View     string // "listings" (default) or "searches"
 	Text     string // matched case-insensitively against title, location, source / name, owner, source
 	Source   string
-	Category string // listings only: "cars" or "flats"
+	Category string // listings only: "cars", "flats" or "parts"
 	Status   string // "active" or "inactive" (searches: enabled or paused)
 	Sort     string // listings only: "newest" (default), "oldest" or "title"
 	Page     int    // 1-based; clamped to the last page
@@ -34,7 +34,7 @@ type Query struct {
 
 var (
 	views      = []string{"listings", "searches"}
-	categories = []string{"", "cars", "flats"}
+	categories = []string{"", "cars", "flats", "parts"}
 	statuses   = []string{"", "active", "inactive"}
 	sorts      = []string{"newest", "oldest", "title"}
 )
@@ -209,8 +209,10 @@ var searchesView = view{
 	order:  func(string) string { return "searches.created_at DESC, searches.id DESC" },
 }
 
-// categoryExpr names a listing's category from its ss.com path.
+// categoryExpr names a listing's category: from its ss.com path; every
+// rrr.lt listing is a car part.
 const categoryExpr = `CASE
+      WHEN source = 'rrr.lt' THEN 'parts'
       WHEN source <> 'ss.com' THEN NULL
       WHEN location = 'transport/cars' OR location LIKE 'transport/cars/%' THEN 'cars'
       WHEN location = 'real-estate/flats' OR location LIKE 'real-estate/flats/%' THEN 'flats'
