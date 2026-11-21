@@ -1,0 +1,140 @@
+# kube-prometheus-stack, installed by k3s's built-in Helm controller, cut down
+# for one small node: no Alertmanager and no default alert rules (Grafana sends
+# the app's alerts to Discord, as with compose), and no scraping of the control
+# plane parts k3s runs inside its own process. Kept: Prometheus, Grafana,
+# kube-state-metrics, node-exporter and the kubelet's cAdvisor (container CPU
+# and memory). Grafana is not public: bash deploy/k3s.sh grafana.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+---
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: kube-prometheus-stack
+  namespace: kube-system
+spec:
+  repo: https://prometheus-community.github.io/helm-charts
+  chart: kube-prometheus-stack
+  version: 93.6.1
+  targetNamespace: monitoring
+  valuesContent: |-
+    fullnameOverride: kps
+    defaultRules:
+      create: false
+    alertmanager:
+      enabled: false
+    kubeApiServer:
+      enabled: false
+    kubeControllerManager:
+      enabled: false
+    kubeScheduler:
+      enabled: false
+    kubeProxy:
+      enabled: false
+    kubeEtcd:
+      enabled: false
+    coreDns:
+      enabled: false
+    kubelet:
+      serviceMonitor:
+        probes: false
+
+    prometheusOperator:
+      admissionWebhooks:
+        enabled: false
+      tls:
+        enabled: false
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}
+        limits: {memory: 128Mi}
+
+    prometheus:
+      prometheusSpec:
+        scrapeInterval: 30s
+        evaluationInterval: 30s
+        retention: 15d
+        retentionSize: 3GB
+        # Pick up the PodMonitors in this repo (no Helm release label on them).
+        podMonitorSelectorNilUsesHelmValues: false
+        serviceMonitorSelectorNilUsesHelmValues: false
+        ruleSelectorNilUsesHelmValues: false
+        resources:
+          requests: {cpu: 50m, memory: 256Mi}
+          limits: {memory: 1Gi}
+        storageSpec:
+          volumeClaimTemplate:
+            spec:
+              accessModes: [ReadWriteOnce]
+              resources:
+                requests: {storage: 5Gi}
+
+    kube-state-metrics:
+      collectors: [cronjobs, deployments, jobs, nodes, persistentvolumeclaims, pods, statefulsets]
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}
+        limits: {memory: 128Mi}
+
+    prometheus-node-exporter:
+      resources:
+        requests: {cpu: 10m, memory: 16Mi}
+        limits: {memory: 64Mi}
+
+    grafana:
+      fullnameOverride: grafana
+      testFramework:
+        enabled: false
+      # Secret grafana (k3s.sh secrets): the admin login and GRAFANA_DISCORD_WEBHOOK_URL,
+      # which the provisioned contact point reads.
+      admin:
+        existingSecret: grafana
+        userKey: admin-user
+        passwordKey: admin-password
+      envFromSecret: grafana
+      env:
+        GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      grafana.ini:
+        analytics:
+          reporting_enabled: false
+          check_for_updates: false
+          check_for_plugin_updates: false
+        news:
+          news_feed_enabled: false
+      persistence:
+        enabled: true
+        size: 1Gi
+      resources:
+        requests: {cpu: 20m, memory: 128Mi}
+        limits: {memory: 384Mi}
+      # Only the dashboards sidecar (it loads Kubernetes' and the app's dashboards).
+      # Each sidecar costs ~80Mi, so the datasource and the alert rules are plain
+      # files instead; k3s.sh apply restarts Grafana to reread the rules.
+      sidecar:
+        # Python; it peaks while listing ConfigMaps at start (96Mi got OOM-killed).
+        resources:
+          requests: {cpu: 5m, memory: 64Mi}
+          limits: {memory: 256Mi}
+        datasources:
+          enabled: false
+        dashboards:
+          searchNamespace: monitoring
+      datasources:
+        datasources.yaml:
+          apiVersion: 1
+          datasources:
+            - name: Prometheus
+              uid: prometheus # the app's dashboards and rules refer to this uid
+              type: prometheus
+              access: proxy
+              url: http://kps-prometheus:9090
+              isDefault: true
+              editable: false
+      # The app's alert rules, contact point and policy (infra/grafana, ConfigMap
+      # admon-alerting from kustomization.yaml).
+      extraConfigmapMounts:
+        - name: admon-alerting
+          configMap: admon-alerting
+          mountPath: /etc/grafana/provisioning/alerting
+          readOnly: true
+          optional: true

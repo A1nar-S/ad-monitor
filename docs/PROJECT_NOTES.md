@@ -389,6 +389,10 @@ Deploying: k3s + Cloudflare Tunnel (`deploy/`). Gotchas:
 - Images are imported as `admon/<cmd>:local` (`imagePullPolicy: Never`); `k3s.sh apply` restarts to pick up rebuilds.
 - `PUBLIC_URL` stays in `.env` (Secret `admon-env`): the public repo never names the domain.
 - Init containers wait for Postgres and the topics Job; they run as numeric uids because pods are `runAsNonRoot`.
+- Monitoring: kube-prometheus-stack via k3s's HelmChart (`deploy/k8s/monitoring`), no Alertmanager or default rules.
+  PodMonitors keep the compose job names (`jobLabel: app`, relabel to `postgres`/`kafka`), so `infra/grafana`
+  dashboards and rules load unchanged as ConfigMaps (sidecars). Two rules `or` in a k3s variant: monitoring down
+  (`up{namespace="monitoring"}`) and restarts (`kube_pod_container_status_restarts_total`).
 - Tested 2026-11-21 in a k3s container; bot, notifier and a real tunnel not yet.
 
 Note: `go.mod` is on Go 1.26 (sqlc v1.31 requires it); an older local Go auto-downloads the toolchain.

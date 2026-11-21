@@ -34,6 +34,9 @@ spec:
       containers:
         - name: app
           imagePullPolicy: Never
+          # Scraped by the PodMonitor in monitoring/; no Service exposes it.
+          ports:
+            - {name: metrics, containerPort: 9100}
           # The .env (Secret admon-env), including PUBLIC_URL: the tunnel's
           # public https address. env below wins over it.
           envFrom:

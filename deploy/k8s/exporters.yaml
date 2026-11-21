@@ -1,0 +1,111 @@
+# Postgres and Kafka metrics for Prometheus (scraped through the PodMonitors in
+# monitoring/), like postgres-exporter, kafka-exporter and pg-monitor-init in
+# infra/docker-compose.yml.
+#
+# The read-only role the Postgres exporter logs in with: LOGIN + pg_monitor
+# only. Idempotent; k3s.sh apply runs it on every apply (it also applies a
+# changed MONITOR_DB_PASSWORD).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pg-monitor-init
+spec:
+  backoffLimit: 30
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      enableServiceLinks: false
+      restartPolicy: OnFailure
+      containers:
+        - name: init
+          image: postgres:15
+          env:
+            - {name: PGHOST, value: postgres}
+            - name: PGUSER
+              valueFrom: {secretKeyRef: {name: admon-env, key: DB_USER}}
+            - name: PGPASSWORD
+              valueFrom: {secretKeyRef: {name: admon-env, key: DB_PASSWORD}}
+            - name: PGDATABASE
+              valueFrom: {secretKeyRef: {name: admon-env, key: DB_NAME}}
+            - name: MONITOR_DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: admon-monitor, key: MONITOR_DB_PASSWORD}}
+          command: ["bash", "-c"]
+          # The password goes in by \getenv, not argv, and statement logging is off for it.
+          args:
+            - |
+              psql -v ON_ERROR_STOP=1 <<'SQL'
+              \getenv pw MONITOR_DB_PASSWORD
+              SET log_statement = 'none';
+              SET log_min_duration_statement = -1;
+              SET log_min_error_statement = 'panic';
+              SELECT 'CREATE ROLE admon_monitor LOGIN' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'admon_monitor') \gexec
+              ALTER ROLE admon_monitor LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE CONNECTION LIMIT 3 PASSWORD :'pw';
+              GRANT pg_monitor TO admon_monitor;
+              SQL
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-exporter
+spec:
+  selector:
+    matchLabels: {app: postgres-exporter}
+  template:
+    metadata:
+      labels: {app: postgres-exporter}
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: exporter
+          image: quay.io/prometheuscommunity/postgres-exporter:v0.18.1
+          env:
+            - name: DB_NAME
+              valueFrom: {secretKeyRef: {name: admon-env, key: DB_NAME}}
+            - {name: DATA_SOURCE_URI, value: "postgres:5432/$(DB_NAME)?sslmode=disable"}
+            - {name: DATA_SOURCE_USER, value: admon_monitor}
+            - name: DATA_SOURCE_PASS
+              valueFrom: {secretKeyRef: {name: admon-monitor, key: MONITOR_DB_PASSWORD}}
+          ports:
+            - {name: metrics, containerPort: 9187}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {memory: 64Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-exporter
+spec:
+  selector:
+    matchLabels: {app: kafka-exporter}
+  template:
+    metadata:
+      labels: {app: kafka-exporter}
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: exporter
+          image: danielqsj/kafka-exporter:v1.9.0
+          # Not __consumer_offsets and other internal topics.
+          args: [--kafka.server=kafka:29092, "--topic.filter=^[^_]"]
+          ports:
+            - {name: metrics, containerPort: 9308}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {memory: 64Mi}

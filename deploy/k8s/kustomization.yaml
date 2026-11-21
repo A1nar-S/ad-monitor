@@ -12,6 +12,7 @@ resources:
   - apps.yaml
   - purge.yaml
   - cloudflared.yaml
+  - exporters.yaml
 patches:
   - path: app-common.yaml
     target:

@@ -1,0 +1,29 @@
+# Monitoring for the k3s deploy. Applied by `bash deploy/k3s.sh apply` after
+# the app, once the Prometheus Operator's CRDs exist. The dashboards and alert
+# rules are the compose ones from infra/grafana (hence --load-restrictor
+# LoadRestrictionsNone); containers.json is compose-only, Kubernetes' own
+# dashboards replace it.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - stack.yaml
+  - podmonitors.yaml
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+  - name: admon-dashboards
+    namespace: monitoring
+    options:
+      labels: {grafana_dashboard: "1"}
+    files:
+      - ../../../infra/grafana/dashboards/pipeline.json
+      - ../../../infra/grafana/dashboards/price-watches.json
+      - ../../../infra/grafana/dashboards/api-bot.json
+      - ../../../infra/grafana/dashboards/postgres-kafka.json
+  - name: admon-alerting
+    namespace: monitoring
+    files:
+      - ../../../infra/grafana/provisioning/alerting/rules.yml
+      - ../../../infra/grafana/provisioning/alerting/contact-points.yml
+      - ../../../infra/grafana/provisioning/alerting/policies.yml
+      - ../../../infra/grafana/provisioning/alerting/templates.yml

@@ -1,0 +1,60 @@
+# What Prometheus scrapes in namespace admon, with the job names the
+# dashboards and alert rules in infra/grafana use (as infra/prometheus/prometheus.yml).
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: admon-services
+  namespace: monitoring
+spec:
+  namespaceSelector: {matchNames: [admon]}
+  selector:
+    matchExpressions:
+      - {key: app, operator: In, values: [scraper, ingest, matcher, notifier, bot, api]}
+  jobLabel: app # job="scraper" etc.
+  podMetricsEndpoints:
+    - port: metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: postgres-exporter
+  namespace: monitoring
+spec:
+  namespaceSelector: {matchNames: [admon]}
+  selector:
+    matchLabels: {app: postgres-exporter}
+  podMetricsEndpoints:
+    - port: metrics
+      relabelings:
+        - {targetLabel: job, replacement: postgres}
+      # Only what the dashboard reads (see prometheus.yml).
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          regex: pg_settings_max_connections
+          targetLabel: __keep
+          replacement: "1"
+        - sourceLabels: [__name__, __keep]
+          regex: pg_settings_.*;
+          action: drop
+        - {regex: __keep, action: labeldrop}
+        - sourceLabels: [__name__]
+          regex: pg_statio_user_tables_.*|pg_locks_count|pg_database_connection_limit|pg_stat_user_tables_(seq_.*|idx_.*|n_tup_.*|n_mod_since_analyze|.*vacuum.*|.*analyze.*)
+          action: drop
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: kafka-exporter
+  namespace: monitoring
+spec:
+  namespaceSelector: {matchNames: [admon]}
+  selector:
+    matchLabels: {app: kafka-exporter}
+  podMetricsEndpoints:
+    - port: metrics
+      relabelings:
+        - {targetLabel: job, replacement: kafka}
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          regex: kafka_consumergroup_(members|current_offset_sum)|kafka_topic_partition_(replicas|in_sync_replica|leader|leader_is_preferred|under_replicated_partition)
+          action: drop
