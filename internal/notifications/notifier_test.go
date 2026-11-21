@@ -210,3 +210,27 @@ func TestDigestMessagesSplit(t *testing.T) {
 		t.Errorf("lines=%d, last=%q", lines, msgs[len(msgs)-1])
 	}
 }
+
+func TestRepostText(t *testing.T) {
+	price := func(v float64) *float64 { return &v }
+	first := time.Date(2026, 10, 3, 9, 0, 0, 0, time.UTC)
+	l := events.ListingDiscovered{PriceValue: price(8500), RepostOf: &events.Repost{FirstListed: first, Times: 1, PriceValue: price(8900), Price: "8 900 €"}}
+	if got, want := RepostText(l), "First listed 3 Oct 2026, in 1 earlier ad. Last asked 8 900 €, now 8 500 € (400 € less)."; got != want {
+		t.Errorf("cheaper = %q\nwant      %q", got, want)
+	}
+	l.RepostOf.Times, l.PriceValue = 3, price(8900)
+	if got, want := RepostText(l), "First listed 3 Oct 2026, in 3 earlier ads. Same price as before."; got != want {
+		t.Errorf("same price = %q\nwant         %q", got, want)
+	}
+	l.PriceValue = nil
+	if got, want := RepostText(l), "First listed 3 Oct 2026, in 3 earlier ads. Last asked 8 900 €."; got != want {
+		t.Errorf("no price now = %q\nwant           %q", got, want)
+	}
+	if RepostText(events.ListingDiscovered{}) != "" {
+		t.Error("text for an ad that is no repost")
+	}
+	l.Title, l.Price = "BMW 520", "8 900 €"
+	if line := digestLine(l); line != "• ♻️ **8 900 €** · BMW 520" {
+		t.Errorf("digest line = %q, want it marked as a repost", line)
+	}
+}

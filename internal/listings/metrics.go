@@ -13,6 +13,10 @@ var (
 		Name: "admon_ingest_listings_total",
 		Help: "Listings handled by ingest, by result: new (announced), seeded (new but stored silently), known.",
 	}, []string{"result"})
+	reposts = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "admon_ingest_reposts_total",
+		Help: "New listings announced as a repost: their item (source fingerprint) was seen in an earlier ad.",
+	})
 	relayed = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "admon_outbox_relayed_total",
 		Help: "Outbox entries handled by the relay, by result (published, failed).",

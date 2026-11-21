@@ -17,10 +17,12 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+	_ "time/tzdata" // the runtime image has no zone files
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/A1nar-S/advertisiment-monitoring/internal/deals"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/notifications/notificationsdb"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/db"
@@ -310,8 +312,51 @@ func digestLine(l events.ListingDiscovered) string {
 	if l.URL != "" {
 		parts = append(parts, "<"+l.URL+">") // <> stops Discord expanding a preview per line
 	}
-	return "• " + strings.Join(parts, " · ")
+	line := "• " + strings.Join(parts, " · ")
+	if l.RepostOf != nil {
+		line = "• ♻️ " + strings.TrimPrefix(line, "• ") // seen before in another ad
+	}
+	return line
 }
+
+// RepostText says what was known about a reposted ad's item, for any
+// notifier: "First listed 3 Oct 2026, in 2 earlier ads. Last asked 8 900 €,
+// now 8 500 € (400 € less)."
+func RepostText(l events.ListingDiscovered) string {
+	r := l.RepostOf
+	if r == nil {
+		return ""
+	}
+	s := "First listed " + r.FirstListed.In(siteZone).Format("2 Jan 2006")
+	if r.Times == 1 {
+		s += ", in 1 earlier ad."
+	} else {
+		s += fmt.Sprintf(", in %d earlier ads.", r.Times)
+	}
+	switch {
+	case r.PriceValue != nil && l.PriceValue != nil && *r.PriceValue != *l.PriceValue:
+		diff := *l.PriceValue - *r.PriceValue
+		change := "more"
+		if diff < 0 {
+			diff, change = -diff, "less"
+		}
+		s += fmt.Sprintf(" Last asked %s, now %s (%s %s).", deals.Euros(*r.PriceValue), deals.Euros(*l.PriceValue), deals.Euros(diff), change)
+	case r.PriceValue != nil && l.PriceValue != nil:
+		s += " Same price as before."
+	case r.Price != "":
+		s += " Last asked " + strings.Join(strings.Fields(r.Price), " ") + "."
+	}
+	return s
+}
+
+// siteZone is where the sites are, for dates in messages: the process runs
+// in UTC, and an ad first seen just after midnight in Riga was seen "today".
+var siteZone = func() *time.Location {
+	if z, err := time.LoadLocation("Europe/Riga"); err == nil {
+		return z
+	}
+	return time.UTC
+}()
 
 func plural(n int, one, many string) string {
 	if n == 1 {

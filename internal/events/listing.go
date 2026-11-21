@@ -42,6 +42,23 @@ type ListingDiscovered struct {
 	Fields []Field `json:"fields,omitempty"`
 
 	PostedAt time.Time `json:"posted_at"`
+
+	// Fingerprint identifies the item rather than the ad (a car by make,
+	// model, year, engine and mileage): a seller who deletes an ad and posts
+	// it again gets a new ExternalID but the same Fingerprint. "" = the
+	// source cannot tell.
+	Fingerprint string `json:"fingerprint,omitempty"`
+	// RepostOf is set by ingest on a new ad whose item was seen before.
+	RepostOf *Repost `json:"repost_of,omitempty"`
+}
+
+// Repost is what was known about a reposted ad's item before.
+type Repost struct {
+	ExternalID  string    `json:"external_id"`  // the latest earlier ad
+	FirstListed time.Time `json:"first_listed"` // when the item was first seen, in any ad
+	Times       int       `json:"times"`        // earlier ads of the item
+	Price       string    `json:"price,omitempty"`
+	PriceValue  *float64  `json:"price_value,omitempty"` // the latest earlier ad's
 }
 
 // Field is one labelled fact in a notification.

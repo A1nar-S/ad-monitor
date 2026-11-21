@@ -69,7 +69,12 @@ func (c *Client) FetchFeed(ctx context.Context, feed string, page int) ([]events
 	if err != nil {
 		return nil, err
 	}
-	return Parse(bytes.NewReader(body), time.Now())
+	ads, err := Parse(bytes.NewReader(body), time.Now())
+	deal := parseFeed(feed).deal
+	for i := range ads {
+		ads[i].Fingerprint = fingerprint(ads[i], deal)
+	}
+	return ads, err
 }
 
 // WithGap makes the client wait at least gap between the requests it

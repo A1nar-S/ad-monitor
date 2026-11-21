@@ -13,7 +13,12 @@ import (
 	"github.com/A1nar-S/advertisiment-monitoring/internal/notifications"
 )
 
-const embedColor = 0x3fbc58
+// Embed border colours: green for a new ad, orange for an item seen before
+// in another ad (deleted and posted again).
+const (
+	embedColor  = 0x3fbc58
+	repostColor = 0xf0a020
+)
 
 // Notifier posts to any channel the bot can write to; the channel ID is
 // passed per call so one bot token serves every user.
@@ -62,6 +67,9 @@ func embed(l events.ListingDiscovered) *discordgo.MessageEmbed {
 		Title: "🆕 New listing",
 		Color: embedColor,
 	}
+	if l.RepostOf != nil {
+		e.Title, e.Color = "♻️ Reposted listing", repostColor
+	}
 
 	e.Description = l.Title
 	if l.URL != "" {
@@ -73,6 +81,9 @@ func embed(l events.ListingDiscovered) *discordgo.MessageEmbed {
 
 	if l.Price != "" {
 		e.Fields = append(e.Fields, &discordgo.MessageEmbedField{Name: "💰 Price", Value: l.Price, Inline: true})
+	}
+	if r := l.RepostOf; r != nil {
+		e.Fields = append(e.Fields, &discordgo.MessageEmbedField{Name: "♻️ Seen before", Value: notifications.RepostText(l)})
 	}
 	for _, f := range l.Fields {
 		e.Fields = append(e.Fields, &discordgo.MessageEmbedField{Name: f.Name, Value: f.Value, Inline: f.Inline})
