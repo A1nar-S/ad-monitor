@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/textutil"
 )
 
 // Attr keys of an rrr.lt listing. Ids are strings, as the API has them.
@@ -217,7 +218,7 @@ func (n part) listing(feed string, now time.Time) events.ListingDiscovered {
 				a[attrGearbox] = enumID(val)
 			}
 		}
-		car = strings.TrimSpace(strings.Join(nonEmpty(str(a, attrMake), str(a, attrModel)), " "))
+		car = strings.TrimSpace(strings.Join(textutil.NonEmpty(str(a, attrMake), str(a, attrModel)), " "))
 		if y, ok := a[attrYear].(float64); ok {
 			car += ", " + strconv.Itoa(int(y))
 		}
@@ -225,11 +226,11 @@ func (n part) listing(feed string, now time.Time) events.ListingDiscovered {
 			car = desc
 		}
 	}
-	if text := strings.Join(nonEmpty(strings.Join(numbers, " "), desc), " "); text != "" {
+	if text := strings.Join(textutil.NonEmpty(strings.Join(numbers, " "), desc), " "); text != "" {
 		a[TextAttr] = text
 	}
 
-	l.Title = strings.Join(nonEmpty(n.Category.Name, car), " · ")
+	l.Title = strings.Join(textutil.NonEmpty(n.Category.Name, car), " · ")
 	if l.Title == "" {
 		l.Title = n.SKU
 	}
@@ -254,7 +255,7 @@ func fields(l events.ListingDiscovered, car string, numbers []string) []events.F
 		engine = append(engine, fmt.Sprintf("%d kW", int(v)))
 	}
 	engine = append(engine, fuelNames[str(l.Attrs, attrFuel)])
-	add("⚙️ Engine", strings.Join(nonEmpty(engine...), ", "), true)
+	add("⚙️ Engine", strings.Join(textutil.NonEmpty(engine...), ", "), true)
 	add("🕹️ Gearbox", gearboxNames[str(l.Attrs, attrGearbox)], true)
 	add("↔️ Side", sideNames[str(l.Attrs, attrSide)], true)
 	add("✨ Condition", labelOf(qualityOptions, str(l.Attrs, attrQuality)), true)
@@ -300,16 +301,6 @@ func setNum(a map[string]any, key, v string) {
 func str(a map[string]any, key string) string {
 	s, _ := a[key].(string)
 	return s
-}
-
-func nonEmpty(ss ...string) []string {
-	var out []string
-	for _, s := range ss {
-		if s = strings.TrimSpace(s); s != "" {
-			out = append(out, s)
-		}
-	}
-	return out
 }
 
 // formatEUR shows a price as the site does: "58.82 €", "120 €".

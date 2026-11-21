@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/textutil"
 )
 
 // Codebook is a snapshot of rrr.lt's taxonomy: the part category tree and
@@ -105,10 +107,10 @@ func (cb *Codebook) index() {
 		key := pathKey(c.Path)
 		if len(cb.byPath[key]) == 0 {
 			cb.paths = append(cb.paths, c.Path)
-			if len(cb.byLeaf[fold(c.Name)]) == 0 {
+			if len(cb.byLeaf[textutil.Normalize(c.Name)]) == 0 {
 				cb.leaves = append(cb.leaves, c.Name)
 			}
-			cb.byLeaf[fold(c.Name)] = append(cb.byLeaf[fold(c.Name)], c.Path)
+			cb.byLeaf[textutil.Normalize(c.Name)] = append(cb.byLeaf[textutil.Normalize(c.Name)], c.Path)
 		}
 		cb.byPath[key] = append(cb.byPath[key], c)
 	}
@@ -116,7 +118,7 @@ func (cb *Codebook) index() {
 	cb.makeOf = map[int]*Make{}
 	for i := range cb.Makes {
 		m := &cb.Makes[i]
-		cb.makeByKey[fold(m.Name)] = m
+		cb.makeByKey[textutil.Normalize(m.Name)] = m
 		m.index()
 		for _, o := range m.Models {
 			cb.makeOf[o.ID] = m
@@ -136,13 +138,13 @@ func (m *Make) index() {
 		if o.From != "" || o.To != "" {
 			o.Label += " (" + o.From + "–" + o.To + ")"
 		}
-		if seen[fold(o.Label)] {
+		if seen[textutil.Normalize(o.Label)] {
 			o.Label += " #" + strconv.Itoa(o.ID)
 		}
-		seen[fold(o.Label)] = true
+		seen[textutil.Normalize(o.Label)] = true
 		m.labels = append(m.labels, o.Label)
-		m.byLabel[fold(o.Label)] = o
-		m.byName[fold(o.Name)] = append(m.byName[fold(o.Name)], o)
+		m.byLabel[textutil.Normalize(o.Label)] = o
+		m.byName[textutil.Normalize(o.Name)] = append(m.byName[textutil.Normalize(o.Name)], o)
 		m.modelByID[o.ID] = o
 	}
 }
@@ -186,7 +188,7 @@ func (cb *Codebook) MakeOfModel(model int) (*Make, bool) {
 
 // MakeByName finds a make, ignoring case and diacritics.
 func (cb *Codebook) MakeByName(name string) (*Make, bool) {
-	m, ok := cb.makeByKey[fold(name)]
+	m, ok := cb.makeByKey[textutil.Normalize(name)]
 	return m, ok
 }
 
@@ -201,10 +203,10 @@ func (cb *Codebook) makeNames() []string {
 // Model finds a model by its label ("3 E46 (1998–2005)") or, when only one
 // generation has it, by its bare name ("3 E46").
 func (m *Make) Model(name string) (*Model, bool) {
-	if o, ok := m.byLabel[fold(name)]; ok {
+	if o, ok := m.byLabel[textutil.Normalize(name)]; ok {
 		return o, true
 	}
-	if os := m.byName[fold(name)]; len(os) == 1 {
+	if os := m.byName[textutil.Normalize(name)]; len(os) == 1 {
 		return os[0], true
 	}
 	return nil, false
@@ -305,7 +307,7 @@ func codebookFrom(t taxonomy, now time.Time) *Codebook {
 		}
 		kids := n.Categories.Edges
 		slices.SortStableFunc(kids, func(a, b taxEdge) int {
-			return strings.Compare(fold(a.Node.Name), fold(b.Node.Name))
+			return strings.Compare(textutil.Normalize(a.Node.Name), textutil.Normalize(b.Node.Name))
 		})
 		for _, k := range kids {
 			walk(n.ID, k.Node)
@@ -324,7 +326,7 @@ func codebookFrom(t taxonomy, now time.Time) *Codebook {
 			}
 		}
 		slices.SortStableFunc(m.Models, func(a, b Model) int {
-			if d := strings.Compare(fold(a.Name), fold(b.Name)); d != 0 {
+			if d := strings.Compare(textutil.Normalize(a.Name), textutil.Normalize(b.Name)); d != 0 {
 				return d
 			}
 			return strings.Compare(a.From, b.From)
@@ -384,68 +386,9 @@ func (cb *Codebook) MarshalIndent() ([]byte, error) {
 // pathKey is how a category path is looked up: folded, with "›" or ">" as
 // separator and the spaces around it ignored ("engine>turbo").
 func pathKey(p string) string {
-	parts := strings.FieldsFunc(fold(p), func(r rune) bool { return r == '›' || r == '>' })
+	parts := strings.FieldsFunc(textutil.Normalize(p), func(r rune) bool { return r == '›' || r == '>' })
 	for i, s := range parts {
 		parts[i] = strings.TrimSpace(s)
 	}
 	return strings.Join(parts, "›")
-}
-
-func fold(s string) string {
-	return strings.Join(strings.Fields(diacritics.Replace(strings.ToLower(s))), " ")
-}
-
-var diacritics = strings.NewReplacer(
-	"ā", "a", "č", "c", "ē", "e", "ģ", "g", "ī", "i", "ķ", "k", "ļ", "l", "ņ", "n",
-	"š", "s", "ū", "u", "ž", "z", "ō", "o", "ŗ", "r", "ä", "a", "ö", "o", "ü", "u",
-	"é", "e", "è", "e", "ë", "e", "á", "a", "ó", "o", "í", "i", "ú", "u", "ą", "a",
-	"ę", "e", "ė", "e", "į", "i", "ų", "u", "ł", "l",
-)
-
-// closest returns up to three names nearest to s, for "did you mean".
-func closest(s string, names []string) []string {
-	type cand struct {
-		name string
-		d    int
-	}
-	fs := fold(s)
-	var cs []cand
-	for _, n := range names {
-		fn := fold(n)
-		d := levenshtein(fs, fn)
-		if fs != "" && strings.Contains(fn, fs) {
-			d = 0 // "turbo" is surely one of the paths that contain it
-		}
-		cs = append(cs, cand{n, d})
-	}
-	slices.SortStableFunc(cs, func(a, b cand) int { return a.d - b.d })
-	var out []string
-	for _, c := range cs {
-		if len(out) == 3 || c.d > max(2, len(s)/2) {
-			break
-		}
-		out = append(out, c.name)
-	}
-	return out
-}
-
-func levenshtein(a, b string) int {
-	ra, rb := []rune(a), []rune(b)
-	prev := make([]int, len(rb)+1)
-	for j := range prev {
-		prev[j] = j
-	}
-	for i := 1; i <= len(ra); i++ {
-		cur := make([]int, len(rb)+1)
-		cur[0] = i
-		for j := 1; j <= len(rb); j++ {
-			cost := 1
-			if ra[i-1] == rb[j-1] {
-				cost = 0
-			}
-			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
-		}
-		prev = cur
-	}
-	return prev[len(rb)]
 }

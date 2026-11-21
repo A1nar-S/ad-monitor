@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/textutil"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/sources"
 )
 
@@ -85,7 +86,7 @@ func labelOf(os []option, id string) string {
 // lookupOption takes a label or an id, ignoring case.
 func lookupOption(os []option, name string) (option, bool) {
 	for _, o := range os {
-		if fold(o.Label) == fold(name) || strings.EqualFold(o.ID, strings.TrimSpace(name)) {
+		if textutil.Normalize(o.Label) == textutil.Normalize(name) || strings.EqualFold(o.ID, strings.TrimSpace(name)) {
 			return o, true
 		}
 	}
@@ -197,7 +198,7 @@ func (cb *Codebook) compile(in map[string]any) (sources.Compiled, error) {
 		return slices.ContainsFunc(cb.Ancestors(id)[1:], func(a int) bool { return slices.Contains(f.Cats, a) })
 	})
 	if len(shownParts) > 0 {
-		spec["part"] = toAny(shownParts)
+		spec["part"] = textutil.ToAny(shownParts)
 	}
 
 	makeNames, err := stringList("make", in["make"])
@@ -247,10 +248,10 @@ func (cb *Codebook) compile(in map[string]any) (sources.Compiled, error) {
 		}
 	}
 	if len(shownMakes) > 0 {
-		spec["make"] = toAny(shownMakes)
+		spec["make"] = textutil.ToAny(shownMakes)
 	}
 	if len(shownModels) > 0 {
-		spec["model"] = toAny(uniq(shownModels))
+		spec["model"] = textutil.ToAny(textutil.Uniq(shownModels))
 	}
 	if len(f.Cats) == 0 && len(makes) == 0 {
 		return sources.Compiled{}, errors.New("choose a part or a car make: rrr.lt has too many new parts to watch them all")
@@ -289,7 +290,7 @@ func (cb *Codebook) compile(in map[string]any) (sources.Compiled, error) {
 		}
 	}
 	if len(shownQuality) > 0 {
-		spec["quality"] = toAny(shownQuality)
+		spec["quality"] = textutil.ToAny(shownQuality)
 	}
 
 	sides, err := stringList("side", in["side"])
@@ -298,7 +299,7 @@ func (cb *Codebook) compile(in map[string]any) (sources.Compiled, error) {
 	}
 	var shownSides []string
 	for _, n := range sides {
-		i := slices.IndexFunc(sideOptions, func(o sideOption) bool { return fold(o.Label) == fold(n) })
+		i := slices.IndexFunc(sideOptions, func(o sideOption) bool { return textutil.Normalize(o.Label) == textutil.Normalize(n) })
 		if i < 0 {
 			return sources.Compiled{}, fmt.Errorf("side: unknown value %q%s; valid: %s", n, didYouMean(n, sideLabels()), strings.Join(sideLabels(), ", "))
 		}
@@ -308,7 +309,7 @@ func (cb *Codebook) compile(in map[string]any) (sources.Compiled, error) {
 		}
 	}
 	if len(shownSides) > 0 {
-		spec["side"] = toAny(shownSides)
+		spec["side"] = textutil.ToAny(shownSides)
 	}
 
 	words, err := keywords(in[KeywordsKey])
@@ -316,8 +317,8 @@ func (cb *Codebook) compile(in map[string]any) (sources.Compiled, error) {
 		return sources.Compiled{}, err
 	}
 	if len(words) > 0 {
-		filters[TextAttr] = map[string]any{"contains": toAny(words)}
-		spec[KeywordsKey] = toAny(words)
+		filters[TextAttr] = map[string]any{"contains": textutil.ToAny(words)}
+		spec[KeywordsKey] = textutil.ToAny(words)
 	}
 
 	return sources.Compiled{Spec: spec, Feeds: []string{f.String()}, Filters: filters}, nil
@@ -330,52 +331,21 @@ func (cb *Codebook) part(name string) ([]*Category, error) {
 	if cs, ok := cb.byPath[pathKey(name)]; ok {
 		return cs, nil
 	}
-	switch paths := cb.byLeaf[fold(name)]; len(paths) {
+	switch paths := cb.byLeaf[textutil.Normalize(name)]; len(paths) {
 	case 1:
 		return cb.byPath[pathKey(paths[0])], nil
 	case 0:
 		var near []string
-		for _, leaf := range closest(name, cb.leaves) {
-			near = append(near, cb.byLeaf[fold(leaf)]...)
+		for _, leaf := range textutil.ClosestContaining(name, cb.leaves) {
+			near = append(near, cb.byLeaf[textutil.Normalize(leaf)]...)
 		}
 		if len(near) > 0 {
-			return nil, fmt.Errorf("unknown part %q (did you mean %s?)", name, strings.Join(quoteAll(near[:min(len(near), 3)]), " or "))
+			return nil, fmt.Errorf("unknown part %q (did you mean %s?)", name, strings.Join(textutil.QuoteAll(near[:min(len(near), 3)]), " or "))
 		}
 		return nil, fmt.Errorf("unknown part %q; pick one from the list", name)
 	default:
-		return nil, fmt.Errorf("%q is in several groups; write one of %s", name, strings.Join(quoteAll(paths), ", "))
+		return nil, fmt.Errorf("%q is in several groups; write one of %s", name, strings.Join(textutil.QuoteAll(paths), ", "))
 	}
-}
-
-const (
-	maxKeywords   = 10
-	maxKeywordLen = 50
-)
-
-func keywords(v any) ([]string, error) {
-	names, err := stringList(KeywordsKey, v)
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	seen := map[string]bool{}
-	for _, n := range names {
-		n = strings.Join(strings.Fields(n), " ")
-		switch {
-		case n == "" || seen[fold(n)]:
-			continue
-		case len([]rune(n)) < 2:
-			return nil, fmt.Errorf("keyword %q is too short; use at least 2 letters", n)
-		case len([]rune(n)) > maxKeywordLen:
-			return nil, fmt.Errorf("keyword %q is too long; keep it under %d letters", n, maxKeywordLen)
-		}
-		seen[fold(n)] = true
-		out = append(out, n)
-	}
-	if len(out) > maxKeywords {
-		return nil, fmt.Errorf("at most %d keywords, got %d", maxKeywords, len(out))
-	}
-	return out, nil
 }
 
 // rangeOf reads {min, max} as whole numbers; either may be missing.
@@ -393,7 +363,7 @@ func rangeOf(label string, v any) (span, map[string]any, error) {
 		if b == nil {
 			continue
 		}
-		n, ok := number(b)
+		n, ok := textutil.Number(b)
 		if !ok || n < 0 || n > 1e9 {
 			return span{}, nil, fmt.Errorf("%s: %s must be a number, got %v", label, k, b)
 		}
@@ -409,18 +379,6 @@ func rangeOf(label string, v any) (span, map[string]any, error) {
 		return span{}, nil, fmt.Errorf("%s: min %d is above max %d", label, *s.Min, *s.Max)
 	}
 	return s, shown, nil
-}
-
-func number(v any) (float64, bool) {
-	switch n := v.(type) {
-	case float64:
-		return n, true
-	case int:
-		return float64(n), true
-	case int64:
-		return float64(n), true
-	}
-	return 0, false
 }
 
 // stringList reads a filter value written as one string or a list.
@@ -447,37 +405,16 @@ func stringList(key string, v any) ([]string, error) {
 	return nil, fmt.Errorf("filter %q: expected a name or a list of names, got %v", key, v)
 }
 
+// keywords reads the keywords filter: trimmed, without repeats.
+func keywords(v any) ([]string, error) {
+	names, err := stringList(KeywordsKey, v)
+	if err != nil {
+		return nil, err
+	}
+	return textutil.Keywords(names)
+}
+
+// didYouMean also suggests the names containing s: part paths are long.
 func didYouMean(s string, names []string) string {
-	if c := closest(s, names); len(c) > 0 {
-		return " (did you mean " + strings.Join(quoteAll(c), " or ") + "?)"
-	}
-	return ""
-}
-
-func quoteAll(ss []string) []string {
-	out := make([]string, len(ss))
-	for i, s := range ss {
-		out[i] = fmt.Sprintf("%q", s)
-	}
-	return out
-}
-
-func toAny(ss []string) []any {
-	out := make([]any, len(ss))
-	for i, s := range ss {
-		out[i] = s
-	}
-	return out
-}
-
-func uniq(ss []string) []string {
-	seen := map[string]bool{}
-	out := ss[:0:0]
-	for _, s := range ss {
-		if !seen[s] {
-			seen[s] = true
-			out = append(out, s)
-		}
-	}
-	return out
+	return textutil.DidYouMean(textutil.ClosestContaining(s, names))
 }

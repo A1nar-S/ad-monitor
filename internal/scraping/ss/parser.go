@@ -17,6 +17,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 
 	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/textutil"
 )
 
 const (
@@ -180,8 +181,8 @@ func displayFields(l events.ListingDiscovered, a *ad) []events.Field {
 	}
 	s := func(key string) string { v, _ := l.Str(key); return v }
 
-	add("📍 Location", strings.Join(nonEmpty(a.district, a.address), ", "), false)
-	add("🚗 Car", strings.Join(nonEmpty(a.make, a.model), " "), false)
+	add("📍 Location", strings.Join(textutil.NonEmpty(a.district, a.address), ", "), false)
+	add("🚗 Car", strings.Join(textutil.NonEmpty(a.make, a.model), " "), false)
 	add("📅 Year", n("year"), true)
 	if v, ok := l.Num("engine_l"); ok {
 		add("⚙️ Engine", fmt.Sprintf("%.1f %s", v, s("fuel")), true)
@@ -294,7 +295,7 @@ func mileage(a *ad, c *goquery.Selection) {
 func splitLines(cell *goquery.Selection) []string {
 	clone := cell.Clone()
 	clone.Find("br").ReplaceWithHtml("\n")
-	return nonEmpty(strings.Split(clone.Text(), "\n")...)
+	return textutil.NonEmpty(strings.Split(clone.Text(), "\n")...)
 }
 
 // splitDistrict splits an "area<br>street" cell.
@@ -338,16 +339,6 @@ func attr(s *goquery.Selection, name string) string {
 }
 
 func text(s *goquery.Selection) string { return strings.TrimSpace(s.Text()) }
-
-func nonEmpty(ss ...string) []string {
-	var out []string
-	for _, s := range ss {
-		if s = strings.TrimSpace(s); s != "" {
-			out = append(out, s)
-		}
-	}
-	return out
-}
 
 // priceValue pulls the number out of "1 200  €/mēn.", "16.86 €" or "6,900 €".
 // A comma followed by exactly three digits is a thousands separator on the

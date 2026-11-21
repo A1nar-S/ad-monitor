@@ -8,12 +8,13 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+
+	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/textutil"
 )
 
 // The codebook is ss.com's own vocabulary for a category: the fields of its
@@ -140,7 +141,7 @@ func (cb *Codebook) index() {
 	cb.makeSlug, cb.makeName = map[string]*Make{}, map[string]*Make{}
 	for i := range cb.Makes {
 		m := &cb.Makes[i]
-		cb.makeName[fold(m.Name)] = m
+		cb.makeName[textutil.Normalize(m.Name)] = m
 		if m.Slug != "" {
 			cb.makeSlug[m.Slug] = m
 		}
@@ -181,16 +182,16 @@ func (cb *Codebook) MakeBySlug(slug string) (*Make, bool) {
 
 // MakeByName finds a make by name, ignoring case and diacritics.
 func (cb *Codebook) MakeByName(name string) (*Make, bool) {
-	m, ok := cb.makeName[fold(name)]
+	m, ok := cb.makeName[textutil.Normalize(name)]
 	return m, ok
 }
 
 // Model finds a model of m by name or URL slug ("a4", "rav-4").
 func (m *Make) Model(nameOrSlug string) (Option, bool) {
-	want := fold(nameOrSlug)
+	want := textutil.Normalize(nameOrSlug)
 	slug := slugish(nameOrSlug)
 	for _, o := range m.Models {
-		if fold(o.Name) == want || slugish(o.Name) == slug {
+		if textutil.Normalize(o.Name) == want || slugish(o.Name) == slug {
 			return o, true
 		}
 	}
@@ -200,9 +201,9 @@ func (m *Make) Model(nameOrSlug string) (Option, bool) {
 // Option finds an option by name, ignoring case, diacritics and a trailing
 // dot: ss.com abbreviates ("Jaun.", "119."), and YAML reads 119. as a number.
 func (f *Field) Option(name string) (Option, bool) {
-	want := strings.TrimSuffix(fold(name), ".")
+	want := strings.TrimSuffix(textutil.Normalize(name), ".")
 	for _, o := range f.Options {
-		if strings.TrimSuffix(fold(o.Name), ".") == want {
+		if strings.TrimSuffix(textutil.Normalize(o.Name), ".") == want {
 			return o, true
 		}
 	}
@@ -213,11 +214,11 @@ func (f *Field) Option(name string) (Option, bool) {
 // "Melna metālika" is "Melna" and "Benzīns/gāze" is not "Benzīns". Ad pages
 // write values with extras ("Automāts 6 ātrumi").
 func (f *Field) OptionPrefix(text string) (Option, bool) {
-	t := fold(text)
+	t := textutil.Normalize(text)
 	var best Option
 	for _, o := range f.Options {
-		n := fold(o.Name)
-		if n != "" && strings.HasPrefix(t, n) && len(n) > len(fold(best.Name)) {
+		n := textutil.Normalize(o.Name)
+		if n != "" && strings.HasPrefix(t, n) && len(n) > len(textutil.Normalize(best.Name)) {
 			best = o
 		}
 	}
@@ -232,65 +233,11 @@ func (f *Field) optionNames() []string {
 	return names
 }
 
-// fold makes names comparable: lower case, no Latvian (or other common)
-// diacritics, single spaces. "Dīzelis" and "dizelis" fold alike.
-func fold(s string) string {
-	return strings.Join(strings.Fields(diacritics.Replace(strings.ToLower(s))), " ")
-}
-
-var diacritics = strings.NewReplacer(
-	"ā", "a", "č", "c", "ē", "e", "ģ", "g", "ī", "i", "ķ", "k", "ļ", "l", "ņ", "n",
-	"š", "s", "ū", "u", "ž", "z", "ō", "o", "ŗ", "r", "ä", "a", "ö", "o", "ü", "u",
-	"é", "e", "è", "e", "ë", "e", "á", "a", "ó", "o", "í", "i", "ú", "u",
-)
-
 var nonAlnum = regexp.MustCompile(`[^a-z0-9]+`)
 
 // slugish reduces a name to letters and digits, to compare a model name
 // with its URL slug ("RAV 4" ~ "rav4" ~ "rav-4").
-func slugish(s string) string { return nonAlnum.ReplaceAllString(fold(s), "") }
-
-// closest returns up to three names nearest to s, for "did you mean".
-func closest(s string, names []string) []string {
-	type cand struct {
-		name string
-		d    int
-	}
-	var cs []cand
-	for _, n := range names {
-		cs = append(cs, cand{n, levenshtein(fold(s), fold(n))})
-	}
-	slices.SortStableFunc(cs, func(a, b cand) int { return a.d - b.d })
-	var out []string
-	for _, c := range cs {
-		if len(out) == 3 || c.d > max(2, len(s)/2) {
-			break
-		}
-		out = append(out, c.name)
-	}
-	return out
-}
-
-func levenshtein(a, b string) int {
-	ra, rb := []rune(a), []rune(b)
-	prev := make([]int, len(rb)+1)
-	for j := range prev {
-		prev[j] = j
-	}
-	for i := 1; i <= len(ra); i++ {
-		cur := make([]int, len(rb)+1)
-		cur[0] = i
-		for j := 1; j <= len(rb); j++ {
-			cost := 1
-			if ra[i-1] == rb[j-1] {
-				cost = 0
-			}
-			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
-		}
-		prev = cur
-	}
-	return prev[len(rb)]
-}
+func slugish(s string) string { return nonAlnum.ReplaceAllString(textutil.Normalize(s), "") }
 
 // --- Building the snapshot from the live site -------------------------------
 
@@ -384,13 +331,13 @@ func groupedOptions(ids []string, form map[string]formField) []Option {
 	count := map[string]int{}
 	for _, id := range ids {
 		for _, o := range form[id].options {
-			count[fold(o.Name)]++
+			count[textutil.Normalize(o.Name)]++
 		}
 	}
 	var out []Option
 	for _, id := range ids {
 		for _, o := range form[id].options {
-			if count[fold(o.Name)] > 1 {
+			if count[textutil.Normalize(o.Name)] > 1 {
 				o.Name = qualify(form[id].label, o.Name)
 			}
 			out = append(out, o)

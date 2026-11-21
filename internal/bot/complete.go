@@ -4,6 +4,8 @@ import (
 	"context"
 	"slices"
 	"strings"
+
+	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/textutil"
 )
 
 // MaxSuggestions is how many suggestions platforms show (Discord: 25).
@@ -31,7 +33,7 @@ func (b *Bot) Complete(ctx context.Context, u User, c Call, param string) []stri
 		options = nil
 		parents := SplitList(argString(c.Args, f.DependsOn))
 		for parent, opts := range f.OptionsBy {
-			if len(parents) == 0 || slices.ContainsFunc(parents, func(p string) bool { return fold(p) == fold(parent) }) {
+			if len(parents) == 0 || slices.ContainsFunc(parents, func(p string) bool { return textutil.Fold(p) == textutil.Fold(parent) }) {
 				options = append(options, opts...)
 			}
 		}
@@ -52,13 +54,13 @@ func completeList(typed string, options []string) []string {
 	chosen := SplitList(done)
 	var prefix, inside []string
 	for _, o := range options {
-		if slices.ContainsFunc(chosen, func(c string) bool { return fold(c) == fold(o) }) {
+		if slices.ContainsFunc(chosen, func(c string) bool { return textutil.Fold(c) == textutil.Fold(o) }) {
 			continue
 		}
 		switch {
-		case strings.HasPrefix(fold(o), fold(fragment)):
+		case strings.HasPrefix(textutil.Fold(o), textutil.Fold(fragment)):
 			prefix = append(prefix, o)
-		case strings.Contains(fold(o), fold(fragment)):
+		case strings.Contains(textutil.Fold(o), textutil.Fold(fragment)):
 			inside = append(inside, o)
 		}
 	}
@@ -83,17 +85,9 @@ func (b *Bot) completeOwn(ctx context.Context, u User, category, typed string) [
 	}
 	var out []string
 	for _, v := range vs {
-		if (category == "" || v.Category == category) && strings.Contains(fold(v.Name), fold(typed)) && len(out) < MaxSuggestions {
+		if (category == "" || v.Category == category) && strings.Contains(textutil.Fold(v.Name), textutil.Fold(typed)) && len(out) < MaxSuggestions {
 			out = append(out, v.Name)
 		}
 	}
 	return out
 }
-
-// fold compares names ignoring case and Latvian diacritics.
-func fold(s string) string { return diacritics.Replace(strings.ToLower(strings.TrimSpace(s))) }
-
-var diacritics = strings.NewReplacer(
-	"ā", "a", "č", "c", "ē", "e", "ģ", "g", "ī", "i", "ķ", "k", "ļ", "l", "ņ", "n",
-	"š", "s", "ū", "u", "ž", "z", "ō", "o", "ŗ", "r",
-)

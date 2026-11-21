@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/textutil"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/sources"
 )
 
@@ -93,7 +94,7 @@ func (cb *Codebook) carSearch(in map[string]any) (feeds []string, filters, spec 
 		return nil, nil, nil, err
 	}
 	if len(shownDeals) > 0 {
-		spec["deal"] = toAny(shownDeals)
+		spec["deal"] = textutil.ToAny(shownDeals)
 	}
 	return feeds, filters, spec, nil
 }
@@ -183,9 +184,9 @@ func (cb *Codebook) flatSearch(in map[string]any) (feeds []string, filters, spec
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	spec["region"], spec["deal"] = toAny(shownRegions), toAny(shownDeals)
+	spec["region"], spec["deal"] = textutil.ToAny(shownRegions), textutil.ToAny(shownDeals)
 	if len(shownDistricts) > 0 {
-		spec["district"] = toAny(shownDistricts)
+		spec["district"] = textutil.ToAny(shownDistricts)
 	}
 	return feeds, filters, spec, nil
 }
@@ -216,8 +217,8 @@ func (cb *Codebook) normalize(in map[string]any) (compiled, shown map[string]any
 				return nil, nil, err
 			}
 			if len(words) > 0 {
-				compiled[TextAttr] = map[string]any{"contains": toAny(words)}
-				shown[key] = toAny(words)
+				compiled[TextAttr] = map[string]any{"contains": textutil.ToAny(words)}
+				shown[key] = textutil.ToAny(words)
 			}
 			continue
 		}
@@ -277,12 +278,12 @@ func (cb *Codebook) normalize(in map[string]any) (compiled, shown map[string]any
 			}
 			show = canon
 		}
-		canon, show = uniq(canon), uniq(show)
-		shown[key] = toAny(show)
+		canon, show = textutil.Uniq(canon), textutil.Uniq(show)
+		shown[key] = textutil.ToAny(show)
 		if f.Kind == kindAll {
-			compiled[key] = map[string]any{"all": toAny(canon)}
+			compiled[key] = map[string]any{"all": textutil.ToAny(canon)}
 		} else {
-			compiled[key] = toAny(canon)
+			compiled[key] = textutil.ToAny(canon)
 		}
 	}
 	return compiled, shown, nil
@@ -294,38 +295,6 @@ const KeywordsKey = "keywords"
 
 // TextAttr is the attr with an ad's full description, from the ad page.
 const TextAttr = "text"
-
-const (
-	maxKeywords   = 10
-	maxKeywordLen = 50
-)
-
-// keywords reads the keywords filter: trimmed, without repeats.
-func keywords(v any) ([]string, error) {
-	names, err := stringList(KeywordsKey, v)
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	seen := map[string]bool{}
-	for _, n := range names {
-		n = strings.Join(strings.Fields(n), " ")
-		switch {
-		case n == "" || seen[fold(n)]:
-			continue
-		case len([]rune(n)) < 2:
-			return nil, fmt.Errorf("keyword %q is too short; use at least 2 letters", n)
-		case len([]rune(n)) > maxKeywordLen:
-			return nil, fmt.Errorf("keyword %q is too long; keep it under %d letters", n, maxKeywordLen)
-		}
-		seen[fold(n)] = true
-		out = append(out, n)
-	}
-	if len(out) > maxKeywords {
-		return nil, fmt.Errorf("at most %d keywords, got %d", maxKeywords, len(out))
-	}
-	return out, nil
-}
 
 // rangeOf reads {min, max}; either may be missing, both must be numbers.
 func rangeOf(f *Field, v any) (map[string]any, error) {
@@ -341,7 +310,7 @@ func rangeOf(f *Field, v any) (map[string]any, error) {
 		if b == nil {
 			continue
 		}
-		n, ok := number(b)
+		n, ok := textutil.Number(b)
 		if !ok {
 			return nil, fmt.Errorf("%s: %s must be a number, got %v", f.Label, k, b)
 		}
@@ -355,20 +324,6 @@ func rangeOf(f *Field, v any) (map[string]any, error) {
 	return out, nil
 }
 
-func number(v any) (float64, bool) {
-	switch n := v.(type) {
-	case float64:
-		return n, true
-	case int:
-		return float64(n), true
-	case int64:
-		return float64(n), true
-	case uint64:
-		return float64(n), true
-	}
-	return 0, false
-}
-
 // lookup finds an option, explaining near misses and names that exist in
 // several groups ("Apsildāmi" is both "Sēdekļi: Apsildāmi" and "Spoguļi: ...").
 func (f *Field) lookup(name string) (Option, error) {
@@ -377,12 +332,12 @@ func (f *Field) lookup(name string) (Option, error) {
 	}
 	var groups []string
 	for _, o := range f.Options {
-		if _, item, ok := strings.Cut(o.Name, ": "); ok && fold(item) == fold(name) {
+		if _, item, ok := strings.Cut(o.Name, ": "); ok && textutil.Normalize(item) == textutil.Normalize(name) {
 			groups = append(groups, o.Name)
 		}
 	}
 	if len(groups) > 0 {
-		return Option{}, fmt.Errorf("%q is in several groups; write one of %s", name, quoteAll(groups))
+		return Option{}, fmt.Errorf("%q is in several groups; write one of %s", name, textutil.QuoteAll(groups))
 	}
 	return Option{}, fmt.Errorf("unknown value %q%s; valid: %s", name, didYouMean(name, f.optionNames()), strings.Join(f.optionNames(), ", "))
 }
@@ -402,7 +357,7 @@ func (cb *Codebook) models(names []string, makes []*Make) (compiled, shown []str
 			before := len(compiled)
 			for _, m := range makes {
 				for _, o := range m.Models {
-					if strings.HasPrefix(fold(o.Name), fold(prefix)) {
+					if strings.HasPrefix(textutil.Normalize(o.Name), textutil.Normalize(prefix)) {
 						compiled = append(compiled, o.Name)
 					}
 				}
@@ -484,29 +439,6 @@ func (cb *Codebook) makeNames() []string {
 	return names
 }
 
-func didYouMean(s string, names []string) string {
-	if c := closest(s, names); len(c) > 0 {
-		return " (did you mean " + strings.Join(quoteAll(c), " or ") + "?)"
-	}
-	return ""
-}
-
-func quoteAll(ss []string) []string {
-	out := make([]string, len(ss))
-	for i, s := range ss {
-		out[i] = fmt.Sprintf("%q", s)
-	}
-	return out
-}
-
-func toAny(ss []string) []any {
-	out := make([]any, len(ss))
-	for i, s := range ss {
-		out[i] = s
-	}
-	return out
-}
-
 func boolInt(b bool) int {
 	if b {
 		return 1
@@ -514,15 +446,15 @@ func boolInt(b bool) int {
 	return 0
 }
 
-// uniq drops repeats, keeping the first occurrence's place.
-func uniq(ss []string) []string {
-	seen := map[string]bool{}
-	out := ss[:0:0]
-	for _, s := range ss {
-		if !seen[s] {
-			seen[s] = true
-			out = append(out, s)
-		}
+// keywords reads the keywords filter: trimmed, without repeats.
+func keywords(v any) ([]string, error) {
+	names, err := stringList(KeywordsKey, v)
+	if err != nil {
+		return nil, err
 	}
-	return out
+	return textutil.Keywords(names)
+}
+
+func didYouMean(s string, names []string) string {
+	return textutil.DidYouMean(textutil.Closest(s, names))
 }

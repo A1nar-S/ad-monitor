@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/textutil"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/subscriptions"
 )
 
@@ -177,7 +178,7 @@ func FiltersFromArgs(args map[string]any) map[string]any {
 		}
 		if s, ok := v.(string); ok {
 			if items := SplitList(s); len(items) > 0 {
-				filters[name] = toAny(items)
+				filters[name] = textutil.ToAny(items)
 			}
 		}
 	}
@@ -202,14 +203,6 @@ func SplitList(s string) []string {
 		if p = strings.TrimSpace(p); p != "" {
 			out = append(out, p)
 		}
-	}
-	return out
-}
-
-func toAny(ss []string) []any {
-	out := make([]any, len(ss))
-	for i, s := range ss {
-		out[i] = s
 	}
 	return out
 }

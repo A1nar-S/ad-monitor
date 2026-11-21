@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/textutil"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/sources"
 )
 
@@ -145,21 +146,14 @@ func (s Search) Evaluate(src sources.Source, l events.ListingDiscovered, enricha
 // containsWord reports whether text contains any of words, ignoring case and
 // Latvian diacritics ("dizelis" finds "Dīzelis").
 func containsWord(text string, words []string) bool {
-	text = foldText(text)
+	text = textutil.Fold(text)
 	for _, w := range words {
-		if w = foldText(w); w != "" && strings.Contains(text, w) {
+		if w = textutil.Fold(w); w != "" && strings.Contains(text, w) {
 			return true
 		}
 	}
 	return false
 }
-
-func foldText(s string) string { return diacritics.Replace(strings.ToLower(strings.TrimSpace(s))) }
-
-var diacritics = strings.NewReplacer(
-	"ā", "a", "č", "c", "ē", "e", "ģ", "g", "ī", "i", "ķ", "k", "ļ", "l", "ņ", "n",
-	"š", "s", "ū", "u", "ž", "z", "ō", "o", "ŗ", "r",
-)
 
 // strList reads a list attr; it is []string in-process and []any after a
 // JSON round trip through Kafka.

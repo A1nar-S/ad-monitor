@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+
+	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/textutil"
 )
 
 // The flats codebook is the vocabulary of
@@ -98,7 +100,7 @@ func codebookFor(path string) *Codebook {
 func (cb *Codebook) Region(nameOrSlug string) (*Region, bool) {
 	for i := range cb.Regions {
 		r := &cb.Regions[i]
-		if fold(r.Name) == fold(nameOrSlug) || r.Slug == nameOrSlug {
+		if textutil.Normalize(r.Name) == textutil.Normalize(nameOrSlug) || r.Slug == nameOrSlug {
 			return r, true
 		}
 	}
@@ -108,7 +110,7 @@ func (cb *Codebook) Region(nameOrSlug string) (*Region, bool) {
 // District finds a district of r by name or slug.
 func (r *Region) District(nameOrSlug string) (Option, bool) {
 	for _, d := range r.Districts {
-		if fold(d.Name) == fold(nameOrSlug) || d.ID == nameOrSlug {
+		if textutil.Normalize(d.Name) == textutil.Normalize(nameOrSlug) || d.ID == nameOrSlug {
 			return d, true
 		}
 	}
