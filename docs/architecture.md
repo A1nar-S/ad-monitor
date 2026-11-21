@@ -116,6 +116,9 @@ flowchart LR
     src --> reg[app.KnownSources<br/>register once]
 ```
 
+Two adapters exist: `scraping/ss` (HTML feed pages, ad pages as `Enricher`) and `scraping/rrr` (rrr.lt's GraphQL API,
+one query per search). The dashboard's editor shows a tab per registered `Catalog` (`GET /api/sources`).
+
 ## Price watches
 
 ```mermaid

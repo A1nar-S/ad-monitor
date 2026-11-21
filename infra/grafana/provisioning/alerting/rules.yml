@@ -250,7 +250,7 @@ groups:
           __dashboardUid__: admon-pipeline
           __panelId__: '9'
           summary: 'No successful scrape cycle for {{ with $values.B }}{{ humanizeDuration .Value }}{{ else }}?{{ end }} ({{ $labels.source }})'
-          description: 'The scraper''s last cycle without errors for source {{ $labels.source }} was {{ with $values.B }}{{ humanizeDuration .Value }}{{ else }}?{{ end }} ago (limit 15 min). ss.com may be blocking or changed its layout, or the scraper is stuck. Check the scraper logs and the Feed fetches panel.'
+          description: 'The scraper''s last cycle without errors for source {{ $labels.source }} was {{ with $values.B }}{{ humanizeDuration .Value }}{{ else }}?{{ end }} ago (limit 15 min). The site may be blocking us or have changed its pages or API, or the scraper is stuck. Check the scraper logs and the Feed fetches panel.'
         labels:
           severity: critical
       # critical; noData=OK, execErr=Error: A dead letter that cannot be written to its .dlq topic is

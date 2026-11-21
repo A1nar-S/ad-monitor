@@ -88,6 +88,7 @@ Next:
 - [ ] Price-watch commands in the bot (list, pause); creating one needs the picker.
 - [ ] Restock rules. Keep advertised discounts separate from observed price drops.
 - [ ] Preserve active watches and required price history during cleanup.
+- [x] rrr.lt adapter (used car parts, GraphQL API), with a tab per website in the search editor.
 - [ ] Add City24, Vinted, and shop/marketplace adapters one at a time, with parser fixtures and health checks.
 - [ ] Cross-store comparison: match variant, condition, seller, currency, and shipping/fees first.
   Start with manual product grouping.

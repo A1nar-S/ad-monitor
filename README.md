@@ -1,6 +1,6 @@
 # Advertisement monitoring
 
-Watches ss.com (cars, flats) and pinned product pages, and sends new matching ads and price drops to Discord.
+Watches ss.com (cars, flats), rrr.lt (used car parts) and pinned product pages, and sends new matching ads and price drops to Discord.
 Details: [docs/PROJECT_NOTES.md](docs/PROJECT_NOTES.md). Plans: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Run

@@ -97,6 +97,17 @@ dashboard api ─┴─> subscriptions (users, channels, searches, logins) <─�
   matches nothing. ss.com's own server search was rejected: it is POST + session, 2 requests per search per cycle.
 - **Flats:** `region`/`district`/`deal` compile into feed paths (shared by everyone watching the area); the rest are local
   filters.
+- **rrr.lt** (`internal/scraping/rrr`, used car parts): read through the site's own GraphQL API (`POST /graphql`,
+  `searchProducts`, newest first, 15 per page, offset cursors), not HTML. A feed is the canonical string of one search's
+  server-side filters (`cat=230&model=1:1945&year=2018-&price=-150&quality=USED`); equal searches share it, and feeds
+  are never merged, because the site adds thousands of parts a day. A part is new once, from whichever feed saw it first,
+  so `InScope` checks other feeds' constraints against its attrs (category ancestors from the codebook, make/model ids,
+  year, price, enums); keywords are the only local filter (title, part numbers, donor car). No ad-page reads: the API
+  returns everything. Codebook `internal/scraping/rrr/codebook/parts.json` (part tree, makes→models) comes from one API
+  request: `go run ./cmd/admin rrr-codebook`. A search needs a part or a make. Filters: part, make, model, car year,
+  side, part number/words, price, condition. The donor car's body type (55-60% "other"), fuel (missing on 22-35%)
+  and gearbox were dropped after checking the site's facet counts: they hid parts more than they found them. robots.txt disallows `/graphql` for
+  crawlers; the load is a few paced queries per cycle, like one person browsing.
   Persisted source health and admin failure/recovery alerts are not implemented yet; they are
   a required foundation in [ROADMAP.md](ROADMAP.md#monitoring-required-for-scraping).
 - **Scrape budget and paging:** feeds are derived from users' searches, de-duplicated, and >`FEED_COLLAPSE_AT` siblings
@@ -382,6 +393,7 @@ make logs | make purge | make down  # make up also starts Prometheus: http://127
 make dlq TOPIC=listings.new     # records a consumer gave up on; make dlq-replay TOPIC=... republishes them
 # Services on the host instead: make infra, then go run ./cmd/<service>; the dashboard with cd web && bun run dev
 go run ./cmd/admin ss-codebook  # refresh the ss.com codebooks
+go run ./cmd/admin rrr-codebook # refresh the rrr.lt part/model taxonomy (one API request)
 go generate ./...               # after changing a slice's migrations/ or queries/
 ```
 Deploying: k3s + Cloudflare Tunnel (`deploy/`). Gotchas:
