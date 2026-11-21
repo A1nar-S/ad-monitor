@@ -427,7 +427,7 @@ const describeExtractor = (x: Extractor) =>
 </script>
 
 <template>
-  <section>
+  <section class="flex flex-1 flex-col">
     <nav
       :aria-label="t('watchEditor.breadcrumb')"
       class="mb-3 flex min-w-0 items-center gap-1 text-small"
@@ -478,7 +478,7 @@ const describeExtractor = (x: Extractor) =>
       </EmptyState>
     </div>
 
-    <form v-else @submit.prevent="save">
+    <form v-else class="flex flex-1 flex-col" @submit.prevent="save">
       <PageHeader :title="watch ? watch.name : t('watches.new')">
         <template #description>
           <template v-if="watch">

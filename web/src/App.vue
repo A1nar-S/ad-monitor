@@ -96,7 +96,10 @@ async function logout() {
 
 <template>
   <!-- Signed in: sidebar on wide screens, top bar on narrow ones. -->
-  <div v-if="state === 'in' && me" class="min-h-screen lg:flex">
+  <div
+    v-if="state === 'in' && me"
+    class="flex min-h-screen flex-col lg:flex-row"
+  >
     <aside
       class="sticky top-0 z-20 hidden h-screen w-64 shrink-0 flex-col border-r border-gray-150 bg-gray-100/70 lg:flex"
     >
@@ -231,8 +234,12 @@ async function logout() {
       </nav>
     </header>
 
-    <main class="min-w-0 flex-1 overflow-x-clip">
-      <div class="mx-auto max-w-[1200px] px-4 py-8 sm:px-8 lg:px-10 lg:py-10">
+    <!-- A column at least the window's height, so an editor's action bar
+         sits at the bottom even when the form is short. -->
+    <main class="flex min-w-0 flex-1 flex-col overflow-x-clip">
+      <div
+        class="mx-auto flex w-full max-w-[1200px] flex-1 flex-col px-4 py-8 sm:px-8 lg:px-10 lg:py-10"
+      >
         <SearchEditor v-if="route.name === 'search'" :me="me" :id="route.id" />
         <WatchEditor
           v-else-if="route.name === 'watch'"

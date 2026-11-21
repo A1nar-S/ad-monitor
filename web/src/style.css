@@ -282,7 +282,9 @@ select.field {
    background and top border run the width of the whole main column, not just
    the centred content column it sits in (main clips the overflow). */
 @utility action-bar {
-  @apply sticky bottom-0 z-10 -mx-4 -mb-8 sm:-mx-8 lg:-mx-10 lg:-mb-10;
+  /* mt-auto: at the window's bottom when the page is short (the editors are
+     flex columns), sticky to it when the page scrolls. */
+  @apply sticky bottom-0 z-10 -mx-4 mt-auto -mb-8 sm:-mx-8 lg:-mx-10 lg:-mb-10;
   &::before {
     content: '';
     position: absolute;
