@@ -68,14 +68,16 @@ spec:
 ---
 # Creates the topics with explicit partition counts and a <topic>.dlq for each
 # (see kafka-init in infra/docker-compose.yml). Idempotent; it retries until
-# Kafka is up, and is removed after a while so the next apply runs it again.
+# Kafka is up, and runs again when its spec changes or on k3s.sh apply.
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: kafka-topics
+  annotations:
+    # A Job's spec is immutable: Flux recreates it (so reruns it) when it changes.
+    kustomize.toolkit.fluxcd.io/force: enabled
 spec:
   backoffLimit: 30
-  ttlSecondsAfterFinished: 600
   template:
     spec:
       enableServiceLinks: false

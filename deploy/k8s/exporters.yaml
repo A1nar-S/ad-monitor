@@ -3,15 +3,17 @@
 # infra/docker-compose.yml.
 #
 # The read-only role the Postgres exporter logs in with: LOGIN + pg_monitor
-# only. Idempotent; k3s.sh apply runs it on every apply (it also applies a
-# changed MONITOR_DB_PASSWORD).
+# only. Idempotent; k3s.sh apply runs it on every apply, k3s.sh secrets
+# deletes it so Flux runs it again with a changed MONITOR_DB_PASSWORD.
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: pg-monitor-init
+  annotations:
+    # A Job's spec is immutable: Flux recreates it (so reruns it) when it changes.
+    kustomize.toolkit.fluxcd.io/force: enabled
 spec:
   backoffLimit: 30
-  ttlSecondsAfterFinished: 600
   template:
     spec:
       enableServiceLinks: false

@@ -1,0 +1,6 @@
+# kube-prometheus-stack on its own: PodMonitors (../) can only be applied once
+# it has installed their CRD.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - stack.yaml

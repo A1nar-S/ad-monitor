@@ -4,7 +4,9 @@
 #   bash deploy/k3s.sh images        build the images with Docker and import them into k3s
 #   bash deploy/k3s.sh secrets       load .env into the cluster (ENV_FILE=... for another file)
 #   bash deploy/k3s.sh tunnel-token  store the Cloudflare tunnel token (asked for, not echoed)
+#   bash deploy/k3s.sh flux          install Flux: from then on the cluster follows main (deploy/flux)
 #   bash deploy/k3s.sh apply         apply deploy/k8s (app, then monitoring) and restart the services
+#                                    (without Flux only: Flux would undo it)
 #   bash deploy/k3s.sh status        pods, and the tunnel's last log lines
 #   bash deploy/k3s.sh grafana       Grafana on http://127.0.0.1:3000 while this runs
 #
@@ -67,6 +69,8 @@ secrets)
 	printf 'admin-user=admin\nadmin-password=%s\nGRAFANA_DISCORD_WEBHOOK_URL=%s\n' \
 		"$(val GRAFANA_ADMIN_PASSWORD)" "${hook:-http://127.0.0.1:9/discord-webhook-not-configured}" |
 		put_secret "$MON" grafana
+	# Flux (or the next apply) reruns it, which sets the new MONITOR_DB_PASSWORD.
+	$KUBECTL -n "$NS" delete job pg-monitor-init --ignore-not-found
 	restart_apps
 	$KUBECTL -n "$MON" rollout restart deploy/grafana 2>/dev/null || true
 	;;
@@ -84,7 +88,7 @@ apply)
 	$KUBECTL -n "$NS" delete job kafka-topics pg-monitor-init --ignore-not-found
 	$KUBECTL apply -k deploy/k8s
 	# Monitoring: the Helm install brings the PodMonitor type; wait for it.
-	$KUBECTL apply --server-side --force-conflicts -f deploy/k8s/monitoring/stack.yaml
+	$KUBECTL apply --server-side --force-conflicts -k deploy/k8s/monitoring/stack
 	echo "waiting for the Prometheus Operator's CRDs (first install: a few minutes)"
 	for _ in $(seq 120); do
 		$KUBECTL get crd podmonitors.monitoring.coreos.com >/dev/null 2>&1 && break
@@ -102,19 +106,30 @@ apply)
 		$KUBECTL -n "$NS" rollout status "$d" --timeout=10m
 	done
 	;;
+flux)
+	command -v flux >/dev/null || { echo "missing the flux CLI (sudo pacman -S fluxcd)"; exit 1; }
+	# Only what a git -> cluster sync needs; no Helm, notification or image controllers.
+	flux install --components=source-controller,kustomize-controller
+	$KUBECTL apply -f deploy/flux/sync.yaml
+	echo "Flux now applies main; watch it with: flux get kustomizations --watch"
+	;;
 status)
 	$KUBECTL -n "$NS" get pods
 	echo
 	$KUBECTL -n "$MON" get pods
 	echo
 	$KUBECTL -n "$NS" logs deploy/cloudflared --tail=5 2>/dev/null || true
+	if command -v flux >/dev/null && $KUBECTL get ns flux-system >/dev/null 2>&1; then
+		echo
+		flux get kustomizations
+	fi
 	;;
 grafana)
 	echo "Grafana: http://127.0.0.1:3000 (user admin, GRAFANA_ADMIN_PASSWORD); Ctrl+C stops"
 	$KUBECTL -n "$MON" port-forward svc/grafana 3000:80
 	;;
 *)
-	sed -n '2,11p' "$0"
+	sed -n '2,13p' "$0"
 	exit 1
 	;;
 esac

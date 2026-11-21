@@ -1,5 +1,5 @@
-# The whole app on one k3s node (see deploy/README.md):
-#   deploy/k3s.sh images && deploy/k3s.sh secrets && deploy/k3s.sh apply
+# The whole app on one k3s node (see deploy/README.md). Flux applies it from
+# main (deploy/flux); by hand: deploy/k3s.sh images && deploy/k3s.sh apply.
 # Only the dashboard (Service api) is public, through the Cloudflare tunnel.
 # Postgres, Kafka and every /metrics stay inside the cluster.
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -18,3 +18,14 @@ patches:
     target:
       kind: Deployment
       labelSelector: tier=app
+# Which build runs. The Release workflow (.github/workflows/release.yml) sets
+# newName and digest here for every service when a v* tag is pushed; :local
+# is the k3s.sh images import, used until the first release.
+images:
+  - {name: admon/scraper, newTag: local}
+  - {name: admon/ingest, newTag: local}
+  - {name: admon/matcher, newTag: local}
+  - {name: admon/notifier, newTag: local}
+  - {name: admon/bot, newTag: local}
+  - {name: admon/api, newTag: local}
+  - {name: admon/admin, newTag: local}

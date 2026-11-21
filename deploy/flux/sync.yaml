@@ -1,0 +1,68 @@
+# GitOps: Flux on the node pulls main and applies deploy/k8s, so a deploy is a
+# commit (the Release workflow pins image digests on a v* tag). Nothing dials
+# in: Flux polls GitHub. Installed by `bash deploy/k3s.sh flux`. Secrets stay
+# out of git: k3s.sh secrets and tunnel-token, as before.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: admon
+  namespace: flux-system
+spec:
+  url: https://github.com/A1nar-S/advertisiment-monitoring
+  ref: {branch: main}
+  interval: 1m
+  # Only what the Kustomizations read (monitoring/ loads infra/grafana).
+  ignore: |
+    /*
+    !/deploy/k8s/
+    !/infra/grafana/
+---
+# The app, Postgres, Kafka and the tunnel. prune: something removed from git
+# is removed from the cluster (the namespace itself is exempt).
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: admon
+  namespace: flux-system
+spec:
+  sourceRef: {kind: GitRepository, name: admon}
+  path: ./deploy/k8s
+  interval: 10m
+  retryInterval: 1m
+  prune: true
+  wait: true
+  timeout: 10m
+---
+# kube-prometheus-stack through k3s's Helm controller. Ready once the Helm
+# install has registered the PodMonitor CRD.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: monitoring-stack
+  namespace: flux-system
+spec:
+  sourceRef: {kind: GitRepository, name: admon}
+  path: ./deploy/k8s/monitoring/stack
+  interval: 10m
+  retryInterval: 1m
+  prune: true
+  timeout: 10m
+  healthChecks:
+    - apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      name: podmonitors.monitoring.coreos.com
+---
+# PodMonitors, dashboards and alert rules.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: monitoring
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: monitoring-stack
+  sourceRef: {kind: GitRepository, name: admon}
+  path: ./deploy/k8s/monitoring
+  interval: 10m
+  retryInterval: 1m
+  prune: true

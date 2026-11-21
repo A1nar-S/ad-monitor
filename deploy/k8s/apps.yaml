@@ -2,8 +2,8 @@
 # Postgres and the Kafka topics, the locked-down container) is in
 # app-common.yaml, patched onto every Deployment labelled tier=app.
 #
-# Images are built on this machine and imported into k3s (deploy/k3s.sh
-# images), hence imagePullPolicy Never.
+# The admon/<cmd> image names are rewritten by the images list in
+# kustomization.yaml: GHCR digests after a release, :local imports before.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

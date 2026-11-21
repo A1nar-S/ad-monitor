@@ -33,7 +33,7 @@ spec:
             - until kafka-topics --bootstrap-server kafka:29092 --list 2>/dev/null | grep -qx notifications.requested.dlq; do sleep 3; done
       containers:
         - name: app
-          imagePullPolicy: Never
+          imagePullPolicy: IfNotPresent
           # Scraped by the PodMonitor in monitoring/; no Service exposes it.
           ports:
             - {name: metrics, containerPort: 9100}

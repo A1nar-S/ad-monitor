@@ -23,7 +23,7 @@ spec:
           containers:
             - name: admin
               image: admon/admin:local
-              imagePullPolicy: Never
+              imagePullPolicy: IfNotPresent
               args: [purge]
               envFrom:
                 - secretRef: {name: admon-env}

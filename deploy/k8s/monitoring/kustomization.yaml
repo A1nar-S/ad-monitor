@@ -1,12 +1,12 @@
-# Monitoring for the k3s deploy. Applied by `bash deploy/k3s.sh apply` after
-# the app, once the Prometheus Operator's CRDs exist. The dashboards and alert
+# Monitoring for the k3s deploy: the PodMonitors, dashboards and alert rules.
+# Applied after stack/ (the kube-prometheus-stack install), once the Prometheus
+# Operator's CRDs exist: by Flux (deploy/flux) or `bash deploy/k3s.sh apply`. The dashboards and alert
 # rules are the compose ones from infra/grafana (hence --load-restrictor
 # LoadRestrictionsNone); containers.json is compose-only, Kubernetes' own
 # dashboards replace it.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - stack.yaml
   - podmonitors.yaml
 generatorOptions:
   disableNameSuffixHash: true
