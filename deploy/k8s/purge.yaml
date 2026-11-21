@@ -1,0 +1,37 @@
+# `make purge`, nightly: deletes listings not seen for RETENTION_HOURS and
+# expired logins.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: purge
+spec:
+  schedule: "30 3 * * *"
+  timeZone: Europe/Riga
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          enableServiceLinks: false
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: admin
+              image: admon/admin:local
+              imagePullPolicy: Never
+              args: [purge]
+              envFrom:
+                - secretRef: {name: admon-env}
+              env:
+                - {name: DB_HOST, value: postgres}
+                - {name: DB_PORT, value: "5432"}
+                - {name: KAFKA_BROKERS, value: "kafka:29092"}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: [ALL]}

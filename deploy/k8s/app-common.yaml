@@ -1,0 +1,53 @@
+# Patched onto every Deployment labelled tier=app (see kustomization.yaml).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: any
+spec:
+  replicas: 1
+  template:
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      # Start only once Postgres answers and kafka-topics made the topics:
+      # without them a service exits, and Kafka would auto-create a topic with
+      # one partition.
+      initContainers:
+        - name: wait-postgres
+          image: postgres:15
+          # The image's postgres user; runAsNonRoot needs a numeric uid.
+          securityContext: {runAsUser: 999, allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          command: ["sh", "-c", "until pg_isready -q -h postgres -p 5432; do sleep 2; done"]
+        - name: wait-topics
+          image: confluentinc/cp-kafka:7.5.0
+          # The image's appuser, by number.
+          securityContext: {runAsUser: 1000, allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          env:
+            - {name: KAFKA_HEAP_OPTS, value: "-Xmx128m"}
+          # notifications.requested.dlq is the last topic the Job creates.
+          command:
+            - sh
+            - -c
+            - until kafka-topics --bootstrap-server kafka:29092 --list 2>/dev/null | grep -qx notifications.requested.dlq; do sleep 3; done
+      containers:
+        - name: app
+          imagePullPolicy: Never
+          # The .env (Secret admon-env), including PUBLIC_URL: the tunnel's
+          # public https address. env below wins over it.
+          envFrom:
+            - secretRef: {name: admon-env}
+          env:
+            - {name: DB_HOST, value: postgres}
+            - {name: DB_PORT, value: "5432"}
+            - {name: KAFKA_BROKERS, value: "kafka:29092"}
+            # /metrics, inside the cluster only.
+            - {name: METRICS_ADDR, value: ":9100"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {memory: 512Mi}

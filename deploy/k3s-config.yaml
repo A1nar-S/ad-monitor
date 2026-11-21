@@ -1,0 +1,7 @@
+# k3s node settings: copy to /etc/rancher/k3s/config.yaml before installing k3s.
+# Nothing here is reached from outside (cloudflared dials out), so k3s's
+# ingress (Traefik) and LoadBalancer (ServiceLB) are left out: less RAM, and
+# ports 80/443 stay free.
+disable:
+  - traefik
+  - servicelb

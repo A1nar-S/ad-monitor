@@ -1,0 +1,19 @@
+# The whole app on one k3s node (see deploy/README.md):
+#   deploy/k3s.sh images && deploy/k3s.sh secrets && deploy/k3s.sh apply
+# Only the dashboard (Service api) is public, through the Cloudflare tunnel.
+# Postgres, Kafka and every /metrics stay inside the cluster.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: admon
+resources:
+  - namespace.yaml
+  - postgres.yaml
+  - kafka.yaml
+  - apps.yaml
+  - purge.yaml
+  - cloudflared.yaml
+patches:
+  - path: app-common.yaml
+    target:
+      kind: Deployment
+      labelSelector: tier=app

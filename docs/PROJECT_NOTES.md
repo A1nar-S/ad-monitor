@@ -384,5 +384,12 @@ make dlq TOPIC=listings.new     # records a consumer gave up on; make dlq-replay
 go run ./cmd/admin ss-codebook  # refresh the ss.com codebooks
 go generate ./...               # after changing a slice's migrations/ or queries/
 ```
+Deploying: k3s + Cloudflare Tunnel (`deploy/`). Gotchas:
+- `enableServiceLinks: false` everywhere: cp-kafka reads the injected `KAFKA_PORT` as broker config.
+- Images are imported as `admon/<cmd>:local` (`imagePullPolicy: Never`); `k3s.sh apply` restarts to pick up rebuilds.
+- `PUBLIC_URL` stays in `.env` (Secret `admon-env`): the public repo never names the domain.
+- Init containers wait for Postgres and the topics Job; they run as numeric uids because pods are `runAsNonRoot`.
+- Tested 2026-11-21 in a k3s container; bot, notifier and a real tunnel not yet.
+
 Note: `go.mod` is on Go 1.26 (sqlc v1.31 requires it); an older local Go auto-downloads the toolchain.
 Kafka's data is a named volume (`kafka-data`): the image runs as uid 1000 and a bind mount is created root-owned.
