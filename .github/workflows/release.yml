@@ -1,5 +1,5 @@
-# Release: `git tag v1.2.3 && git push origin v1.2.3`. Builds every service's
-# image, pushes it to GHCR, then commits the digests to the images list in
+# Release: `git tag v1.2.3 && git push origin v1.2.3`. Runs CI on the tagged
+# commit; only if all of it passes, builds every service's image, pushes it to GHCR, then commits the digests to the images list in
 # deploy/k8s/kustomization.yaml on main. Flux on the node applies that commit
 # (deploy/flux), so the cluster runs exactly the digests in git; a rollback is
 # a revert of the deploy commit (or pushing an older tag again).
@@ -21,8 +21,15 @@ env:
   REGISTRY: ghcr.io/a1nar-s/advertisiment-monitoring
 
 jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   image:
     name: Image (${{ matrix.service }})
+    needs: ci
     runs-on: ubuntu-latest
     permissions:
       contents: read
