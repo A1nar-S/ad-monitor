@@ -239,8 +239,14 @@ const en = {
     leads: {
       cars: 'Every car for sale, rated on price, mileage for its age, technical inspection, engine and gearbox reliability and equipment.',
     },
-    scan: 'Fetch from {site}',
-    scanning: 'Fetching…',
+    scan: 'Rescan {site}',
+    scanHint:
+      'Read every listing again (about half an hour), mark sold ones, then read the ad pages of new potential buys',
+    scanning: 'Working…',
+    recalculate: 'Recalculate',
+    recalculateHint:
+      'Rate the stored listings again and read the ad pages of potential buys not read yet; no list pages',
+    rating: 'Rating the stored listings…',
     neverScanned:
       'Nothing yet: an administrator has not fetched it from {site}.',
     neverScannedAdmin:
@@ -251,6 +257,7 @@ const en = {
     done: 'Updated {when} · {rated} rated',
     doneAdmin:
       'Last fetch {when}: {ads} listings, {rated} rated, {gone} sold since',
+    doneRateAdmin: 'Recalculated {when}: {rated} rated, {read} ad pages read',
     failed: 'The last fetch failed: {error}',
     failedShort: 'The last fetch failed; an administrator will look into it.',
     busy: 'A fetch is already running.',

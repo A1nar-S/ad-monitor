@@ -7,8 +7,8 @@ SELECT pg_advisory_xact_lock(hashtext('gem_scans|' || @source::text || '|' || @c
 -- A new request, unless one is waiting or running. A scan takes hours, so
 -- a running one blocks until it shows no progress for 30 minutes (its
 -- scraper died); a waiting one for 3 hours. Run under LockScans.
-INSERT INTO gem_scans (source, category)
-SELECT @source::text, @category::text
+INSERT INTO gem_scans (source, category, mode)
+SELECT @source::text, @category::text, @mode::text
 WHERE NOT EXISTS (
     SELECT 1 FROM gem_scans
     WHERE source = @source::text AND category = @category::text AND (

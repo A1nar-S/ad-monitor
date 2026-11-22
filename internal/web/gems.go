@@ -16,7 +16,7 @@ import (
 // Gems is the gem finder: every listing of a category for sale on a source,
 // rated. Everyone may browse it; only admins start a scan.
 type Gems interface {
-	RequestScan(ctx context.Context, source, category string) (gems.Scan, error)
+	RequestScan(ctx context.Context, source, category string, mode gems.Mode) (gems.Scan, error)
 	LatestScan(ctx context.Context, source, category string) (gems.Scan, bool, error)
 	List(ctx context.Context, source, category string, q gems.Query) (gems.Page, error)
 	Category(id string) (gems.Category, bool)
@@ -137,12 +137,23 @@ func (s *server) gemScan(w http.ResponseWriter, r *http.Request, o subscriptions
 	writeJSON(w, http.StatusOK, scan)
 }
 
+// requestGemScan: ?mode=full (the default: every list page read again) or
+// rate (the stored listings rated again).
 func (s *server) requestGemScan(w http.ResponseWriter, r *http.Request, _ subscriptions.Owner) {
-	source, cat, ok := s.gemTarget(w, r.URL.Query())
+	v := r.URL.Query()
+	source, cat, ok := s.gemTarget(w, v)
 	if !ok {
 		return
 	}
-	scan, err := s.Gems.RequestScan(r.Context(), source, cat.ID())
+	mode := gems.Full
+	if m := v.Get("mode"); m != "" {
+		mode = gems.Mode(m)
+	}
+	if !slices.Contains(gems.Modes, mode) {
+		writeError(w, http.StatusBadRequest, "unknown mode "+strconv.Quote(string(mode)))
+		return
+	}
+	scan, err := s.Gems.RequestScan(r.Context(), source, cat.ID(), mode)
 	if errors.Is(err, gems.ErrBusy) {
 		writeError(w, http.StatusConflict, err.Error())
 		return

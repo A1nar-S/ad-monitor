@@ -49,4 +49,5 @@ type GemScan struct {
 	Detailed    int32
 	ProgressAt  pgtype.Timestamptz
 	Category    string
+	Mode        string
 }

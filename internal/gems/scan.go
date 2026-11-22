@@ -33,11 +33,12 @@ type Store interface {
 	SaveDetails(ctx context.Context, before, enriched events.ListingDiscovered) error
 }
 
-// Scanner runs the scans admins request, one at a time. A scan has two
-// passes: it reads every listing of the category's feed and rates each from
-// what the list shows (saved at once, so the finder is usable), then reads
-// the ad page of every potential buy not read before (the category's
-// Candidate) and rates everything again.
+// Scanner runs the scans admins request, one at a time. A full scan has
+// two passes: it reads every listing of the category's feed and rates each
+// from what the list shows (saved at once, so the finder is usable), then
+// reads the ad page of every potential buy not read before (the category's
+// Candidate) and rates everything again. A recalculation (Rate) skips the
+// list pages: the stored listings are rated, then pass 2 as above.
 type Scanner struct {
 	Service *Service
 	Store   Store
@@ -163,22 +164,11 @@ func (s *Scanner) scan(ctx context.Context, scan Scan) (outcome, error) {
 		return out, fmt.Errorf("%s cannot be scanned for %s", scan.Source, cat.ID())
 	}
 
-	// Pass 1: every listing, rated from the list page.
-	ads, complete, err := s.crawl(ctx, scan, src, scope.Feed)
-	if err != nil {
-		return out, err
-	}
-	if !complete {
-		out.notes = append(out.notes, fmt.Sprintf("stopped after %d pages before the end; sold ones not updated", s.MaxPages))
-	} else if scan.StartedAt != nil {
-		var note string
-		out.gone, note, err = s.markGone(ctx, src, cat, *scan.StartedAt, ads)
-		if err != nil {
+	// Pass 1: every listing, rated from the list page. A recalculation
+	// rates the stored ones as they are.
+	if scan.Mode != Rate {
+		if err := s.relist(ctx, scan, src, cat, scope, &out); err != nil {
 			return out, err
-		}
-		out.complete = note == ""
-		if note != "" {
-			out.notes = append(out.notes, note)
 		}
 	}
 	items, err := s.Store.Stored(ctx, scan.Source, scope.Location)
@@ -215,6 +205,32 @@ func (s *Scanner) scan(ctx context.Context, scan Scan) (outcome, error) {
 	}
 	out.rated = len(results)
 	return out, err
+}
+
+// relist reads every list page of the category again and marks sold the
+// listings it no longer has.
+func (s *Scanner) relist(ctx context.Context, scan Scan, src sources.Source, cat Category, scope sources.ScanScope, out *outcome) error {
+	ads, complete, err := s.crawl(ctx, scan, src, scope.Feed)
+	if err != nil {
+		return err
+	}
+	if !complete {
+		out.notes = append(out.notes, fmt.Sprintf("stopped after %d pages before the end; sold ones not updated", s.MaxPages))
+		return nil
+	}
+	if scan.StartedAt == nil {
+		return nil
+	}
+	var note string
+	out.gone, note, err = s.markGone(ctx, src, cat, *scan.StartedAt, ads)
+	if err != nil {
+		return err
+	}
+	out.complete = note == ""
+	if note != "" {
+		out.notes = append(out.notes, note)
+	}
+	return nil
 }
 
 // errEmptyStart: the feed's first page listed nothing. A block or a layout

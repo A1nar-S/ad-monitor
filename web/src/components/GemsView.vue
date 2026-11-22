@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
+  Calculator,
   CircleAlert,
   Gem as GemIcon,
   RefreshCw,
@@ -11,6 +12,7 @@ import {
 import BaseDialog from './BaseDialog.vue'
 import EmptyState from './EmptyState.vue'
 import GemCard from './GemCard.vue'
+import FilterSidebar from './FilterSidebar.vue'
 import GemFilters from './GemFilters.vue'
 import PageHeader from './PageHeader.vue'
 import PageNav from './PageNav.vue'
@@ -18,6 +20,7 @@ import TabBar from './TabBar.vue'
 import {
   api,
   ApiError,
+  type GemScanMode,
   gemParams,
   parseGemParams,
   type GemPage,
@@ -82,15 +85,18 @@ const status = computed(() => {
   if (s.status === 'running')
     return s.phase === 'detailing'
       ? t('gems.detailing', { done: s.detailed, total: s.detailTotal })
-      : t('gems.listing', { pages: s.pages, ads: s.ads })
+      : s.mode === 'rate'
+        ? t('gems.rating')
+        : t('gems.listing', { pages: s.pages, ads: s.ads })
   if (s.status === 'failed')
     return s.error
       ? t('gems.failed', { error: s.error })
       : t('gems.failedShort')
   const when = formatRelative(s.finishedAt ?? s.requestedAt)
-  return props.me.admin
-    ? t('gems.doneAdmin', { when, ads: s.ads, rated: s.rated, gone: s.gone })
-    : t('gems.done', { when, rated: s.rated })
+  if (!props.me.admin) return t('gems.done', { when, rated: s.rated })
+  return s.mode === 'rate'
+    ? t('gems.doneRateAdmin', { when, rated: s.rated, read: s.detailed })
+    : t('gems.doneAdmin', { when, ads: s.ads, rated: s.rated, gone: s.gone })
 })
 const progress = computed(() => {
   const s = scan.value
@@ -215,9 +221,9 @@ async function refreshScan() {
   timer = setTimeout(refreshScan, running.value ? 5000 : 60000)
 }
 
-async function startScan() {
+async function startScan(mode: GemScanMode) {
   try {
-    scan.value = await api.requestGemScan(source.value, category.value)
+    scan.value = await api.requestGemScan(source.value, category.value, mode)
   } catch (reason) {
     toastError(
       reason instanceof ApiError
@@ -300,15 +306,28 @@ onUnmounted(() => clearTimeout(timer))
 <template>
   <section>
     <PageHeader :title="t('gems.title')" :description="lead">
-      <button
-        v-if="me.admin"
-        class="btn-primary"
-        :disabled="running"
-        @click="startScan"
-      >
-        <RefreshCw :size="16" :class="{ 'animate-spin': running }" />
-        {{ running ? t('gems.scanning') : t('gems.scan', { site: siteName }) }}
-      </button>
+      <template v-if="me.admin">
+        <button
+          class="btn-secondary"
+          :disabled="running"
+          :title="t('gems.recalculateHint')"
+          @click="startScan('rate')"
+        >
+          <Calculator :size="16" />
+          {{ t('gems.recalculate') }}
+        </button>
+        <button
+          class="btn-primary"
+          :disabled="running"
+          :title="t('gems.scanHint')"
+          @click="startScan('full')"
+        >
+          <RefreshCw :size="16" :class="{ 'animate-spin': running }" />
+          {{
+            running ? t('gems.scanning') : t('gems.scan', { site: siteName })
+          }}
+        </button>
+      </template>
     </PageHeader>
 
     <div class="mb-5 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
@@ -372,32 +391,16 @@ onUnmounted(() => clearTimeout(timer))
     </div>
 
     <div class="grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
-      <aside class="hidden lg:block" :aria-label="t('gems.filters')">
-        <div
-          class="card sticky top-6 max-h-[calc(100dvh-3rem)] overflow-y-auto overscroll-contain p-4"
-        >
-          <div class="mb-4 flex items-center justify-between">
-            <h2 class="text-sm font-semibold text-gray-900">
-              {{ t('gems.filters') }}
-            </h2>
-            <button
-              v-if="chips.length"
-              class="text-small text-brand-600 hover:underline"
-              @click="clearAll"
-            >
-              {{ t('gems.clearAll') }}
-            </button>
-          </div>
-          <GemFilters
-            v-model="query"
-            :spec="spec"
-            :facets="page?.facets ?? null"
-            :buys="page?.buys ?? null"
-            :detailed="page?.detailed ?? 0"
-            :all="page?.all ?? 0"
-          />
-        </div>
-      </aside>
+      <FilterSidebar :clearable="chips.length > 0" @clear="clearAll">
+        <GemFilters
+          v-model="query"
+          :spec="spec"
+          :facets="page?.facets ?? null"
+          :buys="page?.buys ?? null"
+          :detailed="page?.detailed ?? 0"
+          :all="page?.all ?? 0"
+        />
+      </FilterSidebar>
 
       <div class="min-w-0">
         <div class="mb-3 flex flex-wrap items-center gap-2">

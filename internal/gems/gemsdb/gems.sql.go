@@ -15,7 +15,7 @@ WHERE id = (
     SELECT id FROM gem_scans WHERE status = 'requested' AND source = ANY($1::text[])
     ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED
 )
-RETURNING id, source, status, requested_at, started_at, finished_at, pages, ads, gone, rated, error, complete, note, phase, detail_total, detailed, progress_at, category
+RETURNING id, source, status, requested_at, started_at, finished_at, pages, ads, gone, rated, error, complete, note, phase, detail_total, detailed, progress_at, category, mode
 `
 
 // The oldest waiting request, now running. SKIP LOCKED: two scrapers never
@@ -42,6 +42,7 @@ func (q *Queries) ClaimScan(ctx context.Context, sources []string) (GemScan, err
 		&i.Detailed,
 		&i.ProgressAt,
 		&i.Category,
+		&i.Mode,
 	)
 	return i, err
 }
@@ -383,7 +384,7 @@ func (q *Queries) InterruptScans(ctx context.Context, sources []string) (int64, 
 }
 
 const latestScan = `-- name: LatestScan :one
-SELECT id, source, status, requested_at, started_at, finished_at, pages, ads, gone, rated, error, complete, note, phase, detail_total, detailed, progress_at, category FROM gem_scans WHERE source = $1 AND category = $2 ORDER BY id DESC LIMIT 1
+SELECT id, source, status, requested_at, started_at, finished_at, pages, ads, gone, rated, error, complete, note, phase, detail_total, detailed, progress_at, category, mode FROM gem_scans WHERE source = $1 AND category = $2 ORDER BY id DESC LIMIT 1
 `
 
 type LatestScanParams struct {
@@ -413,6 +414,7 @@ func (q *Queries) LatestScan(ctx context.Context, arg LatestScanParams) (GemScan
 		&i.Detailed,
 		&i.ProgressAt,
 		&i.Category,
+		&i.Mode,
 	)
 	return i, err
 }
@@ -532,27 +534,28 @@ func (q *Queries) LockScans(ctx context.Context, arg LockScansParams) error {
 }
 
 const requestScan = `-- name: RequestScan :one
-INSERT INTO gem_scans (source, category)
-SELECT $1::text, $2::text
+INSERT INTO gem_scans (source, category, mode)
+SELECT $1::text, $2::text, $3::text
 WHERE NOT EXISTS (
     SELECT 1 FROM gem_scans
     WHERE source = $1::text AND category = $2::text AND (
         status = 'requested' AND requested_at > now() - interval '3 hours'
         OR status = 'running' AND COALESCE(progress_at, started_at) > now() - interval '30 minutes')
 )
-RETURNING id, source, status, requested_at, started_at, finished_at, pages, ads, gone, rated, error, complete, note, phase, detail_total, detailed, progress_at, category
+RETURNING id, source, status, requested_at, started_at, finished_at, pages, ads, gone, rated, error, complete, note, phase, detail_total, detailed, progress_at, category, mode
 `
 
 type RequestScanParams struct {
 	Source   string
 	Category string
+	Mode     string
 }
 
 // A new request, unless one is waiting or running. A scan takes hours, so
 // a running one blocks until it shows no progress for 30 minutes (its
 // scraper died); a waiting one for 3 hours. Run under LockScans.
 func (q *Queries) RequestScan(ctx context.Context, arg RequestScanParams) (GemScan, error) {
-	row := q.db.QueryRow(ctx, requestScan, arg.Source, arg.Category)
+	row := q.db.QueryRow(ctx, requestScan, arg.Source, arg.Category, arg.Mode)
 	var i GemScan
 	err := row.Scan(
 		&i.ID,
@@ -573,6 +576,7 @@ func (q *Queries) RequestScan(ctx context.Context, arg RequestScanParams) (GemSc
 		&i.Detailed,
 		&i.ProgressAt,
 		&i.Category,
+		&i.Mode,
 	)
 	return i, err
 }

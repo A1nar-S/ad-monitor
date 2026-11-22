@@ -15,6 +15,7 @@ import {
 } from 'lucide-vue-next'
 import BaseDialog from './BaseDialog.vue'
 import EmptyState from './EmptyState.vue'
+import FilterSidebar from './FilterSidebar.vue'
 import OverviewFilters from './OverviewFilters.vue'
 import PageHeader from './PageHeader.vue'
 import PageNav from './PageNav.vue'
@@ -521,36 +522,20 @@ onUnmounted(() => {
     />
 
     <div class="mt-5 grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
-      <aside
+      <FilterSidebar
         v-if="hasRecords"
-        class="hidden lg:block"
-        :aria-label="t('common.filters')"
+        :clearable="hasFilters"
+        @clear="resetFilters"
       >
-        <div
-          class="card sticky top-6 max-h-[calc(100dvh-3rem)] overflow-y-auto overscroll-contain p-4"
-        >
-          <div class="mb-4 flex items-center justify-between">
-            <h2 class="text-sm font-semibold text-gray-900">
-              {{ t('common.filters') }}
-            </h2>
-            <button
-              v-if="hasFilters"
-              class="text-small text-brand-600 hover:underline"
-              @click="resetFilters"
-            >
-              {{ t('common.clearAll') }}
-            </button>
-          </div>
-          <OverviewFilters
-            v-model:query="query"
-            v-model:category="category"
-            v-model:status="status"
-            v-model:source="source"
-            :view="view"
-            :sources="sources"
-          />
-        </div>
-      </aside>
+        <OverviewFilters
+          v-model:query="query"
+          v-model:category="category"
+          v-model:status="status"
+          v-model:source="source"
+          :view="view"
+          :sources="sources"
+        />
+      </FilterSidebar>
 
       <div class="min-w-0" :class="{ 'lg:col-span-2': !hasRecords }">
         <div v-if="hasRecords" class="mb-3 flex flex-wrap items-center gap-2">

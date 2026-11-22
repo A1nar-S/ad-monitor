@@ -72,11 +72,28 @@ var ErrBusy = errors.New("a scan is already waiting or running")
 // ErrBadQuery: a filter or category the API cannot take.
 var ErrBadQuery = errors.New("bad query")
 
+// Mode is what a scan does.
+type Mode string
+
+const (
+	// Full reads every list page of the category again (new and changed
+	// listings, sold ones marked), then rates and reads ad pages as Rate.
+	Full Mode = "full"
+	// Rate rates the stored listings again, reads the ad pages of the
+	// potential buys not read yet, and rates again: after the rating
+	// changed, or to finish a scan cut short.
+	Rate Mode = "rate"
+)
+
+// Modes are the scans there are.
+var Modes = []Mode{Full, Rate}
+
 // Scan is one scan request and how far it got.
 type Scan struct {
 	ID          int64      `json:"id"`
 	Source      string     `json:"source"`
 	Category    string     `json:"category"`
+	Mode        Mode       `json:"mode"`
 	Status      string     `json:"status"` // requested, running, done, failed
 	RequestedAt time.Time  `json:"requestedAt"`
 	StartedAt   *time.Time `json:"startedAt,omitempty"`
@@ -105,7 +122,7 @@ func scanOf(r gemsdb.GemScan) Scan {
 		return &ts.Time
 	}
 	return Scan{
-		ID: r.ID, Source: r.Source, Category: r.Category, Status: r.Status, RequestedAt: r.RequestedAt.Time,
+		ID: r.ID, Source: r.Source, Category: r.Category, Mode: Mode(r.Mode), Status: r.Status, RequestedAt: r.RequestedAt.Time,
 		StartedAt: t(r.StartedAt), FinishedAt: t(r.FinishedAt),
 		Pages: int(r.Pages), Ads: int(r.Ads), Gone: int(r.Gone), Rated: int(r.Rated), Error: r.Error,
 		Complete: r.Complete, Note: r.Note,
@@ -120,11 +137,14 @@ func (s *Service) known(category string) error {
 	return nil
 }
 
-// RequestScan asks the scraper to scan source's category; ErrBusy if one
-// is pending.
-func (s *Service) RequestScan(ctx context.Context, source, category string) (Scan, error) {
+// RequestScan asks the scraper to scan source's category; ErrBusy if a
+// scan of it (of either mode) is pending.
+func (s *Service) RequestScan(ctx context.Context, source, category string, mode Mode) (Scan, error) {
 	if err := s.known(category); err != nil {
 		return Scan{}, err
+	}
+	if !slices.Contains(Modes, mode) {
+		return Scan{}, fmt.Errorf("%w: unknown scan mode %q", ErrBadQuery, mode)
 	}
 	var scan Scan
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
@@ -132,7 +152,7 @@ func (s *Service) RequestScan(ctx context.Context, source, category string) (Sca
 		if err := q.LockScans(ctx, gemsdb.LockScansParams{Source: source, Category: category}); err != nil {
 			return err
 		}
-		r, err := q.RequestScan(ctx, gemsdb.RequestScanParams{Source: source, Category: category})
+		r, err := q.RequestScan(ctx, gemsdb.RequestScanParams{Source: source, Category: category, Mode: string(mode)})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrBusy
 		}

@@ -106,14 +106,18 @@ dashboard api ─┴─> subscriptions (users, channels, searches, logins) <─�
   Adding flats = a `gems/flats` category + ss.com `ScanScope("flats")` (it has no all-flats feed yet). A scraper
   restart marks its running scans interrupted. Two passes. Pass 1 reads every page
   of `transport/cars/sell`, marks vanished cars sold, rates every car from its list row and saves at once. Pass 2 reads
-  the ad page of every potential buy (`deals.Candidate`: price known and < +8% vs similar ads, not suspicious, no risky
+  the ad page of every potential buy (`deals.Candidate`: price verdict Fair or better, not suspicious, no risky
   engine, mileage x ≥ −0.5) not read before (`listings.detailed_at` is the cache), saving every 100, then rates
   everything again. Pacing: the site's shared `scraping.Throttle` (REQUEST_GAP, jittered up to +50%) plus
   `GEM_DETAIL_GAP_SECONDS` (default 1, jittered) per ad page, a 20–40 s break every 100, and on 429/403/5xx pauses of
   1, 2, 4 min; the third push back (or 10 failures) in a row ends pass 2 with a note. ~8k candidates take ~8 h the
   first time, then only new ones. Body, region and gearbox (the filters) exist only for read cars; a car with
   too few similar ads has no price verdict, so it is never a candidate. A running scan blocks a new request until it
-  shows no progress (`progress_at`) for 30 minutes.
+  shows no progress (`progress_at`) for 30 minutes. A scan's `mode` is `full` (the above) or `rate` ("Recalculate":
+  pass 1 skipped, the stored listings rated again, then pass 2 for candidates not read yet; for a rating change or to
+  finish a scan cut short). Filter counts are faceted: each choice counts the gems every other filter lets through
+  (`GemFacets`; a choice also ignores the ones it narrows, a make the model). `db.Open` turns Postgres JIT off: it
+  spent ~0.5 s compiling the facet query that runs in ~40 ms.
   Scanned-only rows have `seen_by_feed = false`, so alerts behave as if no scan ran.
 - **Car verdicts** (`internal/deals`): overall, price vs similar stored ads, mileage for its age, engine/gearbox
   reputation and trim level (`deals/codebook/*.json`). The score is a weighted sum of parts x ∈ [−1, 1] (`score.go`):

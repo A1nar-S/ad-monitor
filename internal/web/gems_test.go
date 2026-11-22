@@ -14,15 +14,16 @@ import (
 type fakeGems struct {
 	busy     bool
 	category string
+	mode     gems.Mode
 	query    gems.Query
 }
 
-func (f *fakeGems) RequestScan(_ context.Context, source, category string) (gems.Scan, error) {
+func (f *fakeGems) RequestScan(_ context.Context, source, category string, mode gems.Mode) (gems.Scan, error) {
 	if f.busy {
 		return gems.Scan{}, gems.ErrBusy
 	}
-	f.busy = true
-	return gems.Scan{ID: 1, Source: source, Category: category, Status: "requested"}, nil
+	f.busy, f.mode = true, mode
+	return gems.Scan{ID: 1, Source: source, Category: category, Mode: mode, Status: "requested"}, nil
 }
 func (f *fakeGems) LatestScan(context.Context, string, string) (gems.Scan, bool, error) {
 	return gems.Scan{ID: 1, Status: "running", Pages: 12, Error: "pq: relation gems", Note: "stopped"}, f.busy, nil
@@ -75,8 +76,15 @@ func TestGemEndpoints(t *testing.T) {
 		!strings.Contains(body, `"options":["Rīga","Jūrmala"]`) {
 		t.Errorf("sources, with the cars spec and the catalog's regions: %d %s", w.Code, body)
 	}
-	if w := do(h, "POST", "/api/gems/scan", "s-admin", "", true); w.Code != http.StatusAccepted {
-		t.Errorf("request: %d %s", w.Code, w.Body)
+	if w := do(h, "POST", "/api/gems/scan?mode=bogus", "s-admin", "", true); w.Code != http.StatusBadRequest {
+		t.Errorf("unknown mode: %d, want 400", w.Code)
+	}
+	if w := do(h, "POST", "/api/gems/scan", "s-admin", "", true); w.Code != http.StatusAccepted || g.mode != gems.Full {
+		t.Errorf("request: %d %s, mode %q; want a full scan", w.Code, w.Body, g.mode)
+	}
+	g.busy = false
+	if w := do(h, "POST", "/api/gems/scan?mode=rate", "s-admin", "", true); w.Code != http.StatusAccepted || g.mode != gems.Rate {
+		t.Errorf("recalculation: %d %s, mode %q", w.Code, w.Body, g.mode)
 	}
 	if w := do(h, "POST", "/api/gems/scan", "s-admin", "", true); w.Code != http.StatusConflict {
 		t.Errorf("second request: %d, want 409", w.Code)

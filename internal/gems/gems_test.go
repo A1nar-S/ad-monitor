@@ -109,6 +109,7 @@ func (r *thingRater) Rate() []Rated {
 // pages; past the end it repeats the last page, as sites do.
 type fakeSite struct {
 	pages     [][]events.ListingDiscovered
+	fetches   int             // list pages read
 	reads     []string        // ad pages read
 	enrichErr error           // every ad page fails with it
 	removed   map[string]bool // ads whose page says they were removed
@@ -116,6 +117,7 @@ type fakeSite struct {
 
 func (*fakeSite) Name() string { return "site" }
 func (f *fakeSite) FetchFeed(_ context.Context, _ string, page int) ([]events.ListingDiscovered, error) {
+	f.fetches++
 	return slices.Clone(f.pages[min(page, len(f.pages))-1]), nil
 }
 func (*fakeSite) PlanFeeds(w []string, _ int) []string            { return w }
@@ -216,7 +218,7 @@ func newScanner(svc *Service, site *fakeSite, store *fakeStore, pace *pacing, ma
 func runScan(t *testing.T, svc *Service, scanner *Scanner) Scan {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := svc.RequestScan(ctx, "site", "things"); err != nil {
+	if _, err := svc.RequestScan(ctx, "site", "things", Full); err != nil {
 		t.Fatal(err)
 	}
 	r, err := svc.q.ClaimScan(ctx, []string{"site"})
@@ -246,13 +248,13 @@ func TestScan(t *testing.T) {
 	pace := &pacing{}
 	scanner := newScanner(svc, site, store, pace, 10)
 
-	if _, err := svc.RequestScan(ctx, "site", "things"); err != nil {
+	if _, err := svc.RequestScan(ctx, "site", "things", Full); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.RequestScan(ctx, "site", "things"); !errors.Is(err, ErrBusy) {
+	if _, err := svc.RequestScan(ctx, "site", "things", Full); !errors.Is(err, ErrBusy) {
 		t.Fatalf("second request: err = %v, want ErrBusy", err)
 	}
-	if _, err := svc.RequestScan(ctx, "site", "flats"); !errors.Is(err, ErrBadQuery) {
+	if _, err := svc.RequestScan(ctx, "site", "flats", Full); !errors.Is(err, ErrBadQuery) {
 		t.Errorf("unknown category: err = %v, want ErrBadQuery", err)
 	}
 	r, err := svc.q.ClaimScan(ctx, []string{"site"})
@@ -434,6 +436,50 @@ func TestScanBacksOff(t *testing.T) {
 	}
 }
 
+// A recalculation rates what is stored without reading a list page, and
+// reads the ad pages of the potential buys not read yet.
+func TestRecalculate(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+	store := newStore()
+	for _, l := range append(cheapThings(5), thing("dear", 30000, "red", 2020)) {
+		l.Feed = "things/sell"
+		store.ads[l.ExternalID] = &Item{Listing: l, Active: true}
+	}
+	store.ads["t0"].Detailed = true // read by an earlier scan
+	site := &fakeSite{}
+	scanner := newScanner(svc, site, store, &pacing{}, 10)
+
+	if _, err := svc.RequestScan(ctx, "site", "things", "sometimes"); !errors.Is(err, ErrBadQuery) {
+		t.Errorf("unknown mode: err = %v, want ErrBadQuery", err)
+	}
+	if _, err := svc.RequestScan(ctx, "site", "things", Rate); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.RequestScan(ctx, "site", "things", Full); !errors.Is(err, ErrBusy) {
+		t.Errorf("a full scan while a recalculation waits: err = %v, want ErrBusy", err)
+	}
+	r, err := svc.q.ClaimScan(ctx, []string{"site"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanner.run(ctx, scanOf(r))
+	scan, _, err := svc.LatestScan(ctx, "site", "things")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(site.reads)
+	if scan.Mode != Rate || scan.Status != "done" || scan.Rated != 6 || scan.Gone != 0 || scan.Pages != 0 {
+		t.Errorf("scan = %+v, want a done recalculation of the 6 stored", scan)
+	}
+	if site.fetches != 0 || !slices.Equal(site.reads, []string{"t1", "t2", "t3", "t4"}) {
+		t.Errorf("read %d list pages and ad pages %v; want none and the 4 cheap ones not read yet", site.fetches, site.reads)
+	}
+	if !store.ads["dear"].Active {
+		t.Error("a recalculation marked a listing sold")
+	}
+}
+
 // An ad whose page says it was removed is marked sold and leaves the list.
 func TestScanDropsRemoved(t *testing.T) {
 	svc := newTestService(t)
@@ -513,13 +559,13 @@ func TestScanIncomplete(t *testing.T) {
 func TestRunInterruptsLeftovers(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
-	if _, err := svc.RequestScan(ctx, "site", "things"); err != nil {
+	if _, err := svc.RequestScan(ctx, "site", "things", Full); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.q.ClaimScan(ctx, []string{"site"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.RequestScan(ctx, "site", "things"); !errors.Is(err, ErrBusy) {
+	if _, err := svc.RequestScan(ctx, "site", "things", Full); !errors.Is(err, ErrBusy) {
 		t.Fatalf("while running: err = %v, want ErrBusy", err)
 	}
 	short, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
@@ -529,7 +575,7 @@ func TestRunInterruptsLeftovers(t *testing.T) {
 	if err != nil || scan.Status != "failed" || !strings.Contains(scan.Error, "interrupted") {
 		t.Errorf("left running: %+v (err %v), want failed as interrupted", scan, err)
 	}
-	if _, err := svc.RequestScan(ctx, "site", "things"); err != nil {
+	if _, err := svc.RequestScan(ctx, "site", "things", Full); err != nil {
 		t.Errorf("request after the restart: %v", err)
 	}
 }

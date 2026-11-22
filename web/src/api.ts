@@ -18,8 +18,12 @@ export type Me = {
 // A full scan of every listing of a category for sale, rated: the gem finder. Pass 1
 // (phase listing) reads every listing; pass 2 (detailing) the ad pages of
 // the potential buys.
+// full reads every list page again; rate rates what is stored again.
+export type GemScanMode = 'full' | 'rate'
+
 export type GemScan = {
   id: number
+  mode: GemScanMode
   status: 'requested' | 'running' | 'done' | 'failed'
   requestedAt: string
   startedAt?: string
@@ -299,8 +303,11 @@ export const api = {
   gemSources: () => call<GemSource[]>('GET', '/api/gems/sources'),
   gemScan: (source: string, category: string) =>
     call<GemScan | null>('GET', `/api/gems/scan?${target(source, category)}`),
-  requestGemScan: (source: string, category: string) =>
-    call<GemScan>('POST', `/api/gems/scan?${target(source, category)}`),
+  requestGemScan: (source: string, category: string, mode: GemScanMode) =>
+    call<GemScan>(
+      'POST',
+      `/api/gems/scan?${target(source, category)}&mode=${mode}`,
+    ),
   gems: (source: string, category: string, q: GemQuery) =>
     call<GemPage>(
       'GET',

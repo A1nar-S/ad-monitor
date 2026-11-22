@@ -251,8 +251,14 @@ const lv: Messages = {
     leads: {
       cars: 'Visas pārdodamās automašīnas, novērtētas pēc cenas, nobraukuma pret vecumu, tehniskās apskates, dzinēja un ātrumkārbas uzticamības un aprīkojuma.',
     },
-    scan: 'Ielādēt no {site}',
-    scanning: 'Ielādē…',
+    scan: 'Pārskenēt {site}',
+    scanHint:
+      'Vēlreiz nolasīt visus sludinājumus (ap pusstundu), atzīmēt pārdotos, tad nolasīt jauno potenciālo pirkumu sludinājumu lapas',
+    scanning: 'Notiek…',
+    recalculate: 'Pārrēķināt',
+    recalculateHint:
+      'Vēlreiz novērtēt saglabātos sludinājumus un nolasīt vēl nenolasīto potenciālo pirkumu lapas; sarakstu lapas netiek lasītas',
+    rating: 'Vērtē saglabātos sludinājumus…',
     neverScanned:
       'Vēl nekā nav: administrators to vēl nav ielādējis no {site}.',
     neverScannedAdmin:
@@ -263,6 +269,8 @@ const lv: Messages = {
     done: 'Atjaunots {when} · {rated} novērtēti',
     doneAdmin:
       'Pēdējā ielāde {when}: {ads} sludinājumi, {rated} novērtēti, {gone} pa to laiku pārdoti',
+    doneRateAdmin:
+      'Pārrēķināts {when}: novērtēti {rated}, nolasītas {read} sludinājumu lapas',
     failed: 'Pēdējā ielāde neizdevās: {error}',
     failedShort: 'Pēdējā ielāde neizdevās; administrators to apskatīs.',
     busy: 'Ielāde jau notiek.',
