@@ -38,7 +38,7 @@ type Service struct {
 	collapseAt int
 
 	maxSearches int             // per user; 0 = unlimited
-	admins      map[string]bool // Discord IDs
+	admins      map[string]bool // "platform:id" of chat accounts
 
 	adPage   AdPageHook                          // optional; see WithAdPageHook
 	adPageOf func(events.ListingDiscovered) bool // optional; see WithAdPageFor

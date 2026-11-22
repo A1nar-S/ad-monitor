@@ -8,12 +8,26 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Account struct {
+	Platform    string
+	ExternalID  string
+	UserID      int64
+	DisplayName string
+	CreatedAt   pgtype.Timestamptz
+}
+
 type Channel struct {
 	ID     int64
 	UserID int64
 	Kind   string
 	Target string
 	Label  string
+}
+
+type LinkCode struct {
+	CodeHash  string
+	UserID    int64
+	ExpiresAt pgtype.Timestamptz
 }
 
 type LoginToken struct {

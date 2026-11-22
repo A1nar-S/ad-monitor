@@ -11,6 +11,42 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const accountUser = `-- name: AccountUser :one
+WITH a AS (
+    UPDATE accounts SET display_name = $1
+    WHERE accounts.platform = $2::text AND accounts.external_id = $3::text
+    RETURNING user_id
+)
+UPDATE users SET display_name = $1 FROM a WHERE users.id = a.user_id
+RETURNING users.id
+`
+
+type AccountUserParams struct {
+	DisplayName string
+	Platform    string
+	ExternalID  string
+}
+
+// The user a chat account belongs to; the display name follows the platform.
+func (q *Queries) AccountUser(ctx context.Context, arg AccountUserParams) (int64, error) {
+	row := q.db.QueryRow(ctx, accountUser, arg.DisplayName, arg.Platform, arg.ExternalID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const consumeLinkCode = `-- name: ConsumeLinkCode :one
+DELETE FROM link_codes WHERE code_hash = $1 AND expires_at > now() RETURNING user_id
+`
+
+// Single use, like login tokens.
+func (q *Queries) ConsumeLinkCode(ctx context.Context, codeHash string) (int64, error) {
+	row := q.db.QueryRow(ctx, consumeLinkCode, codeHash)
+	var user_id int64
+	err := row.Scan(&user_id)
+	return user_id, err
+}
+
 const consumeLoginToken = `-- name: ConsumeLoginToken :one
 DELETE FROM login_tokens WHERE token_hash = $1 AND expires_at > now() RETURNING user_id
 `
@@ -34,6 +70,42 @@ func (q *Queries) CountUserSearches(ctx context.Context, userID int64) (int64, e
 	return count, err
 }
 
+const createPlatformUser = `-- name: CreatePlatformUser :one
+INSERT INTO users (name, platform, external_id, display_name)
+VALUES ($1::text || ':' || $2::text, $1::text, $2::text, $3)
+ON CONFLICT (platform, external_id) DO UPDATE SET display_name = EXCLUDED.display_name
+RETURNING id
+`
+
+type CreatePlatformUserParams struct {
+	Platform    string
+	ExternalID  string
+	DisplayName string
+}
+
+// A chat account's first contact.
+func (q *Queries) CreatePlatformUser(ctx context.Context, arg CreatePlatformUserParams) (int64, error) {
+	row := q.db.QueryRow(ctx, createPlatformUser, arg.Platform, arg.ExternalID, arg.DisplayName)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const deleteDuplicateChannels = `-- name: DeleteDuplicateChannels :exec
+DELETE FROM channels a USING channels k
+WHERE a.user_id = $1 AND k.user_id = $2 AND k.kind = a.kind AND k.target = a.target
+`
+
+type DeleteDuplicateChannelsParams struct {
+	Absorbed int64
+	Keeper   int64
+}
+
+func (q *Queries) DeleteDuplicateChannels(ctx context.Context, arg DeleteDuplicateChannelsParams) error {
+	_, err := q.db.Exec(ctx, deleteDuplicateChannels, arg.Absorbed, arg.Keeper)
+	return err
+}
+
 const deleteSearch = `-- name: DeleteSearch :execrows
 DELETE FROM searches WHERE id = $1
 `
@@ -52,6 +124,15 @@ DELETE FROM sessions WHERE token_hash = $1
 
 func (q *Queries) DeleteSession(ctx context.Context, tokenHash string) error {
 	_, err := q.db.Exec(ctx, deleteSession, tokenHash)
+	return err
+}
+
+const deleteUser = `-- name: DeleteUser :exec
+DELETE FROM users WHERE id = $1
+`
+
+func (q *Queries) DeleteUser(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, deleteUser, id)
 	return err
 }
 
@@ -213,6 +294,46 @@ func (q *Queries) GetUserChannel(ctx context.Context, arg GetUserChannelParams) 
 	var i GetUserChannelRow
 	err := row.Scan(&i.ID, &i.Kind, &i.Target)
 	return i, err
+}
+
+const insertAccount = `-- name: InsertAccount :exec
+INSERT INTO accounts (platform, external_id, user_id, display_name)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (platform, external_id) DO NOTHING
+`
+
+type InsertAccountParams struct {
+	Platform    string
+	ExternalID  string
+	UserID      int64
+	DisplayName string
+}
+
+func (q *Queries) InsertAccount(ctx context.Context, arg InsertAccountParams) error {
+	_, err := q.db.Exec(ctx, insertAccount,
+		arg.Platform,
+		arg.ExternalID,
+		arg.UserID,
+		arg.DisplayName,
+	)
+	return err
+}
+
+const insertLinkCode = `-- name: InsertLinkCode :exec
+WITH old AS (DELETE FROM link_codes WHERE user_id = $2)
+INSERT INTO link_codes (code_hash, user_id, expires_at) VALUES ($1, $2, $3)
+`
+
+type InsertLinkCodeParams struct {
+	CodeHash  string
+	UserID    int64
+	ExpiresAt pgtype.Timestamptz
+}
+
+// A new code replaces the user's earlier ones.
+func (q *Queries) InsertLinkCode(ctx context.Context, arg InsertLinkCodeParams) error {
+	_, err := q.db.Exec(ctx, insertLinkCode, arg.CodeHash, arg.UserID, arg.ExpiresAt)
+	return err
 }
 
 const insertLoginToken = `-- name: InsertLoginToken :exec
@@ -535,8 +656,98 @@ func (q *Queries) ListUserMatches(ctx context.Context, arg ListUserMatchesParams
 	return items, nil
 }
 
+const moveAccounts = `-- name: MoveAccounts :exec
+UPDATE accounts SET user_id = $1 WHERE user_id = $2
+`
+
+type MoveAccountsParams struct {
+	Keeper   int64
+	Absorbed int64
+}
+
+func (q *Queries) MoveAccounts(ctx context.Context, arg MoveAccountsParams) error {
+	_, err := q.db.Exec(ctx, moveAccounts, arg.Keeper, arg.Absorbed)
+	return err
+}
+
+const moveChannels = `-- name: MoveChannels :exec
+UPDATE channels SET user_id = $1 WHERE user_id = $2
+`
+
+type MoveChannelsParams struct {
+	Keeper   int64
+	Absorbed int64
+}
+
+func (q *Queries) MoveChannels(ctx context.Context, arg MoveChannelsParams) error {
+	_, err := q.db.Exec(ctx, moveChannels, arg.Keeper, arg.Absorbed)
+	return err
+}
+
+const moveSearches = `-- name: MoveSearches :execrows
+UPDATE searches SET user_id = $1 WHERE user_id = $2
+`
+
+type MoveSearchesParams struct {
+	Keeper   int64
+	Absorbed int64
+}
+
+func (q *Queries) MoveSearches(ctx context.Context, arg MoveSearchesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, moveSearches, arg.Keeper, arg.Absorbed)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const moveSessions = `-- name: MoveSessions :exec
+UPDATE sessions SET user_id = $1 WHERE user_id = $2
+`
+
+type MoveSessionsParams struct {
+	Keeper   int64
+	Absorbed int64
+}
+
+// A dashboard open as the absorbed user stays logged in, as the keeper.
+func (q *Queries) MoveSessions(ctx context.Context, arg MoveSessionsParams) error {
+	_, err := q.db.Exec(ctx, moveSessions, arg.Keeper, arg.Absorbed)
+	return err
+}
+
+const moveWatches = `-- name: MoveWatches :execrows
+UPDATE watches SET user_id = $1 WHERE user_id = $2
+`
+
+type MoveWatchesParams struct {
+	Keeper   int64
+	Absorbed int64
+}
+
+func (q *Queries) MoveWatches(ctx context.Context, arg MoveWatchesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, moveWatches, arg.Keeper, arg.Absorbed)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const peekLinkCode = `-- name: PeekLinkCode :one
+SELECT user_id FROM link_codes WHERE code_hash = $1 AND expires_at > now()
+`
+
+// Whose code it is, without using it up: shown before the user confirms.
+func (q *Queries) PeekLinkCode(ctx context.Context, codeHash string) (int64, error) {
+	row := q.db.QueryRow(ctx, peekLinkCode, codeHash)
+	var user_id int64
+	err := row.Scan(&user_id)
+	return user_id, err
+}
+
 const purgeExpiredAuth = `-- name: PurgeExpiredAuth :exec
-WITH t AS (DELETE FROM login_tokens WHERE expires_at < now())
+WITH t AS (DELETE FROM login_tokens WHERE expires_at < now()),
+     l AS (DELETE FROM link_codes WHERE expires_at < now())
 DELETE FROM sessions WHERE expires_at < now()
 `
 
@@ -570,6 +781,74 @@ type RecordMatchParams struct {
 
 func (q *Queries) RecordMatch(ctx context.Context, arg RecordMatchParams) error {
 	_, err := q.db.Exec(ctx, recordMatch, arg.SearchID, arg.Source, arg.ExternalID)
+	return err
+}
+
+const renameClashingSearches = `-- name: RenameClashingSearches :exec
+UPDATE searches a SET name = a.name || ' (' || a.id || ')'
+FROM searches k WHERE a.user_id = $1 AND k.user_id = $2 AND k.name = a.name
+`
+
+type RenameClashingSearchesParams struct {
+	Absorbed int64
+	Keeper   int64
+}
+
+// Names are unique per user: a clashing one gets its ID appended.
+func (q *Queries) RenameClashingSearches(ctx context.Context, arg RenameClashingSearchesParams) error {
+	_, err := q.db.Exec(ctx, renameClashingSearches, arg.Absorbed, arg.Keeper)
+	return err
+}
+
+const renameClashingWatches = `-- name: RenameClashingWatches :exec
+UPDATE watches a SET name = a.name || ' (' || a.id || ')'
+FROM watches k WHERE a.user_id = $1 AND k.user_id = $2 AND k.name = a.name
+`
+
+type RenameClashingWatchesParams struct {
+	Absorbed int64
+	Keeper   int64
+}
+
+func (q *Queries) RenameClashingWatches(ctx context.Context, arg RenameClashingWatchesParams) error {
+	_, err := q.db.Exec(ctx, renameClashingWatches, arg.Absorbed, arg.Keeper)
+	return err
+}
+
+const repointSearchChannels = `-- name: RepointSearchChannels :exec
+
+UPDATE searches s SET channel_id = k.id
+FROM channels a JOIN channels k ON k.kind = a.kind AND k.target = a.target AND k.user_id = $2
+WHERE a.user_id = $1 AND s.channel_id = a.id
+`
+
+type RepointSearchChannelsParams struct {
+	Absorbed int64
+	Keeper   int64
+}
+
+// Linking merges one user (absorbed) into another (keeper), in one
+// transaction: the queries below, in order.
+// A channel both users have (the same group channel) is kept once: the
+// absorbed user's searches and watches move to the keeper's copy.
+func (q *Queries) RepointSearchChannels(ctx context.Context, arg RepointSearchChannelsParams) error {
+	_, err := q.db.Exec(ctx, repointSearchChannels, arg.Absorbed, arg.Keeper)
+	return err
+}
+
+const repointWatchChannels = `-- name: RepointWatchChannels :exec
+UPDATE watches w SET channel_id = k.id
+FROM channels a JOIN channels k ON k.kind = a.kind AND k.target = a.target AND k.user_id = $2
+WHERE a.user_id = $1 AND w.channel_id = a.id
+`
+
+type RepointWatchChannelsParams struct {
+	Absorbed int64
+	Keeper   int64
+}
+
+func (q *Queries) RepointWatchChannels(ctx context.Context, arg RepointWatchChannelsParams) error {
+	_, err := q.db.Exec(ctx, repointWatchChannels, arg.Absorbed, arg.Keeper)
 	return err
 }
 
@@ -663,24 +942,32 @@ func (q *Queries) UpsertChannel(ctx context.Context, arg UpsertChannelParams) (i
 	return id, err
 }
 
-const upsertPlatformUser = `-- name: UpsertPlatformUser :one
-INSERT INTO users (name, platform, external_id, display_name)
-VALUES ($1::text || ':' || $2::text, $1::text, $2::text, $3)
-ON CONFLICT (platform, external_id) DO UPDATE SET display_name = EXCLUDED.display_name
-RETURNING id
+const userAccounts = `-- name: UserAccounts :many
+SELECT platform, external_id, display_name FROM accounts WHERE user_id = $1 ORDER BY created_at, platform
 `
 
-type UpsertPlatformUserParams struct {
+type UserAccountsRow struct {
 	Platform    string
 	ExternalID  string
 	DisplayName string
 }
 
-// A chat account (platform + its user ID) is the identity; the display name
-// follows the platform.
-func (q *Queries) UpsertPlatformUser(ctx context.Context, arg UpsertPlatformUserParams) (int64, error) {
-	row := q.db.QueryRow(ctx, upsertPlatformUser, arg.Platform, arg.ExternalID, arg.DisplayName)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
+func (q *Queries) UserAccounts(ctx context.Context, userID int64) ([]UserAccountsRow, error) {
+	rows, err := q.db.Query(ctx, userAccounts, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UserAccountsRow
+	for rows.Next() {
+		var i UserAccountsRow
+		if err := rows.Scan(&i.Platform, &i.ExternalID, &i.DisplayName); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

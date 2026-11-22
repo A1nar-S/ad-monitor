@@ -109,22 +109,6 @@ func adminKey(entry string) (string, bool) {
 	return platform + ":" + id, true
 }
 
-// PlatformOwner returns the user for a chat account, creating it on first
-// contact.
-func (s *Service) PlatformOwner(ctx context.Context, platform, externalID, displayName string) (Owner, error) {
-	id, err := s.q.UpsertPlatformUser(ctx, subscriptionsdb.UpsertPlatformUserParams{
-		Platform: platform, ExternalID: externalID, DisplayName: displayName,
-	})
-	if err != nil {
-		return Owner{}, fmt.Errorf("user: %w", err)
-	}
-	return s.owner(id, platform, externalID, displayName), nil
-}
-
-func (s *Service) owner(id int64, platform, externalID, name string) Owner {
-	return Owner{UserID: id, Platform: platform, ExternalID: externalID, Name: name, Admin: s.admins[platform+":"+externalID]}
-}
-
 // EnsureChannel registers a delivery target of the owner (a private chat or
 // a group channel) and returns it. An empty label keeps the stored one.
 func (s *Service) EnsureChannel(ctx context.Context, o Owner, kind, target, label string) (ChannelView, error) {

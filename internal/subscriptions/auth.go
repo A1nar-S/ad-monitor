@@ -62,7 +62,8 @@ func (s *Service) Login(ctx context.Context, loginToken string) (string, Owner, 
 	if err != nil {
 		return "", Owner{}, err
 	}
-	return session, s.owner(u.ID, u.Platform, u.ExternalID, u.DisplayName), nil
+	o, err := s.owner(ctx, u.ID, u.Platform, u.ExternalID, u.DisplayName)
+	return session, o, err
 }
 
 // SessionOwner returns who a session token belongs to.
@@ -74,7 +75,7 @@ func (s *Service) SessionOwner(ctx context.Context, session string) (Owner, erro
 	if err != nil {
 		return Owner{}, err
 	}
-	return s.owner(u.ID, u.Platform, u.ExternalID, u.DisplayName), nil
+	return s.owner(ctx, u.ID, u.Platform, u.ExternalID, u.DisplayName)
 }
 
 // Logout ends a session.
