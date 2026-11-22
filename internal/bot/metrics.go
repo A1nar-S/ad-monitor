@@ -19,8 +19,10 @@ var commandsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 // sends can never create series.
 func commandLabel(name string) string {
 	switch name {
-	case CmdWatch, CmdEdit, CmdSearches, CmdMatches, CmdUnwatch, CmdDashboard, CmdSetup:
+	case CmdWatch, CmdEdit, CmdSearches, CmdMatches, CmdUnwatch, CmdDashboard, CmdSetup, CmdLink:
 		return name
+	case ActionLink:
+		return "menu_link"
 	case ActionToggle, ActionDelete:
 		return "menu_" + name
 	}
@@ -32,7 +34,8 @@ func observeCommand(name string, err error) {
 	var inv *sources.InvalidSearch
 	switch {
 	case err == nil:
-	case errors.As(err, &inv), errors.Is(err, subscriptions.ErrNotFound), errors.Is(err, subscriptions.ErrNotAdmin):
+	case errors.As(err, &inv), errors.Is(err, subscriptions.ErrNotFound), errors.Is(err, subscriptions.ErrNotAdmin),
+		errors.Is(err, subscriptions.ErrBadToken), errors.Is(err, subscriptions.ErrSameUser):
 		result = "rejected"
 	default:
 		result = "error"

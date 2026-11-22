@@ -19,6 +19,7 @@ const (
 	CmdUnwatch   = "unwatch"
 	CmdDashboard = "dashboard"
 	CmdSetup     = "setup"
+	CmdLink      = "link"
 
 	SetupStatusChannel = "status-channel"
 	SetupStatusOff     = "status-off"
@@ -29,8 +30,11 @@ const (
 // form (Discord slash commands; Telegram /commands with key=value args).
 type Command struct {
 	Name, Description string
-	Subcommands       []Command
-	Params            []Param
+	// Example shows text platforms how to write it, without the command
+	// itself: "cars name=Cheap Skoda make=Skoda price_max=7000".
+	Example     string
+	Subcommands []Command
+	Params      []Param
 	// ManagersOnly hides the command from members who can't manage the
 	// server (Discord: Manage Server). The bot still checks for an admin.
 	ManagersOnly bool
@@ -69,34 +73,37 @@ func (b *Bot) Commands() []Command {
 	matchesOf := own
 	matchesOf.Required, matchesOf.Description = false, "Only this search; empty = all of yours"
 
-	watch := func(category, desc string) Command {
-		return Command{Name: category, Description: desc, Params: slices.Concat([]Param{name}, b.filterParams(category), []Param{channel})}
+	watch := func(category, desc, example string) Command {
+		return Command{Name: category, Description: desc, Example: example, Params: slices.Concat([]Param{name}, b.filterParams(category), []Param{channel})}
 	}
 	// edit takes the same filters, all optional: only those given change.
-	edit := func(category, desc string) Command {
+	edit := func(category, desc, example string) Command {
 		filters := b.filterParams(category)
 		for i := range filters {
 			filters[i].Required = false
 		}
-		return Command{Name: category, Description: desc, Params: slices.Concat([]Param{own}, filters, []Param{clear, channel})}
+		return Command{Name: category, Description: desc, Example: example, Params: slices.Concat([]Param{own}, filters, []Param{clear, channel})}
 	}
 
 	return []Command{
 		{Name: CmdWatch, Description: "Get alerts for new ss.com ads; the same name again replaces the search", Subcommands: []Command{
-			watch("cars", "Watch ss.com for new car ads"),
-			watch("flats", "Watch ss.com for new flat ads"),
+			watch("cars", "Watch ss.com for new car ads", "cars name=Cheap Skoda make=Skoda model=Octavia price_max=7000"),
+			watch("flats", "Watch ss.com for new flat ads", "flats name=Teika flat region=Rīga deal=Izīrē district=Teika price_max=500"),
 		}},
 		{Name: CmdEdit, Description: "Change some filters of a search and keep the rest", Subcommands: []Command{
-			edit("cars", "Change a car search"),
-			edit("flats", "Change a flat search"),
+			edit("cars", "Change a car search", "cars name=Cheap Skoda price_max=8000 clear=model"),
+			edit("flats", "Change a flat search", "flats name=Teika flat rooms_min=2"),
 		}},
 		{Name: CmdSearches, Description: "List, pause or delete your searches"},
-		{Name: CmdMatches, Description: "Show the latest ads your searches alerted you about", Params: []Param{
+		{Name: CmdMatches, Description: "Show the latest ads your searches alerted you about", Example: "name=Cheap Skoda count=5", Params: []Param{
 			matchesOf,
 			{Name: "count", Description: fmt.Sprintf("How many, up to %d (default %d)", maxMatches, defaultMatches), Kind: Number},
 		}},
-		{Name: CmdUnwatch, Description: "Delete one of your searches", Params: []Param{own}},
+		{Name: CmdUnwatch, Description: "Delete one of your searches", Example: "Cheap Skoda", Params: []Param{own}},
 		{Name: CmdDashboard, Description: "Get a login link to edit your searches in the browser"},
+		{Name: CmdLink, Description: "Link your account on another chat app, to share your searches", Example: "ABCD-EFGH", Params: []Param{
+			{Name: "code", Description: "The code link gave you on the other app; empty = get a code", Kind: Text, MaxLen: 20},
+		}},
 		{Name: CmdSetup, Description: "Bot settings, for the bot's admins", ManagersOnly: true, Subcommands: []Command{
 			{Name: SetupStatusChannel, Description: "Post the service's start, stop and error messages in a channel", Params: []Param{
 				{Name: "channel", Description: "Where status messages go", Kind: Channel, Required: true},
@@ -265,10 +272,7 @@ func (b *Bot) listing(ctx context.Context, o subscriptions.Owner, note string) (
 		if !v.Enabled {
 			state, verb = "⏸️", "Resume"
 		}
-		where := b.m.Mention(v.Channel.Target)
-		if strings.HasPrefix(v.Channel.Label, PrivateLabel) {
-			where = "private"
-		}
+		where := b.channelWhere(v.Channel)
 		fmt.Fprintf(&sb, "%s **%s** — %s: %s · %s · %d alerts\n",
 			state, v.Name, v.Category, Truncate(Describe(v.Filters), 160), where, v.Matches)
 		id := strconv.FormatInt(v.ID, 10)

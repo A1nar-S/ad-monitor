@@ -46,6 +46,7 @@ type fakeSearches struct {
 	matches  []subscriptions.MatchRef
 	status   *events.Channel
 	admin    bool
+	linked   string // the code Link accepts
 }
 
 func newFakeSearches() *fakeSearches {
@@ -163,6 +164,27 @@ func (*fakeSearches) NewLoginToken(context.Context, subscriptions.Owner) (string
 }
 func (*fakeSearches) Categories() map[string][]sources.Category {
 	return map[string][]sources.Category{subscriptions.DefaultSource: ss.NewClient(time.Second).Categories()}
+}
+
+func (*fakeSearches) NewLinkCode(context.Context, subscriptions.Owner) (string, error) {
+	return "ABCD-EFGH", nil
+}
+func (f *fakeSearches) LinkTarget(_ context.Context, _ subscriptions.Owner, code string) ([]subscriptions.Account, error) {
+	if code != f.linked {
+		return nil, subscriptions.ErrBadToken
+	}
+	return []subscriptions.Account{{Platform: "discord", ExternalID: "d1", Name: "Alice"}}, nil
+}
+func (f *fakeSearches) Link(_ context.Context, _ subscriptions.Owner, code string) (subscriptions.LinkResult, error) {
+	if code != f.linked {
+		return subscriptions.LinkResult{}, subscriptions.ErrBadToken
+	}
+	return subscriptions.LinkResult{Accounts: []subscriptions.Account{
+		{Platform: "discord", ExternalID: "d1", Name: "Alice"}, {Platform: "chat", ExternalID: "u1", Name: "Alice*"},
+	}, Searches: 1}, nil
+}
+func (*fakeSearches) Accounts(context.Context, subscriptions.Owner) ([]subscriptions.Account, error) {
+	return []subscriptions.Account{{Platform: "chat", ExternalID: "u1", Name: "Alice"}}, nil
 }
 
 // fakeAds stores ad "1" only.
@@ -330,6 +352,52 @@ func TestSearchesMenus(t *testing.T) {
 	}
 	if r := b.Run(ctx, alice, Call{Command: CmdDashboard}); !strings.Contains(r.Text, "https://ads.example/api/login?token=tok") {
 		t.Errorf("dashboard: %q", r.Text)
+	}
+}
+
+func TestLink(t *testing.T) {
+	b, _, s := newBot()
+	ctx := context.Background()
+	s.linked = "WXYZ-2345"
+
+	r := b.Run(ctx, alice, Call{Command: CmdLink, Args: map[string]any{}})
+	if !strings.Contains(r.Text, "**/link ABCD-EFGH**") || strings.Contains(r.Text, "Linked now") {
+		t.Errorf("new code: %q", r.Text)
+	}
+	// A code asks first, naming whose accounts it joins.
+	r = b.Run(ctx, alice, Call{Command: CmdLink, Args: map[string]any{"code": "WXYZ-2345"}})
+	if !strings.Contains(r.Text, "**Discord (Alice)**") || len(r.Menus) != 1 || r.Menus[0].Action != ActionLink ||
+		r.Menus[0].Options[0] != (MenuOption{Label: "Link with Discord (Alice)", Value: "WXYZ-2345"}) {
+		t.Fatalf("confirm: %+v", r)
+	}
+	r = b.Act(ctx, alice, ActionLink, "WXYZ-2345")
+	want := "✅ Linked: Discord (Alice), Chat (Alice\\*) now share searches, price watches and the dashboard.\nMoved over from this account: 1 search, 0 price watches."
+	if r.Text != want {
+		t.Errorf("linked:\n%q\nwant\n%q", r.Text, want)
+	}
+	if r := b.Run(ctx, alice, Call{Command: CmdLink, Args: map[string]any{"code": "nope"}}); !strings.Contains(r.Text, "wrong or has expired") {
+		t.Errorf("bad code: %q", r.Text)
+	}
+	if r := b.Act(ctx, alice, ActionLink, "nope"); !strings.Contains(r.Text, "wrong or has expired") {
+		t.Errorf("bad code confirmed: %q", r.Text)
+	}
+}
+
+func TestChannelWhere(t *testing.T) {
+	b, _, _ := newBot()
+	for _, tc := range []struct {
+		ch   subscriptions.ChannelView
+		want string
+	}{
+		{subscriptions.ChannelView{Kind: "chat", Target: "c1", Label: PrivateLabel + " (chat)"}, "private"},
+		{subscriptions.ChannelView{Kind: "chat", Target: "c1", Label: "#cars"}, "#c1"},
+		{subscriptions.ChannelView{Kind: "discord", Target: "d1", Label: PrivateLabel + " (discord)"}, "private on Discord"},
+		{subscriptions.ChannelView{Kind: "discord", Target: "d1", Label: "#cars"}, "#cars on Discord"},
+		{subscriptions.ChannelView{Kind: "discord", Target: "d1"}, "a channel on Discord"},
+	} {
+		if got := b.channelWhere(tc.ch); got != tc.want {
+			t.Errorf("%+v: %q, want %q", tc.ch, got, tc.want)
+		}
 	}
 }
 

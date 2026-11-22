@@ -1,6 +1,6 @@
 // Package bot is the chat bot people use to manage their own searches:
-// watch, edit, searches, matches, unwatch, dashboard; setup for admins. It knows no chat platform: a platform
-// adapter (discordbot; Telegram later) turns its Commands into the
+// watch, edit, searches, matches, unwatch, dashboard, link; setup for admins. It knows no chat platform: a platform
+// adapter (discordbot, telegrambot) turns its Commands into the
 // platform's commands, calls Run/Complete/Act and renders the Reply. All
 // searches go through the subscriptions slice, with the same validation as
 // the dashboard.
@@ -54,6 +54,10 @@ type Searches interface {
 	StatusChannel(ctx context.Context) (events.Channel, bool, error)
 	SetStatusChannel(ctx context.Context, o subscriptions.Owner, ch events.Channel) error
 	Categories() map[string][]sources.Category
+	NewLinkCode(ctx context.Context, o subscriptions.Owner) (string, error)
+	LinkTarget(ctx context.Context, o subscriptions.Owner, code string) ([]subscriptions.Account, error)
+	Link(ctx context.Context, o subscriptions.Owner, code string) (subscriptions.LinkResult, error)
+	Accounts(ctx context.Context, o subscriptions.Owner) ([]subscriptions.Account, error)
 }
 
 // Ad is what a match shows of a stored ad.
@@ -98,6 +102,7 @@ type MenuOption struct{ Label, Value string }
 const (
 	ActionToggle = "toggle"
 	ActionDelete = "delete"
+	ActionLink   = "confirm-link" // value: the link code
 )
 
 // Bot answers calls.
@@ -175,6 +180,8 @@ func (b *Bot) run(ctx context.Context, u User, c Call) (Reply, error) {
 		}
 		return Reply{Text: fmt.Sprintf("🔐 Your dashboard login link (single use, valid 10 minutes, don't share it):\n<%s/api/login?token=%s>",
 			b.publicURL, token)}, nil
+	case CmdLink:
+		return b.link(ctx, o, argString(c.Args, "code"))
 	}
 	return Reply{}, fmt.Errorf("unknown command %q", c.Command)
 }
@@ -193,6 +200,9 @@ func (b *Bot) act(ctx context.Context, u User, action, value string) (Reply, err
 	o, err := b.owner(ctx, u)
 	if err != nil {
 		return Reply{}, err
+	}
+	if action == ActionLink {
+		return b.confirmLink(ctx, o, value)
 	}
 	id, err := strconv.ParseInt(value, 10, 64)
 	if err != nil {
@@ -513,6 +523,101 @@ func (b *Bot) alertChannel(ctx context.Context, o subscriptions.Owner, target st
 	return ch, false, err
 }
 
+// link issues a code for linking another chat account, or, given one,
+// asks to confirm whose accounts it joins: someone else's code would hand
+// them this account.
+func (b *Bot) link(ctx context.Context, o subscriptions.Owner, code string) (Reply, error) {
+	if code == "" {
+		code, err := b.searches.NewLinkCode(ctx, o)
+		if err != nil {
+			return Reply{}, err
+		}
+		text := fmt.Sprintf("🔗 To use me from another chat app too, send **/link %s** to me there within %d minutes "+
+			"(on Discord: /link with this code). Both accounts then share your searches, price watches and dashboard. "+
+			"Don't give the code to anyone else.",
+			code, int(subscriptions.LinkCodeTTL.Minutes()))
+		if accounts, err := b.searches.Accounts(ctx, o); err == nil && len(accounts) > 1 {
+			text += "\nLinked now: " + describeAccounts(accounts, escape) + "."
+		}
+		return Reply{Text: text}, nil
+	}
+	accounts, err := b.searches.LinkTarget(ctx, o, code)
+	if err != nil {
+		return Reply{}, err
+	}
+	who := describeAccounts(accounts, escape)
+	return Reply{
+		Text: fmt.Sprintf("🔗 This joins this account to **%s**: whoever uses that account will see and change your searches, "+
+			"price watches and dashboard, and this can't be undone. Only confirm if it is yours.", who),
+		Menus: []Menu{{Action: ActionLink, Placeholder: "Confirm…", Options: []MenuOption{
+			{Label: Truncate("Link with "+describeAccounts(accounts, nil), 100), Value: code},
+		}}},
+	}, nil
+}
+
+// confirmLink redeems a link code once the user confirmed.
+func (b *Bot) confirmLink(ctx context.Context, o subscriptions.Owner, code string) (Reply, error) {
+	res, err := b.searches.Link(ctx, o, code)
+	if err != nil {
+		return Reply{}, err
+	}
+	text := "✅ Linked: " + describeAccounts(res.Accounts, escape) + " now share searches, price watches and the dashboard."
+	if res.Searches > 0 || res.Watches > 0 {
+		text += fmt.Sprintf("\nMoved over from this account: %d %s, %d price %s.",
+			res.Searches, plural(res.Searches, "search", "searches"), res.Watches, plural(res.Watches, "watch", "watches"))
+	}
+	return Reply{Text: text}, nil
+}
+
+// describeAccounts: "Discord (Alice), Telegram (Alice)"; names through
+// esc for markdown, as they are for a button label (nil).
+func describeAccounts(as []subscriptions.Account, esc func(string) string) string {
+	parts := make([]string, len(as))
+	for i, a := range as {
+		parts[i] = PlatformName(a.Platform)
+		if a.Name != "" {
+			name := a.Name
+			if esc != nil {
+				name = esc(name)
+			}
+			parts[i] += " (" + name + ")"
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+// PlatformName: "discord" → "Discord".
+func PlatformName(platform string) string {
+	if platform == "" {
+		return ""
+	}
+	return strings.ToUpper(platform[:1]) + platform[1:]
+}
+
+func plural(n int64, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
+// channelWhere says where a search's alerts go, also for a channel of
+// another platform (a linked account's).
+func (b *Bot) channelWhere(ch subscriptions.ChannelView) string {
+	private := strings.HasPrefix(ch.Label, PrivateLabel)
+	switch {
+	case ch.Kind == b.m.Platform() && private:
+		return "private"
+	case ch.Kind == b.m.Platform():
+		return b.m.Mention(ch.Target)
+	case private:
+		return "private on " + PlatformName(ch.Kind)
+	case ch.Label != "":
+		return escape(ch.Label) + " on " + PlatformName(ch.Kind)
+	}
+	return "a channel on " + PlatformName(ch.Kind)
+}
+
 func (b *Bot) where(target string, direct bool) string {
 	if direct {
 		return "your private messages"
@@ -564,7 +669,11 @@ func (b *Bot) errorText(what string, err error) string {
 	case errors.Is(err, subscriptions.ErrNotFound):
 		return "❌ No such search."
 	case errors.Is(err, subscriptions.ErrNotAdmin):
-		return "❌ Only the bot's admins can change its settings: the owner of the Discord app, or the accounts in ADMIN_USERS."
+		return "❌ Only the bot's admins can change its settings: the accounts in ADMIN_USERS, or the owner of the Discord app."
+	case errors.Is(err, subscriptions.ErrBadToken):
+		return "❌ That code is wrong or has expired. Get a new one with **link** on your other app."
+	case errors.Is(err, subscriptions.ErrSameUser):
+		return "✅ Those accounts are already linked."
 	}
 	slog.Error("bot", "platform", b.m.Platform(), "call", what, "err", err)
 	return "❌ Something went wrong; try again in a moment."
