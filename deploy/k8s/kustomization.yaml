@@ -22,10 +22,10 @@ patches:
 # newName and digest here for every service when a v* tag is pushed; :local
 # is the k3s.sh images import, used until the first release.
 images:
-  - {name: admon/scraper, newName: ghcr.io/a1nar-s/advertisiment-monitoring/scraper, digest: 'sha256:5817442aaaee50054aaca2b80346e4ac8875c562b482d7402e3c67b0232afa68'}
-  - {name: admon/ingest, newName: ghcr.io/a1nar-s/advertisiment-monitoring/ingest, digest: 'sha256:8ef7b3fd31c2a54b3276204f714f487452dd352775413a25704c24533c1d62e7'}
-  - {name: admon/matcher, newName: ghcr.io/a1nar-s/advertisiment-monitoring/matcher, digest: 'sha256:3ce3b073f60c79c45fc15d0b8f877b1ba835a594411a128a719ded993f942a90'}
-  - {name: admon/notifier, newName: ghcr.io/a1nar-s/advertisiment-monitoring/notifier, digest: 'sha256:d3d6e8a9a35ca517745d298e4de4e4c42634c6ebf3e379096831185d2cc67f90'}
-  - {name: admon/bot, newName: ghcr.io/a1nar-s/advertisiment-monitoring/bot, digest: 'sha256:449d1cb510ae29e54a3663a7ef045c1d9756029d1a76029d52353050a20bf037'}
-  - {name: admon/api, newName: ghcr.io/a1nar-s/advertisiment-monitoring/api, digest: 'sha256:ce538915359cdd61161ea271f9b0b2372feb7e1384f5a4f4ba2427ad04019bff'}
-  - {name: admon/admin, newName: ghcr.io/a1nar-s/advertisiment-monitoring/admin, digest: 'sha256:502db8d3c03f25c00f825fdfb5cb9b28183418e2b2a0e3fe0f38675ba78a97ce'}
+  - {name: admon/scraper, newName: ghcr.io/a1nar-s/advertisiment-monitoring/scraper, digest: 'sha256:d4d281802e5d4f45a2aff28f1f7c8496cead963f86310e03736f402d3fdc4676'}
+  - {name: admon/ingest, newName: ghcr.io/a1nar-s/advertisiment-monitoring/ingest, digest: 'sha256:62f7c3c245c427c7bee05f59a0ffbeb6154f4b1cb61dba69f0e19b9f5dd45666'}
+  - {name: admon/matcher, newName: ghcr.io/a1nar-s/advertisiment-monitoring/matcher, digest: 'sha256:b76e34a17728c752c767cb02b11f86519f130f8f91eb0bb089202c5254827be8'}
+  - {name: admon/notifier, newName: ghcr.io/a1nar-s/advertisiment-monitoring/notifier, digest: 'sha256:4aa5db12d26df7c718be75026f2d9f2b928064d86acf8c63288cbd633d7599c5'}
+  - {name: admon/bot, newName: ghcr.io/a1nar-s/advertisiment-monitoring/bot, digest: 'sha256:7a0dfa9ef54e3d0808d6151fc60181a488fe3d910dc0cf2a10006c5342846797'}
+  - {name: admon/api, newName: ghcr.io/a1nar-s/advertisiment-monitoring/api, digest: 'sha256:693603c665bd5cbab36ec01d24b47ccfd9e8c192f1d2416faa9805dd6ccb60ca'}
+  - {name: admon/admin, newName: ghcr.io/a1nar-s/advertisiment-monitoring/admin, digest: 'sha256:5b5d4b49551b0ae22f395d2a4f5c7784e743b0d878acafe226156bbc2df5793d'}
