@@ -216,18 +216,19 @@ func (t *failTable) lookup(c Car) []*ModelStats {
 
 // A model is rated on at least minInspections main inspections of cars
 // within ±1 model year (±2 when too few), of c's fuel or, when still too
-// few, of any. Its fail rate is compared with what all cars of those years
-// and fuels would have: failTol of that fewer is +1, but never less than
-// failFloor (5 points), as young cars barely fail at all. "All cars" are
-// those of models the ads know (trucks and the like are not counted).
+// few, of any. Its odds of failing are compared with what all cars of those
+// years and fuels would have: half the odds is +1, double −1, the same for
+// old and young cars. failPrior fails and passes added to both sides keep a
+// model with few fails expected near "usual" (one car is counted in each
+// year it was inspected, so the counts overstate the evidence). "All cars"
+// are those of models the ads know (trucks and the like are not counted).
 //
-//	x = clamp((typical − rate) / max(failTol × typical, failFloor), −1, 1)
+//	x = clamp(−log₂(((fails+k) / (passes+k)) / ((expected+k) / (n−expected+k))), −1, 1),  k = failPrior
 //
-// On the first table that made about a fifth of cars "often fails", half "usual".
+// On the 2022–2024 table that makes 29% of ratings "often fails", 48% "usual".
 const (
 	minInspections = 400 // fewer, and a young model's few fails are noise
-	failTol        = 0.35
-	failFloor      = 0.05
+	failPrior      = 10.0
 )
 
 // ReliabilityRating is how a car's model does at inspection, first attempt.
@@ -288,9 +289,12 @@ func rateModel(t *failTable, m *ModelStats, c Car) (ReliabilityRating, bool) {
 			if r.Inspections < minInspections {
 				continue
 			}
-			r.FailRate = float64(fails) / float64(r.Inspections)
-			r.Typical = expected / float64(r.Inspections)
-			r.X = clamp((r.Typical-r.FailRate)/max(failTol*r.Typical, failFloor), -1, 1)
+			n := float64(r.Inspections)
+			r.FailRate = float64(fails) / n
+			r.Typical = expected / n
+			odds := (float64(fails) + failPrior) / (n - float64(fails) + failPrior)
+			typicalOdds := (expected + failPrior) / (n - expected + failPrior)
+			r.X = clamp(-math.Log2(odds/typicalOdds), -1, 1)
 			return r, true
 		}
 	}
@@ -321,8 +325,15 @@ func (r ReliabilityRating) TextIn(l Lang) string {
 		years += "–" + strconv.Itoa(r.YearMax)
 	}
 	source := fmt.Sprintf("%d–%d", r.From, r.To)
-	return fmt.Sprintf(p.reliabilityLine, p.reliability[r.level()], percent(r.FailRate), years,
-		percent(r.Typical), source, grouped(r.Inspections), p.inspections(r.Inspections))
+	return fmt.Sprintf(p.reliabilityLine, p.reliability[r.level()], l.percent(r.FailRate), years,
+		l.percent(r.Typical), source, grouped(r.Inspections), p.inspections(r.Inspections))
 }
 
-func percent(x float64) int { return int(math.Round(x * 100)) }
+// percent writes a 0..1 share as a percentage, with one decimal below 10
+// so young cars' small rates stay apart: "0.7", "0,7" in Latvian, "22".
+func (l Lang) percent(x float64) string {
+	if p := math.Round(x * 1000); p > 0 && p < 100 {
+		return l.decimal(p / 10)
+	}
+	return strconv.Itoa(int(math.Round(x * 100)))
+}

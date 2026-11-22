@@ -114,7 +114,7 @@ var enPhrases = &phrases{
 	inspectionUntil: "Valid until %s (%s).",
 	monthsLeft:      func(n int) string { return strconv.Itoa(n) + " months left" },
 	reliability:     [...]string{"Often fails inspection", "Usual at inspection", "Rarely fails inspection"},
-	reliabilityLine: "%s: %d%% of such cars (%s) fail the technical inspection at the first attempt, %d%% of all cars that age (CSDD %s, %s %s).",
+	reliabilityLine: "%s: %s%% of such cars (%s) fail the technical inspection at the first attempt, %s%% of all cars that age (CSDD %s, %s %s).",
 	inspections: func(n int) string {
 		if n == 1 {
 			return "inspection"
@@ -184,7 +184,7 @@ var lvPhrases = &phrases{
 	inspectionUntil:  "Derīga līdz %s (%s).",
 	monthsLeft:       func(n int) string { return "vēl " + strconv.Itoa(n) + " mēn." },
 	reliability:      [...]string{"Bieži neiziet apskati", "Apskatē kā parasti", "Reti neiziet apskati"},
-	reliabilityLine:  "%s: %d%% šādu auto (%s) neiziet tehnisko apskati ar pirmo reizi, no visiem šī vecuma auto — %d%% (CSDD %s, %s %s).",
+	reliabilityLine:  "%s: %s%% šādu auto (%s) neiziet tehnisko apskati ar pirmo reizi, no visiem šī vecuma auto — %s%% (CSDD %s, %s %s).",
 	inspections:      func(n int) string { return lvPlural(n, "apskate", "apskates") },
 	equipBetter:      ": labāk nekā %d no %d līdzīgiem sludinājumiem",
 	equipClass:       " %s auto savam vecumam (par maz līdzīgu sludinājumu ar zināmu aprīkojumu, lai salīdzinātu)",

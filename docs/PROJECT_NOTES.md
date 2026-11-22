@@ -135,7 +135,7 @@ dashboard api ─┴─> subscriptions (users, channels, searches, logins) <─�
   `CarAds.CarTerm` (ss.com: `scraping/ss/cars.go`).
   Car alerts read the ad page if no filter did already (one request; a failed read is tolerated).
 - **Model reliability** (`deals/failrate.go`): how often the model fails inspection at the first attempt (±1 year, same
-  fuel) vs all cars of known models that age, from CSDD's open data (data.gov.lv, CC0; per model, no VIN). Refresh yearly with
+  fuel) vs all cars of known models that age (log odds ratio), from CSDD's open data (data.gov.lv, CC0; per model, no VIN). Refresh yearly with
   `go run ./cmd/admin csdd-inspections` (streams ~700 MB, writes `deals/codebook/inspections.json`).
 - **Flats:** `region`/`district`/`deal` compile into feed paths (shared by everyone watching the area); the rest are local
   filters.

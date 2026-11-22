@@ -5,12 +5,13 @@ import (
 	"testing"
 )
 
-// testFailJSON: all diesels of 2008–2012 fail 40%, petrols 30%; diesel
-// Golfs of 2009–2011 20%, the one petrol year 50%; diesel Golf Pluses of
-// 2010 60%; too few diesel Golf Variants to say.
+// testFailJSON: all diesels of 2008–2012 fail 40%, of 2020–2022 3%; petrols
+// of 2008–2012 30%; diesel Golfs of 2009–2011 20%, the one petrol year 50%;
+// diesel Golf Pluses of 2010 60%; too few diesel Golf Variants to say; diesel
+// Corollas of 2020–2022 4 of 600, the Yaris of 2021 19 of 600 (18 expected).
 const testFailJSON = `{"source":"test","years":[2022,2024],
 "base":{
- "diesel":{"from":2008,"n":[2000,2000,2000,2000,2000],"fails":[800,800,800,800,800]},
+ "diesel":{"from":2008,"n":[2000,2000,2000,2000,2000,0,0,0,0,0,0,0,4000,4000,4000],"fails":[800,800,800,800,800,0,0,0,0,0,0,0,120,120,120]},
  "petrol":{"from":2008,"n":[2000,2000,2000,2000,2000],"fails":[600,600,600,600,600]}},
 "models":[
  {"make":"Volkswagen","model":"Golf","fuels":{
@@ -19,7 +20,11 @@ const testFailJSON = `{"source":"test","years":[2022,2024],
  {"make":"Volkswagen","model":"Golf Plus","fuels":{
   "diesel":{"from":2010,"n":[600],"fails":[360]}}},
  {"make":"Volkswagen","model":"Golf Variant","fuels":{
-  "diesel":{"from":2010,"n":[50],"fails":[50]}}}
+  "diesel":{"from":2010,"n":[50],"fails":[50]}}},
+ {"make":"Toyota","model":"Corolla","fuels":{
+  "diesel":{"from":2020,"n":[200,200,200],"fails":[2,1,1]}}},
+ {"make":"Toyota","model":"Yaris","fuels":{
+  "diesel":{"from":2021,"n":[600],"fails":[19]}}}
 ]}`
 
 func TestEmbeddedFailTableLoads(t *testing.T) {
@@ -74,10 +79,14 @@ func TestRateReliability(t *testing.T) {
 		{"a generation under the family", Car{Make: "VOLKSWAGEN", Model: "Golf 5", Fuel: Diesel, Year: 2010}, 600, 0.2, 0.4, 1, 2009, 2011},
 		{"the longest model wins", Car{Make: "Volkswagen", Model: "Golf Plus", Fuel: Diesel, Year: 2010}, 600, 0.6, 0.4, -1, 2010, 2010},
 		// Too few petrols, so all fuels, each against its own base.
-		{"too few of its fuel", Car{Make: "Volkswagen", Model: "Golf 5", Fuel: Petrol, Year: 2010}, 700, 170.0 / 700, 270.0 / 700, 1, 2009, 2011},
-		{"unknown fuel", Car{Make: "Volkswagen", Model: "Golf 5", Year: 2010}, 700, 170.0 / 700, 270.0 / 700, 1, 2009, 2011},
+		// Odds 180/540 against 280/440 (10 fails and passes added): −log₂ 0.524.
+		{"too few of its fuel", Car{Make: "Volkswagen", Model: "Golf 5", Fuel: Petrol, Year: 2010}, 700, 170.0 / 700, 270.0 / 700, 0.933, 2009, 2011},
+		{"unknown fuel", Car{Make: "Volkswagen", Model: "Golf 5", Year: 2010}, 700, 170.0 / 700, 270.0 / 700, 0.933, 2009, 2011},
 		{"too rare a variant falls back to its family", Car{Make: "Volkswagen", Model: "Golf Variant", Fuel: Diesel, Year: 2010}, 600, 0.2, 0.4, 1, 2009, 2011},
 		{"wider years when too few", Car{Make: "Volkswagen", Model: "Golf", Fuel: Diesel, Year: 2012}, 400, 0.2, 0.4, 1, 2010, 2011},
+		// 4 fails where 18 were expected: as clear as the Golf's, though only 2 points apart.
+		{"a young model is not capped", Car{Make: "Toyota", Model: "Corolla", Fuel: Diesel, Year: 2021}, 600, 4.0 / 600, 0.03, 1, 2020, 2022},
+		{"one fail over the expected is usual", Car{Make: "Toyota", Model: "Yaris", Fuel: Diesel, Year: 2021}, 600, 19.0 / 600, 0.03, -0.053, 2021, 2021},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -110,6 +119,13 @@ func TestReliabilityText(t *testing.T) {
 	if got, want := r.TextIn(Lv), "Reti neiziet apskati: 20% šādu auto (2009–2011) neiziet tehnisko apskati ar pirmo reizi, no visiem šī vecuma auto — 40% (CSDD 2022–2024, 600 apskates)."; got != want {
 		t.Errorf("TextIn(Lv) = %q\nwant        %q", got, want)
 	}
+	young, _ := RateReliability(Car{Make: "Toyota", Model: "Corolla", Fuel: Diesel, Year: 2021})
+	if got, want := young.Text(), "Rarely fails inspection: 0.7% of such cars (2020–2022) fail the technical inspection at the first attempt, 3.0% of all cars that age (CSDD 2022–2024, 600 inspections)."; got != want {
+		t.Errorf("below 10%%: Text = %q\nwant   %q", got, want)
+	}
+	if got := young.TextIn(Lv); !strings.Contains(got, "0,7% šādu auto") || !strings.Contains(got, "— 3,0%") {
+		t.Errorf("below 10%%: TextIn(Lv) = %q", got)
+	}
 	bad, _ := RateReliability(Car{Make: "Volkswagen", Model: "Golf Plus", Fuel: Diesel, Year: 2010})
 	cs := Ratings{Reliability: &bad}.Components()
 	if len(cs) != 1 || cs[0].Key != "reliability" || cs[0].Points != -weightReliable || cs[0].Why != "such cars often fail inspection" {
@@ -120,6 +136,17 @@ func TestReliabilityText(t *testing.T) {
 	}
 	if ls := LinesIn(Ratings{Reliability: &bad}, En); len(ls) != 1 || ls[0].Tone != ToneBad || ls[0].Label != "Often fails inspection" {
 		t.Errorf("lines = %+v", ls)
+	}
+}
+
+func TestPercent(t *testing.T) {
+	for x, want := range map[float64]string{0: "0", 0.0066: "0.7", 0.0307: "3.1", 0.0996: "10", 0.109: "11", 0.6: "60", 1: "100"} {
+		if got := En.percent(x); got != want {
+			t.Errorf("percent(%v) = %q, want %q", x, got, want)
+		}
+	}
+	if got := Lv.percent(0.0066); got != "0,7" {
+		t.Errorf("Lv percent = %q", got)
 	}
 }
 
