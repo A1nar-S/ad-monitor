@@ -83,28 +83,30 @@ const verdictLines = computed(() => props.gem.fields.slice(1))
 </script>
 
 <template>
-  <li class="card flex flex-col overflow-hidden sm:flex-row">
-    <a
-      :href="gem.url"
-      target="_blank"
-      rel="noopener noreferrer"
-      class="relative grid aspect-[4/3] shrink-0 place-items-center bg-gray-100 text-gray-400 sm:aspect-auto sm:w-48"
-      :aria-label="gem.heading"
-    >
-      <img
-        v-if="gem.imageUrl && !broken"
-        :src="gem.imageUrl"
-        alt=""
-        class="absolute inset-0 size-full object-cover"
-        loading="lazy"
-        referrerpolicy="no-referrer"
-        @error="broken = true"
-      />
-      <ImageOff v-else :size="20" />
-    </a>
-
-    <div class="flex min-w-0 flex-1 flex-col p-4">
+  <li class="card flex flex-col p-4">
+    <div class="flex min-w-0 flex-1 flex-col">
       <div class="flex items-start gap-3">
+        <!-- ss.com gives only a small list-page photo: shown at about its
+             own size, so it stays sharp. -->
+        <a
+          :href="gem.url"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="grid h-15 w-20 shrink-0 place-items-center overflow-hidden rounded-md bg-gray-100 text-gray-400"
+          :aria-label="gem.heading"
+          tabindex="-1"
+        >
+          <img
+            v-if="gem.imageUrl && !broken"
+            :src="gem.imageUrl"
+            alt=""
+            class="size-full object-cover"
+            loading="lazy"
+            referrerpolicy="no-referrer"
+            @error="broken = true"
+          />
+          <ImageOff v-else :size="16" />
+        </a>
         <div class="min-w-0 flex-1">
           <a
             :href="gem.url"
