@@ -104,7 +104,7 @@ type Scan struct {
 	Rated       int        `json:"rated"` // listings with a verdict
 	Error       string     `json:"error,omitempty"`
 	// Complete: the crawl reached the end and sold ones were marked. Note
-	// says why not.
+	// says why not. Only a Full scan crawls: a Rate one is never complete.
 	Complete bool   `json:"complete"`
 	Note     string `json:"note,omitempty"`
 	// Phase is listing (pass 1: every listing) or detailing (pass 2: the

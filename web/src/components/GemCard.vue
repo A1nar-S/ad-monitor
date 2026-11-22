@@ -41,7 +41,7 @@ const market = computed(() => {
   if (pct < 2) return { text: t('gems.atMarket'), tone: 'text-gray-500' }
   // The gap in euros too: 20% is 300 € on one car and 5 000 € on another.
   const p = props.gem.priceValue
-  const amount = `${formatNumber(Math.round(Math.abs(p - p / (1 + d)) / 10) * 10)} €`
+  const amount = `${formatNumber(Math.round(Math.abs(p - p / (1 + d))))} €`
   return d < 0
     ? { text: t('gems.belowMarket', { pct, amount }), tone: 'text-success-700' }
     : { text: t('gems.aboveMarket', { pct, amount }), tone: 'text-danger-700' }

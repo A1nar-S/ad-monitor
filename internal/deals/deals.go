@@ -330,7 +330,7 @@ func (r PriceRating) Gap() string {
 func (r PriceRating) Text() string {
 	var pos string
 	switch {
-	case math.Abs(r.Diff) < 0.02:
+	case math.Round(math.Abs(r.Diff)*100) < 2:
 		pos = "about the median"
 	case r.Diff < 0:
 		pos = r.Gap() + " below the median"

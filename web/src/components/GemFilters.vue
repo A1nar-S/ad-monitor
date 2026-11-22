@@ -50,8 +50,9 @@ function options(f: GemField) {
 // with a read ad page), those the other filters leave gems at first, most
 // first.
 function searchOptions(f: GemField) {
+  const chosen = picked(f.key)
   const have = options(f)
-    .filter((o) => o.count > 0)
+    .filter((o) => o.count > 0 || chosen.includes(o.value))
     .sort((a, b) => b.count - a.count)
     .map((o) => o.value)
   if (!f.options) return have

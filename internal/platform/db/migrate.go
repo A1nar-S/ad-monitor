@@ -17,12 +17,9 @@ import (
 // whenever Postgres overestimates a query's cost, as with the gem finder's
 // facet counts over JSON attrs) can take ten times as long as running it.
 func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
-	cfg, err := pgxpool.ParseConfig(url)
+	cfg, err := config(url)
 	if err != nil {
 		return nil, fmt.Errorf("database: %w", err)
-	}
-	if _, set := cfg.ConnConfig.RuntimeParams["jit"]; !set {
-		cfg.ConnConfig.RuntimeParams["jit"] = "off"
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
@@ -33,6 +30,18 @@ func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("database: %w", err)
 	}
 	return pool, nil
+}
+
+// config parses url, with JIT off unless url sets it (?jit=on).
+func config(url string) (*pgxpool.Config, error) {
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return nil, err
+	}
+	if _, set := cfg.ConnConfig.RuntimeParams["jit"]; !set {
+		cfg.ConnConfig.RuntimeParams["jit"] = "off"
+	}
+	return cfg, nil
 }
 
 // Migrate applies the pending goose migrations in fsys. Every slice owns its
