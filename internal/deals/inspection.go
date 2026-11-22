@@ -44,16 +44,20 @@ func RateInspection(c Car) (InspectionRating, bool) {
 
 // Text is the inspection line of an alert, e.g. "👍 Valid until 02.2027 (15
 // months left)."
-func (r InspectionRating) Text() string {
+func (r InspectionRating) Text() string { return r.TextIn(En) }
+
+// TextIn is the inspection line in l.
+func (r InspectionRating) TextIn(l Lang) string {
+	p := l.ph()
 	switch {
 	case !r.Valid && !r.Until.IsZero():
-		return fmt.Sprintf("👎 Ran out in %s: it may not be driven until it passes again, which may need repairs.", r.Until.Format("01.2006"))
+		return fmt.Sprintf(p.inspectionGone, r.Until.Format("01.2006"))
 	case !r.Valid:
-		return "👎 No valid technical inspection: it may not be driven until it passes, which may need repairs."
+		return p.inspectionNone
 	case r.Until.IsZero():
-		return "👍 Valid technical inspection."
+		return p.inspectionValid
 	case r.MonthsLeft < 3:
-		return fmt.Sprintf("😐 Valid until %s, but runs out soon (%d months left): budget for the next one.", r.Until.Format("01.2006"), r.MonthsLeft)
+		return fmt.Sprintf(p.inspectionSoon, r.Until.Format("01.2006"), p.monthsLeft(r.MonthsLeft))
 	}
-	return fmt.Sprintf("👍 Valid until %s (%d months left).", r.Until.Format("01.2006"), r.MonthsLeft)
+	return fmt.Sprintf(p.inspectionUntil, r.Until.Format("01.2006"), p.monthsLeft(r.MonthsLeft))
 }

@@ -73,21 +73,25 @@ func RateMileage(c Car) (MileageRating, bool) {
 func clamp(x, lo, hi float64) float64 { return max(lo, min(hi, x)) }
 
 // Mileage levels, by X.
-func (m MileageRating) label() string {
+func (m MileageRating) label(l Lang) string {
+	words := l.ph().mileage
 	switch {
 	case m.X >= 0.4:
-		return "👍 Low mileage"
+		return words[0]
 	case m.X > -0.3:
-		return "😐 Usual mileage"
+		return words[1]
 	case m.X > -0.7:
-		return "👎 High mileage"
+		return words[2]
 	}
-	return "💩 Very high mileage"
+	return words[3]
 }
 
 // Text is the mileage line of an alert, e.g. "👎 High mileage: 210k km at
 // 6 years, 1.9× the usual 108k km for its age."
-func (m MileageRating) Text() string {
-	return fmt.Sprintf("%s: %sk km at %d years, %.1f× the usual %sk km for its age.",
-		m.label(), thousands(m.Km), int(math.Round(m.Age)), m.Ratio, thousands(m.Expected))
+func (m MileageRating) Text() string { return m.TextIn(En) }
+
+// TextIn is the mileage line in l.
+func (m MileageRating) TextIn(l Lang) string {
+	p := l.ph()
+	return fmt.Sprintf(p.mileageLine, m.label(l), l.km(m.Km), p.years(int(math.Round(m.Age))), l.decimal(m.Ratio), l.km(m.Expected))
 }

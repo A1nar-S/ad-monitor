@@ -17,37 +17,38 @@ import (
 type feature struct {
 	weight int
 	covers string // a lesser feature this one makes redundant (climate control covers A/C)
+	lv     string // its name in Latvian
 }
 
 // features are the equipment vocabulary, by name.
 var features = map[string]feature{
-	"climate control":         {2, "air conditioning"},
-	"air conditioning":        {1, ""},
-	"adaptive cruise control": {2, "cruise control"},
-	"cruise control":          {1, ""},
-	"auxiliary heater":        {2, ""},
-	"4x4":                     {2, ""},
-	"360° cameras":            {2, "reversing camera"},
-	"reversing camera":        {1, ""},
-	"rear parking sensors":    {1, ""},
-	"front parking sensors":   {1, ""},
-	"self-parking":            {1, ""},
-	"panoramic roof":          {2, "sunroof"},
-	"sunroof":                 {1, ""},
-	"keyless entry":           {1, ""},
-	"rain sensor":             {1, ""},
-	"xenon lights":            {1, ""},
-	"alloy wheels":            {1, ""},
-	"air suspension":          {1, ""},
-	"electric tailgate":       {1, ""},
-	"lane assist":             {1, ""},
-	"emergency braking":       {1, ""},
-	"blind-spot assist":       {1, ""},
-	"sign recognition":        {1, ""},
-	"distance warning":        {1, ""},
-	"night vision":            {1, ""},
-	"sport package":           {1, ""},
-	"tow hook":                {1, ""},
+	"climate control":         {2, "air conditioning", "klimata kontrole"},
+	"air conditioning":        {1, "", "kondicionieris"},
+	"adaptive cruise control": {2, "cruise control", "adaptīvā kruīza kontrole"},
+	"cruise control":          {1, "", "kruīza kontrole"},
+	"auxiliary heater":        {2, "", "autonomā apsilde"},
+	"4x4":                     {2, "", "pilnpiedziņa 4x4"},
+	"360° cameras":            {2, "reversing camera", "360° kameras"},
+	"reversing camera":        {1, "", "atpakaļskata kamera"},
+	"rear parking sensors":    {1, "", "aizmugurējie parkošanās sensori"},
+	"front parking sensors":   {1, "", "priekšējie parkošanās sensori"},
+	"self-parking":            {1, "", "automātiskā parkošanās"},
+	"panoramic roof":          {2, "sunroof", "panorāmas jumts"},
+	"sunroof":                 {1, "", "lūka"},
+	"keyless entry":           {1, "", "bezatslēgas piekļuve"},
+	"rain sensor":             {1, "", "lietus sensors"},
+	"xenon lights":            {1, "", "ksenona lukturi"},
+	"alloy wheels":            {1, "", "vieglmetāla diski"},
+	"air suspension":          {1, "", "pneimatiskā piekare"},
+	"electric tailgate":       {1, "", "elektriskais bagāžnieka vāks"},
+	"lane assist":             {1, "", "joslas asistents"},
+	"emergency braking":       {1, "", "avārijas bremzēšana"},
+	"blind-spot assist":       {1, "", "aklās zonas asistents"},
+	"sign recognition":        {1, "", "ceļa zīmju atpazīšana"},
+	"distance warning":        {1, "", "distances brīdinājums"},
+	"night vision":            {1, "", "nakts redzamība"},
+	"sport package":           {1, "", "sporta pakete"},
+	"tow hook":                {1, "", "āķis piekabei"},
 }
 
 // equipment is what a car has, by feature name, and its score.
@@ -91,9 +92,7 @@ const (
 	WellEquipped
 )
 
-func (l Level) String() string {
-	return [...]string{"👎 Basic", "😐 Average", "👍 Well equipped"}[l]
-}
+func (l Level) String() string { return enPhrases.level[l] }
 
 // minEquipmentPeers: below this many similar ads with known equipment, a car
 // is judged against what cars of its class and age usually have instead.
@@ -405,40 +404,59 @@ func notable(eq equipment) []string {
 // Text is the equipment line of an alert, e.g. "👍 Well equipped: better
 // than 7 of 9 similar ads. Has climate control, 4x4, ... No reversing camera,
 // which premium cars of its age usually have."
-func (r EquipmentRating) Text() string {
+func (r EquipmentRating) Text() string { return r.TextIn(En) }
+
+// TextIn is the equipment line in l.
+func (r EquipmentRating) TextIn(l Lang) string {
 	if r.Trim != "" {
-		return r.trimText()
+		return r.trimText(l)
 	}
-	s := r.Level.String()
+	p := l.ph()
+	class := r.Class
+	if c, ok := p.class[class]; ok {
+		class = c
+	}
+	s := p.level[r.Level]
 	if r.Of > 0 {
-		s += fmt.Sprintf(": better than %d of %d similar ads", r.Better, r.Of)
+		s += fmt.Sprintf(p.equipBetter, r.Better, r.Of)
 	} else {
-		s += fmt.Sprintf(" for a %s car of its age (too few similar ads with known equipment to compare)", r.Class)
+		s += fmt.Sprintf(p.equipClass, class)
 	}
 	s += "."
 	if len(r.Has) > 0 {
-		s += " Has " + strings.Join(r.Has, ", ") + "."
+		s += fmt.Sprintf(p.equipHas, l.features(r.Has, ", "))
 	}
 	if len(r.Missing) > 0 {
-		s += fmt.Sprintf(" No %s, which %s cars of its age usually have.", strings.Join(r.Missing, ", no "), r.Class)
+		s += fmt.Sprintf(p.equipMissing, l.features(r.Missing, p.equipMissingJoin), class)
 	}
 	return s
 }
 
-var trimLabel = [...]string{"👎 Base trim", "😐 Mid trim", "👍 Near top trim"}
-
 // trimText is e.g. "👍 Near top trim: has 11 of the 17 options a Volkswagen
 // Golf 7 could have. Has ... Lacks panoramic roof, 4x4."
-func (r EquipmentRating) trimText() string {
-	s := fmt.Sprintf("%s: has %d of the %d options a %s could have.", trimLabel[r.Level], r.OptionsHad, r.Options, r.Trim)
+func (r EquipmentRating) trimText(l Lang) string {
+	p := l.ph()
+	s := fmt.Sprintf(p.trimLine, p.trim[r.Level], r.OptionsHad, r.Options, r.Trim)
 	if len(r.Has) > 0 {
-		s += " Has " + strings.Join(r.Has, ", ") + "."
+		s += fmt.Sprintf(p.equipHas, l.features(r.Has, ", "))
 	}
 	if len(r.Missing) > 0 {
-		s += " Lacks " + strings.Join(r.Missing, ", ") + "."
+		s += fmt.Sprintf(p.trimLacks, l.features(r.Missing, ", "))
 	}
 	if len(r.Unticked) > 0 {
-		s += fmt.Sprintf(" The seller did not tick %s, which every one has, so the list may be incomplete.", strings.Join(r.Unticked, ", "))
+		s += fmt.Sprintf(p.trimUnticked, l.features(r.Unticked, ", "))
 	}
 	return s
+}
+
+// features names equipment in l, joined by sep.
+func (l Lang) features(names []string, sep string) string {
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = n
+		if l == Lv && features[n].lv != "" {
+			out[i] = features[n].lv
+		}
+	}
+	return strings.Join(out, sep)
 }

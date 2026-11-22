@@ -194,9 +194,7 @@ const (
 	Overpriced
 )
 
-func (v Verdict) String() string {
-	return [...]string{"🚩 Suspiciously cheap", "🔥 Steal", "👍 Good price", "😐 Fair", "👎 Pricey", "💩 Overpriced"}[v]
-}
+func (v Verdict) String() string { return enPhrases.verdict[v] }
 
 // The price is judged in euros against a tolerance that grows slower than
 // the price: what a gap means depends on what the car costs. 300 € over a
@@ -327,34 +325,33 @@ func (r PriceRating) Gap() string {
 
 // Text is the price line of an alert, e.g. "🔥 Steal: 1 450 € (14%) below
 // the median of 12 similar ads (10 350 €; 2015–2018, 140–230k km)".
-func (r PriceRating) Text() string {
+func (r PriceRating) Text() string { return r.TextIn(En) }
+
+// TextIn is the price line in l.
+func (r PriceRating) TextIn(l Lang) string {
+	p := l.ph()
 	var pos string
 	switch {
 	case math.Round(math.Abs(r.Diff)*100) < 2:
-		pos = "about the median"
+		pos = fmt.Sprintf(p.atMedian, r.Peers)
 	case r.Diff < 0:
-		pos = r.Gap() + " below the median"
+		pos = fmt.Sprintf(p.belowMedian, r.Gap(), r.Peers)
 	default:
-		pos = r.Gap() + " above the median"
+		pos = fmt.Sprintf(p.aboveMedian, r.Gap(), r.Peers)
 	}
-	years := strconv.Itoa(r.YearMin)
+	scope := strconv.Itoa(r.YearMin)
 	if r.YearMax != r.YearMin {
-		years += "–" + strconv.Itoa(r.YearMax)
+		scope += "–" + strconv.Itoa(r.YearMax)
 	}
-	scope := years
 	if r.KmMax > 0 {
-		km := thousands(r.KmMin)
-		if hi := thousands(r.KmMax); hi != km {
-			km += "–" + hi
-		}
-		scope += ", " + km + "k km"
+		scope += ", " + l.kmRange(r.KmMin, r.KmMax)
 	}
-	s := fmt.Sprintf("%s: %s of %d similar ads (%s; %s)", r.Verdict, pos, r.Peers, Euros(r.Median), scope)
+	s := fmt.Sprintf(p.priceLine, p.verdict[r.Verdict], pos, Euros(r.Median), scope)
 	switch {
 	case r.Verdict == Suspicious:
-		s += ". Check for damage, a scam or a price typo."
+		s += p.priceSuspicious
 	case !r.Detailed:
-		s += ". Mileage unknown, so compared on year only."
+		s += p.priceYearOnly
 	}
 	return s
 }
@@ -379,28 +376,32 @@ func Euros(v float64) string {
 func Fields(c Car, peers []Peer) []events.Field { return FieldsOf(Rate(c, peers)) }
 
 // FieldsOf renders ratings already made as the alert lines.
-func FieldsOf(r Ratings) []events.Field {
+func FieldsOf(r Ratings) []events.Field { return FieldsIn(r, En) }
+
+// FieldsIn renders ratings already made as the alert lines, in l.
+func FieldsIn(r Ratings, l Lang) []events.Field {
+	name := l.ph().fields
 	var fs []events.Field
-	if text, ok := r.Text(); ok {
-		fs = append(fs, events.Field{Name: "⭐ Overall", Value: text})
+	if text, ok := r.TextIn(l); ok {
+		fs = append(fs, events.Field{Name: name[0], Value: text})
 	}
 	if r.Price != nil {
-		fs = append(fs, events.Field{Name: "🏷️ Price verdict", Value: r.Price.Text()})
+		fs = append(fs, events.Field{Name: name[1], Value: r.Price.TextIn(l)})
 	}
 	if r.Mileage != nil {
-		fs = append(fs, events.Field{Name: "📏 Mileage verdict", Value: r.Mileage.Text()})
+		fs = append(fs, events.Field{Name: name[2], Value: r.Mileage.TextIn(l)})
 	}
 	if r.Inspection != nil {
-		fs = append(fs, events.Field{Name: "📋 Inspection verdict", Value: r.Inspection.Text()})
+		fs = append(fs, events.Field{Name: name[3], Value: r.Inspection.TextIn(l)})
 	}
 	if r.Engine != nil {
-		fs = append(fs, events.Field{Name: "🔧 Engine verdict", Value: r.Engine.Text()})
+		fs = append(fs, events.Field{Name: name[4], Value: r.Engine.TextIn(l)})
 	}
 	if r.Gearbox != nil {
-		fs = append(fs, events.Field{Name: "🕹️ Gearbox verdict", Value: r.Gearbox.Text()})
+		fs = append(fs, events.Field{Name: name[5], Value: r.Gearbox.TextIn(l)})
 	}
 	if r.Equipment != nil {
-		fs = append(fs, events.Field{Name: "🧰 Equipment verdict", Value: r.Equipment.Text()})
+		fs = append(fs, events.Field{Name: name[6], Value: r.Equipment.TextIn(l)})
 	}
 	return fs
 }

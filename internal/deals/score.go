@@ -45,20 +45,24 @@ type Component struct {
 }
 
 // Components are the score's parts that are known, in a fixed order.
-func (r Ratings) Components() []Component {
+func (r Ratings) Components() []Component { return r.ComponentsIn(En) }
+
+// ComponentsIn are the score's parts, the reasons in l.
+func (r Ratings) ComponentsIn(l Lang) []Component {
+	ph := l.ph()
 	var cs []Component
 	add := func(key string, w, x float64, why string) {
 		cs = append(cs, Component{Key: key, X: x, Weight: w, Points: w * x, Why: why})
 	}
 	if p := r.Price; p != nil {
-		why := "priced like similar ads"
+		why := ph.whyFairPrice
 		switch {
 		case p.Verdict == Suspicious:
-			why = p.Gap() + " below similar ads, which usually means damage, a scam or a typo"
+			why = fmt.Sprintf(ph.whySuspicious, p.Gap())
 		case p.Verdict <= Good:
-			why = p.Gap() + " below similar ads"
+			why = fmt.Sprintf(ph.whyBelow, p.Gap())
 		case p.Verdict >= Pricey:
-			why = p.Gap() + " above similar ads"
+			why = fmt.Sprintf(ph.whyAbove, p.Gap())
 		}
 		add("price", weightPrice, clamp(p.Z, -1, 1), why)
 	}
@@ -66,11 +70,11 @@ func (r Ratings) Components() []Component {
 		why := ""
 		switch {
 		case m.X >= 0.4:
-			why = "low mileage for its age"
+			why = ph.whyLowKm
 		case m.X <= -0.7:
-			why = "very high mileage for its age"
+			why = ph.whyVeryHighKm
 		case m.X <= -0.3:
-			why = "high mileage for its age"
+			why = ph.whyHighKm
 		}
 		add("mileage", weightMileage, m.X, why)
 	}
@@ -78,9 +82,9 @@ func (r Ratings) Components() []Component {
 		why := ""
 		switch {
 		case !i.Valid:
-			why = "no valid technical inspection"
+			why = ph.whyNoInspection
 		case i.X < 0:
-			why = "technical inspection runs out soon"
+			why = ph.whyInspectionSoon
 		}
 		add("inspection", weightInspect, i.X, why)
 	}
@@ -88,23 +92,24 @@ func (r Ratings) Components() []Component {
 	if r.Mileage != nil {
 		wear = clamp(r.Mileage.Km/wearKm, 0.5, 1.5)
 	}
-	part := func(key string, n *Note, w float64, what string, worn float64) {
+	// what: 0 for the engine, 1 for the gearbox.
+	part := func(key string, n *Note, w float64, what int, worn float64) {
 		if n == nil {
 			return
 		}
 		switch n.Rating {
 		case RatingGood:
-			add(key, w, 1, fmt.Sprintf("durable %s (%s)", what, n.Name))
+			add(key, w, 1, fmt.Sprintf(ph.whyDurable[what], n.NameIn(l)))
 		case RatingRisky:
-			add(key, w, -worn, fmt.Sprintf("risky %s (%s)", what, n.Name))
+			add(key, w, -worn, fmt.Sprintf(ph.whyRisky[what], n.NameIn(l)))
 		case RatingMixed:
-			add(key, w, -0.25, fmt.Sprintf("%s depends on the version", what))
+			add(key, w, -0.25, ph.whyDepends[what])
 		default:
 			add(key, w, 0, "")
 		}
 	}
-	part("engine", r.Engine, weightEngine, "engine", wear)
-	part("gearbox", r.Gearbox, weightGearbox, "gearbox", 1)
+	part("engine", r.Engine, weightEngine, 0, wear)
+	part("gearbox", r.Gearbox, weightGearbox, 1, 1)
 	if e := r.Equipment; e != nil {
 		x := map[Level]float64{Basic: -1, Average: 0, WellEquipped: 1}[e.Level]
 		if e.Trim == "" && e.Of > 0 {
@@ -113,19 +118,19 @@ func (r Ratings) Components() []Component {
 		why := ""
 		switch e.Level {
 		case WellEquipped:
-			why = "well equipped"
+			why = ph.whyWellEquipped
 		case Basic:
-			why = "basic equipment"
+			why = ph.whyBasic
 		}
 		add("equipment", weightEquipment, x, why)
 	}
 	return cs
 }
 
-// judge sums the components: S, the reasons in order, and whether enough
-// is known to say anything.
-func (r Ratings) judge() (float64, []string, bool) {
-	cs := r.Components()
+// judge sums the components: S, the reasons in order (in l), and whether
+// enough is known to say anything.
+func (r Ratings) judge(l Lang) (float64, []string, bool) {
+	cs := r.ComponentsIn(l)
 	if len(cs) < minKnown {
 		return 0, nil, false
 	}

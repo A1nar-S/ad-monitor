@@ -15,9 +15,7 @@ const (
 	CheckFirst // the price is too low to trust: inspect before anything else
 )
 
-func (b Buy) String() string {
-	return [...]string{"❌ Likely a bad buy", "😐 Average buy", "✅ Potentially a good buy", "🚩 Too cheap to trust"}[b]
-}
+func (b Buy) String() string { return enPhrases.buy[b] }
 
 // Ratings are what is known about one car; nil = unknown.
 type Ratings struct {
@@ -56,8 +54,11 @@ func Rate(c Car, peers []Peer) Ratings {
 // Overall turns the score (see score.go) into one verdict. It needs two of
 // its parts known, or there is too little to go on, and a
 // suspiciously low price overrides everything.
-func (r Ratings) Overall() (Buy, []string, bool) {
-	score, why, ok := r.judge()
+func (r Ratings) Overall() (Buy, []string, bool) { return r.OverallIn(En) }
+
+// OverallIn is Overall with the reasons in l.
+func (r Ratings) OverallIn(l Lang) (Buy, []string, bool) {
+	score, why, ok := r.judge(l)
 	switch {
 	case !ok:
 		return 0, nil, false
@@ -75,7 +76,7 @@ func (r Ratings) Overall() (Buy, []string, bool) {
 // weighted sum of score.go. Suspiciously cheap ones and those with too
 // little known rank last.
 func (r Ratings) Score() float64 {
-	score, _, ok := r.judge()
+	score, _, ok := r.judge(En)
 	if !ok || r.Price != nil && r.Price.Verdict == Suspicious {
 		return math.Inf(-1)
 	}
@@ -83,27 +84,31 @@ func (r Ratings) Score() float64 {
 }
 
 // Text is the overall line, as in an alert.
-func (r Ratings) Text() (string, bool) {
-	b, why, ok := r.Overall()
+func (r Ratings) Text() (string, bool) { return r.TextIn(En) }
+
+// TextIn is the overall line in l.
+func (r Ratings) TextIn(l Lang) (string, bool) {
+	b, why, ok := r.OverallIn(l)
 	if !ok {
 		return "", false
 	}
-	return overallText(b, why), true
+	return overallText(b, why, l), true
 }
 
 // overallText is the overall line, e.g. "✅ Potentially a good buy: 14% below
 // similar ads, durable engine (2.0d B47). Still have it inspected."
-func overallText(b Buy, why []string) string {
-	s := b.String()
+func overallText(b Buy, why []string, l Lang) string {
+	p := l.ph()
+	s := p.buy[b]
 	if len(why) > 0 {
 		s += ": " + strings.Join(why, ", ")
 	}
 	s += "."
 	switch b {
 	case GoodBuy:
-		s += " Still have it inspected before paying."
+		s += p.overallGood
 	case CheckFirst:
-		s += " Inspect it before anything else."
+		s += p.overallCheck
 	}
 	return s
 }

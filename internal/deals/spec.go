@@ -1,6 +1,7 @@
 package deals
 
 import (
+	"cmp"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -31,10 +32,6 @@ const (
 	RatingRisky Rating = "risky" // known for costly failures
 )
 
-var ratingLabel = map[Rating]string{
-	RatingGood: "👍 Good", RatingOK: "😐 OK", RatingMixed: "❓ Depends", RatingRisky: "👎 Risky",
-}
-
 // Spec is one codebook entry: the cars it covers and what they are known for.
 type Spec struct {
 	Makes   []string  `json:"makes"`             // "*" = any make
@@ -46,6 +43,8 @@ type Spec struct {
 	Name    string    `json:"name"`              // what it most likely is, e.g. "2.0d N47"
 	Rating  Rating    `json:"rating"`
 	Notes   string    `json:"notes"`
+	NameLv  string    `json:"name_lv,omitempty"` // Name in Latvian, when it has words to translate
+	NotesLv string    `json:"notes_lv"`          // Notes in Latvian
 }
 
 type codebook struct {
@@ -74,14 +73,14 @@ func (s Spec) validate() error {
 		return fmt.Errorf("no makes")
 	case s.Years[0] == 0 || s.Years[0] > s.Years[1]:
 		return fmt.Errorf("bad years %v", s.Years)
-	case ratingLabel[s.Rating] == "":
+	case enPhrases.rating[s.Rating] == "":
 		return fmt.Errorf("unknown rating %q", s.Rating)
 	case s.Fuel != "" && !Knows("fuel", string(s.Fuel)):
 		return fmt.Errorf("fuel %q is not one of petrol, diesel, hybrid, electric", s.Fuel)
 	case s.Gearbox != "" && !Knows("gearbox", string(s.Gearbox)):
 		return fmt.Errorf("gearbox %q is not automatic or manual", s.Gearbox)
-	case s.Name == "" || s.Notes == "":
-		return fmt.Errorf("name and notes are required")
+	case s.Name == "" || s.Notes == "" || s.NotesLv == "":
+		return fmt.Errorf("name, notes and notes_lv are required")
 	}
 	return nil
 }
@@ -91,11 +90,28 @@ type Note struct {
 	Name   string
 	Rating Rating
 	Notes  string
+	// In Latvian; NameLv "" = the same as Name.
+	NameLv, NotesLv string
 }
 
 // Text is the alert line, e.g. "👎 Risky: 2.0d N47. Timing chain ...".
-func (n Note) Text() string {
-	return fmt.Sprintf("%s: %s. %s", ratingLabel[n.Rating], n.Name, n.Notes)
+func (n Note) Text() string { return n.TextIn(En) }
+
+// TextIn is the alert line in l.
+func (n Note) TextIn(l Lang) string {
+	name, notes := n.Name, n.Notes
+	if l == Lv {
+		name, notes = cmp.Or(n.NameLv, n.Name), n.NotesLv
+	}
+	return fmt.Sprintf("%s: %s. %s", l.ph().rating[n.Rating], name, notes)
+}
+
+// NameIn is the engine's or gearbox's name in l.
+func (n Note) NameIn(l Lang) string {
+	if l == Lv {
+		return cmp.Or(n.NameLv, n.Name)
+	}
+	return n.Name
 }
 
 // RateEngine looks up the reputation of c's engine.
@@ -134,7 +150,7 @@ func lookup(specs []Spec, c Car) (Note, bool) {
 		return Note{}, false
 	}
 	s := specs[best]
-	return Note{Name: s.Name, Rating: s.Rating, Notes: s.Notes}, true
+	return Note{Name: s.Name, Rating: s.Rating, Notes: s.Notes, NameLv: s.NameLv, NotesLv: s.NotesLv}, true
 }
 
 // specificity ranks entries that match the same car: models > make > any.

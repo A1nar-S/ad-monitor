@@ -175,8 +175,8 @@ func TestCodebookLoads(t *testing.T) {
 
 func TestCodebookIsEnglish(t *testing.T) {
 	for _, s := range []Spec{
-		{Makes: []string{"BMW"}, Years: [2]int{2000, 2001}, Name: "x", Notes: "x", Rating: RatingOK, Fuel: "gasoline"},
-		{Makes: []string{"BMW"}, Years: [2]int{2000, 2001}, Name: "x", Notes: "x", Rating: RatingOK, Gearbox: "tiptronic"},
+		{Makes: []string{"BMW"}, Years: [2]int{2000, 2001}, Name: "x", Notes: "x", NotesLv: "x", Rating: RatingOK, Fuel: "gasoline"},
+		{Makes: []string{"BMW"}, Years: [2]int{2000, 2001}, Name: "x", Notes: "x", NotesLv: "x", Rating: RatingOK, Gearbox: "tiptronic"},
 	} {
 		if s.validate() == nil {
 			t.Errorf("%+v passed; the codebook takes this package's words only", s)
