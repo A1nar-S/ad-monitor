@@ -159,7 +159,9 @@ func (r *rater) rate(i int) (gems.Rated, bool) {
 		Candidate: deals.Candidate(ratings), Attrs: attrsOf(c.car, c.item.Listing, ratings),
 	}
 	for _, p := range ratings.Components() {
-		x.Components = append(x.Components, gems.Component{Key: p.Key, X: p.X, Weight: p.Weight, Points: p.Points, Why: p.Why})
+		x.Components = append(x.Components, gems.Component{
+			Key: p.Key, X: p.X, Weight: p.Weight, Points: p.Points, Score: deals.DisplayPoints(p.Points), Why: p.Why,
+		})
 	}
 	if ratings.Price != nil {
 		d := ratings.Price.Diff

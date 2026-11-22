@@ -62,7 +62,10 @@ type Component struct {
 	X      float64 `json:"x"`
 	Weight float64 `json:"weight"`
 	Points float64 `json:"points"` // Weight × X
-	Why    string  `json:"why"`
+	// Score is Points on the 0–100 scale: what it adds to or takes from
+	// the neutral 50.
+	Score float64 `json:"score"`
+	Why   string  `json:"why"`
 }
 
 // Spec is what people can do with a category's gems.

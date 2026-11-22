@@ -12,7 +12,7 @@ import { formatNumber, t, tKey } from '../i18n'
 
 // One rated listing: photo, price against the market, the verdict and its
 // score, the specs its category shows, and on demand how the score was made.
-const props = defineProps<{ gem: Gem; spec: GemSpec; category: string }>()
+const props = defineProps<{ gem: Gem; spec: GemSpec }>()
 
 const open = ref(false)
 const broken = ref(false)
@@ -39,9 +39,12 @@ const market = computed(() => {
   if (d === null) return null
   const pct = Math.round(Math.abs(d) * 100)
   if (pct < 2) return { text: t('gems.atMarket'), tone: 'text-gray-500' }
+  // The gap in euros too: 20% is 300 € on one car and 5 000 € on another.
+  const p = props.gem.priceValue
+  const amount = `${formatNumber(Math.round(Math.abs(p - p / (1 + d)) / 10) * 10)} €`
   return d < 0
-    ? { text: t('gems.belowMarket', { pct }), tone: 'text-success-700' }
-    : { text: t('gems.aboveMarket', { pct }), tone: 'text-danger-700' }
+    ? { text: t('gems.belowMarket', { pct, amount }), tone: 'text-success-700' }
+    : { text: t('gems.aboveMarket', { pct, amount }), tone: 'text-danger-700' }
 })
 
 // The card fields the gem has, formatted: numbers with their unit, words
@@ -69,16 +72,39 @@ const specs = computed(() =>
     }),
 )
 
-// The breakdown's bars share one scale: the largest weight, 3 points.
-const maxPoints = 3
-const parts = computed(() =>
-  props.gem.components.map((c) => ({
+// The breakdown in score points: from the neutral 50, what each part adds
+// or takes, rounded so the parts add up to the score shown (unless the score
+// hit 0 or 100). Bars share one scale: the largest part there can be,
+// price's 15 points.
+const neutral = 50
+const maxPart = 15
+const parts = computed(() => {
+  const raw = props.gem.components.map((c) => c.score ?? c.points * 5)
+  const shown = raw.map((x) => Math.round(x))
+  const target = props.gem.score - neutral
+  const sum = raw.reduce((a, b) => a + b, 0)
+  if (Math.round(neutral + sum) === props.gem.score) {
+    // Hand the rounding slack to the parts rounded furthest from their value.
+    let slack = target - shown.reduce((a, b) => a + b, 0)
+    const order = raw
+      .map((x, i) => ({ i, off: x - shown[i]! }))
+      .sort((a, b) => Math.abs(b.off) - Math.abs(a.off))
+    for (const { i, off } of order) {
+      if (slack === 0) break
+      if (Math.sign(off) === Math.sign(slack)) {
+        shown[i]! += Math.sign(slack)
+        slack -= Math.sign(slack)
+      }
+    }
+  }
+  return props.gem.components.map((c, i) => ({
     ...c,
+    value: shown[i]!,
     label: tKey(`gems.components.${c.key}`, c.key),
-    width: `${Math.min(1, Math.abs(c.points) / maxPoints) * 50}%`,
-  })),
-)
-const formula = computed(() => tKey(`gems.formulas.${props.category}`, ''))
+    width: `${Math.min(1, Math.abs(raw[i]!) / maxPart) * 50}%`,
+  }))
+})
+const signed = (n: number) => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '0')
 const verdictLines = computed(() => props.gem.fields.slice(1))
 </script>
 
@@ -209,11 +235,22 @@ const verdictLines = computed(() => props.gem.fields.slice(1))
       </button>
 
       <div v-if="open" class="mt-3 space-y-4 border-t border-gray-150 pt-3">
-        <ul class="space-y-2" :aria-label="t('gems.breakdown')">
+        <ul class="space-y-2.5" :aria-label="t('gems.breakdown')">
+          <li
+            class="grid grid-cols-[8.5rem_1fr_3rem] items-center gap-3 text-small"
+          >
+            <span class="text-gray-700">{{ t('gems.neutral') }}</span>
+            <span class="text-xs text-gray-500">{{
+              t('gems.neutralHint')
+            }}</span>
+            <span class="text-right font-medium text-gray-900 tabular-nums">{{
+              neutral
+            }}</span>
+          </li>
           <li
             v-for="p in parts"
             :key="p.key"
-            class="grid grid-cols-[8.5rem_1fr_3rem] items-center gap-3 text-small"
+            class="grid grid-cols-[8.5rem_1fr_3rem] items-center gap-x-3 gap-y-0.5 text-small"
           >
             <span class="truncate text-gray-700">{{ p.label }}</span>
             <span
@@ -224,7 +261,7 @@ const verdictLines = computed(() => props.gem.fields.slice(1))
               <span
                 class="absolute inset-y-0 rounded-full"
                 :class="
-                  p.points >= 0
+                  p.value >= 0
                     ? 'left-1/2 bg-success-600'
                     : 'right-1/2 bg-danger-600'
                 "
@@ -234,18 +271,30 @@ const verdictLines = computed(() => props.gem.fields.slice(1))
             <span
               class="text-right font-medium tabular-nums"
               :class="
-                p.points > 0.05
+                p.value > 0
                   ? 'text-success-700'
-                  : p.points < -0.05
+                  : p.value < 0
                     ? 'text-danger-700'
                     : 'text-gray-500'
               "
-              >{{ p.points > 0 ? '+' : ''
-              }}{{ formatNumber(p.points, { maximumFractionDigits: 1 }) }}</span
+              >{{ signed(p.value) }}</span
+            >
+            <span
+              v-if="p.why"
+              class="col-start-2 col-end-4 text-xs text-gray-500"
+              >{{ p.why }}</span
             >
           </li>
+          <li
+            class="grid grid-cols-[8.5rem_1fr_3rem] items-center gap-3 border-t border-gray-150 pt-2.5 text-small"
+          >
+            <span class="font-medium text-gray-900">{{ t('gems.total') }}</span>
+            <span />
+            <span class="text-right font-semibold text-gray-900 tabular-nums">{{
+              gem.score
+            }}</span>
+          </li>
         </ul>
-        <p v-if="formula" class="text-xs text-gray-500">{{ formula }}</p>
         <dl class="space-y-2 text-small">
           <div v-for="f in verdictLines" :key="f.name">
             <dt class="font-medium text-gray-900">{{ f.name }}</dt>

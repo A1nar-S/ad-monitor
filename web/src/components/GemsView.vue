@@ -477,7 +477,6 @@ onUnmounted(() => clearTimeout(timer))
             :key="g.externalId"
             :gem="g"
             :spec="spec"
-            :category="category"
           />
         </ul>
 

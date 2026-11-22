@@ -73,6 +73,8 @@ export type GemComponent = {
   x: number
   weight: number
   points: number
+  // points on the 0–100 scale; missing on gems rated before it existed
+  score?: number
   why: string
 }
 
