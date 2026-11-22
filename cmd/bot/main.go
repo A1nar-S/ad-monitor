@@ -1,4 +1,4 @@
-// Command bot is the chat bot people manage their own searches with (Discord).
+// Command bot is the chat bot people manage their own searches with (Discord, Telegram).
 package main
 
 import (

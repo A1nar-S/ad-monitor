@@ -27,7 +27,7 @@ event-driven direction is the one we are building towards.
    - `internal/events`: the only shared package. Contracts crossing slices (become Kafka payloads).
    - `internal/scraping/<source>`: fetch and parse a site (`ss`, later `city24`, ...); `internal/sources` is the plugin interface.
    - `internal/listings`: persistence, upsert, new-listing detection. Owns the `listings` table.
-   - `internal/notifications`: `Notifier` interface, idempotent `Service`, one subpackage per channel (`discord`, later `telegram`).
+   - `internal/notifications`: `Notifier` interface, idempotent `Service`, one subpackage per channel (`discord`, `telegram`).
    - `internal/subscriptions`: users, channels, searches, matching.
    - `internal/platform`: config, db/migrations runner, later kafka/otel/logging helpers.
 3. **Runtime architecture:** Kafka event bus with services
@@ -45,7 +45,7 @@ event-driven direction is the one we are building towards.
 ## Architecture (built)
 ```
 scraper --listings.discovered--> ingest (upsert + outbox) --listings.new--> matcher --notifications.requested--> notifier
-bot (Discord) ─┐
+bot (Discord, Telegram) ─┐
 dashboard api ─┴─> subscriptions (users, channels, searches, logins) <── read live by scraper and matcher
 ```
 - **Self-service, no config file.** People manage their own searches with the chat bot or the dashboard; there is no
@@ -55,13 +55,16 @@ dashboard api ─┴─> subscriptions (users, channels, searches, logins) <─�
   `searches.spec` keeps what the user wrote (for editing), `feeds`/`filters` what the pipeline runs on. The scraper and
   matcher read the table every cycle/ad, so changes apply without restarts. Per-user limit `MAX_SEARCHES_PER_USER`;
   `ADMIN_USERS` (`platform:id`) see and edit everyone's. Another user's search is "not found".
-- **Identity:** a chat account, `users(platform, external_id)`; channels are `(user, kind=platform, target)` with a label.
-  The channel kind is the notifier kind, so alerts for a Telegram user would go through a Telegram notifier.
+- **Identity:** a user has chat accounts, `accounts(platform, external_id → user)`; channels are `(user, kind=platform, target)`
+  with a label, and the channel kind is the notifier kind. `/link` gives a one-time code (10 minutes, hashed, one per user); `/link CODE`
+  on another app shows whose accounts it joins and, once confirmed, merges that account's user into the code's (searches, watches, channels, sessions; clashing names get
+  their ID appended). Admin rights come with any linked account.
 - **Bot** (`internal/bot`): platform-neutral core (commands as specs, `Run`/`Complete`/`Act`, replies with neutral menus)
   behind a `Messenger` interface; `internal/bot/discordbot` is the Discord adapter (slash commands, autocomplete from the
-  codebooks, select menus; gateway connection, so it works behind NAT). Depguard keeps discordgo out of the core. A
-  Telegram adapter would implement `Messenger` and map the same specs to `/watch cars make=… price_max=…` and inline
-  keyboards. Commands: `/watch cars|flats`, `/edit cars|flats` (merges the given filters into the search; `clear:`
+  codebooks, select menus; gateway connection, so it works behind NAT). `internal/bot/telegrambot` maps the same specs to
+  `/watch cars make=… price_max=…` (usage and `/help` generated from them) and inline buttons; long polling, private
+  chats only, over a small Bot API client (`internal/platform/telegram`, which also turns the core's markdown into
+  Telegram HTML). Depguard keeps both platforms out of the core. Commands: `/watch cars|flats`, `/edit cars|flats` (merges the given filters into the search; `clear:`
   removes filters, bounds, whole ranges or the channel). Car searches take `keywords` (any of the words in the ad text:
   the list snippet first, the ad page's description only if needed; `Filters.Contains` on the `text` attr), `/searches`, `/matches`, `/unwatch`, `/dashboard`. Users can
   manage their own searches fully from the bot; the dashboard is optional. `channel:` is accepted only where the user may
@@ -253,7 +256,7 @@ The same code runs in several processes (e.g. `admon_kafka_*` in every service),
 | `admon_watch_checks_total` | counter | `result` (ok, failed, blocked, gone, no_price) | Price watch page checks (scraper, and the API's "Check now") |
 | `admon_watch_check_duration_seconds` | histogram | none | One check: page read plus recording |
 | `admon_watch_alerts_total` | counter | `kind` (drop, failing, recovered) | Price alerts queued for delivery (counted after the transaction commits) |
-| `admon_bot_commands_total` | counter | `command` (watch, edit, searches, matches, unwatch, dashboard, setup, menu_toggle, menu_delete, other), `result` (ok, rejected, error) | Bot commands and menu actions; `rejected` is the user's mistake |
+| `admon_bot_commands_total` | counter | `command` (watch, edit, searches, matches, unwatch, dashboard, setup, link, menu_toggle, menu_delete, menu_link, other), `result` (ok, rejected, error) | Bot commands and menu actions; `rejected` is the user's mistake |
 | `admon_http_requests_total` | counter | `method`, `route`, `code` | API requests; `route` is the mux pattern (`/api/searches/{id}`, also `/api/` and the SPA catch-all `/`), `unmatched` if none; `method` is GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS or `other` |
 | `admon_http_request_duration_seconds` | histogram | `method`, `route` | API request duration |
 

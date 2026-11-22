@@ -20,6 +20,7 @@ import (
 
 	"github.com/A1nar-S/advertisiment-monitoring/internal/bot"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/bot/discordbot"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/bot/telegrambot"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/dashboard"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/gems"
@@ -29,6 +30,7 @@ import (
 	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/db"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/kafka"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/metrics"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/telegram"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/scraping"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/scraping/pages"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/sources"
@@ -365,7 +367,7 @@ func Notifier(ctx context.Context, cfg config.Notifier, notifiers ...notificatio
 }
 
 // Bot runs the chat bot users manage their searches with, on every
-// platform it has an adapter for (Discord now).
+// platform with a token (Discord, Telegram).
 func Bot(ctx context.Context, cfg config.Bot, reg sources.Registry) error {
 	metrics.Serve(ctx, cfg.MetricsAddr)
 	pool, err := db.Open(ctx, cfg.DatabaseURL)
@@ -373,18 +375,20 @@ func Bot(ctx context.Context, cfg config.Bot, reg sources.Registry) error {
 		return err
 	}
 	defer pool.Close()
-	discord, err := discordbot.New(cfg.DiscordBotToken)
-	if err != nil {
-		return err
-	}
-	// The Discord app's owners are admins too, so /setup works without
-	// ADMIN_USERS.
 	admins := slices.Clone(cfg.Admins)
-	if owners, err := discord.Owners(); err != nil {
-		slog.Warn("cannot read the Discord app's owners; only ADMIN_USERS are admins", "err", err)
-	} else {
-		for _, id := range owners {
-			admins = append(admins, discordbot.Platform+":"+id)
+	var discord *discordbot.Adapter
+	if cfg.DiscordBotToken != "" {
+		if discord, err = discordbot.New(cfg.DiscordBotToken); err != nil {
+			return err
+		}
+		// The Discord app's owners are admins too, so /setup works without
+		// ADMIN_USERS.
+		if owners, err := discord.Owners(); err != nil {
+			slog.Warn("cannot read the Discord app's owners; only ADMIN_USERS are admins", "err", err)
+		} else {
+			for _, id := range owners {
+				admins = append(admins, discordbot.Platform+":"+id)
+			}
 		}
 	}
 	subs := subscriptions.NewService(pool, reg, cfg.FeedCollapseAt).WithLimits(cfg.MaxSearches, admins)
@@ -395,9 +399,36 @@ func Bot(ctx context.Context, cfg config.Bot, reg sources.Registry) error {
 		}
 	}
 
-	core := bot.New(discord, subs, botAds{store}, cfg.PublicURL, cfg.MaxSearches)
-	slog.Info("starting bot", "platform", discordbot.Platform, "max_searches", cfg.MaxSearches, "admins", len(admins))
-	return discord.Serve(ctx, core, cfg.GuildID)
+	var serve []func(context.Context) error
+	if discord != nil {
+		core := bot.New(discord, subs, botAds{store}, cfg.PublicURL, cfg.MaxSearches)
+		serve = append(serve, func(ctx context.Context) error { return discord.Serve(ctx, core, cfg.GuildID) })
+	}
+	if cfg.TelegramBotToken != "" {
+		tg := telegrambot.New(telegram.New(cfg.TelegramBotToken))
+		core := bot.New(tg, subs, botAds{store}, cfg.PublicURL, cfg.MaxSearches)
+		serve = append(serve, func(ctx context.Context) error { return tg.Serve(ctx, core) })
+	}
+	slog.Info("starting bot", "platforms", len(serve), "max_searches", cfg.MaxSearches, "admins", len(admins))
+	return runAll(ctx, serve)
+}
+
+// runAll runs fns until ctx is done; the first to fail stops the others.
+func runAll(ctx context.Context, fns []func(context.Context) error) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	errs := make(chan error, len(fns))
+	for _, fn := range fns {
+		go func() { errs <- fn(ctx) }()
+	}
+	var first error
+	for range fns {
+		if err := <-errs; err != nil && first == nil {
+			first = err
+			cancel()
+		}
+	}
+	return first
 }
 
 // botAds shows the bot stored ads without the bot importing the listings slice.

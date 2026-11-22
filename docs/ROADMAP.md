@@ -14,13 +14,16 @@ Do not bypass access controls.
 
 ## Next steps
 
-- [ ] Verify real Discord delivery and the bot's commands; add Telegram (a `bot.Messenger` adapter plus a `Notifier`).
+- [x] Telegram bot and notifier, with `/link` to join a Discord and a Telegram account.
+- [ ] Verify real Discord and Telegram delivery and the bots' commands.
+- [ ] Telegram groups and channels as alert targets (private chats only now).
 - [x] Notification burst limits/digests (per search; `NOTIFY_BURST`).
-- [ ] Schedule stale-data cleanup (`make purge` exists; needs a cron or a scheduler).
+- [x] Scheduled stale-data cleanup (`deploy/k8s/purge.yaml`, nightly).
 - [x] Self-service searches: Discord bot (`/watch`, `/edit`, `/searches`, `/matches`, `/dashboard`) and dashboard editing, with login links,
   per-user limits and admins. No config file.
 - [x] ss.com codebooks for cars and flats; searches use the search forms' names, validated on seed.
-- [ ] Serve the codebooks through the API for a dashboard search editor (then move them to a table).
+- [x] Serve the codebooks through the API for the dashboard search editor (`GET /api/sources`).
+- [ ] Move the codebooks to a table.
 - [ ] Replace category-path parsing with strongly typed categories across adapters,
   events, storage, API, and TypeScript; backfill existing records and handle unknown categories.
 
@@ -87,7 +90,7 @@ Next:
 - [x] Price history and last-check status in the dashboard.
 - [ ] Price-watch commands in the bot (list, pause); creating one needs the picker.
 - [ ] Restock rules. Keep advertised discounts separate from observed price drops.
-- [ ] Preserve active watches and required price history during cleanup.
+- [x] Cleanup leaves watches and their price history alone.
 - [x] rrr.lt adapter (used car parts, GraphQL API), with a tab per website in the search editor.
 - [ ] Add City24, Vinted, and shop/marketplace adapters one at a time, with parser fixtures and health checks.
 - [ ] Cross-store comparison: match variant, condition, seller, currency, and shipping/fees first.

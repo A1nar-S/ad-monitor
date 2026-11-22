@@ -510,7 +510,7 @@ groups:
           __dashboardUid__: admon-pipeline
           __panelId__: '18'
           summary: 'Notifier deliveries failing ({{ $labels.kind }})'
-          description: '{{ with $values.B }}{{ humanize .Value }}{{ else }}?{{ end }} failed delivery attempts in 15 min for kind {{ $labels.kind }}. Typical causes: an invalid DISCORD_BOT_TOKEN, missing channel permissions or a Discord outage. See the notifier logs.'
+          description: '{{ with $values.B }}{{ humanize .Value }}{{ else }}?{{ end }} failed delivery attempts in 15 min for kind {{ $labels.kind }}. Typical causes: an invalid bot token (DISCORD_BOT_TOKEN, TELEGRAM_BOT_TOKEN), missing channel permissions or a platform outage. See the notifier logs.'
         labels:
           severity: warning
           service: notifier

@@ -154,8 +154,10 @@ func MatcherFromEnv() (Matcher, error) {
 
 type Notifier struct {
 	Common
-	DiscordBotToken string
-	// Delay is the pause after each message, to stay under Discord's rate limit.
+	// Chat platforms to deliver through; at least one.
+	DiscordBotToken  string
+	TelegramBotToken string
+	// Delay is the pause after each message, to stay under the platforms' rate limits.
 	Delay time.Duration
 	// Burst is how many ad messages one search may send per BurstWindow; the
 	// rest are sent as one digest when the window is over.
@@ -165,14 +167,15 @@ type Notifier struct {
 
 func NotifierFromEnv() (Notifier, error) {
 	c := Notifier{
-		Common:          commonFromEnv(),
-		DiscordBotToken: os.Getenv("DISCORD_BOT_TOKEN"),
-		Delay:           time.Duration(envInt("NOTIFY_DELAY_MS", 1000)) * time.Millisecond,
-		Burst:           envInt("NOTIFY_BURST", 5),
-		BurstWindow:     time.Duration(envInt("NOTIFY_BURST_WINDOW_MINUTES", 10)) * time.Minute,
+		Common:           commonFromEnv(),
+		DiscordBotToken:  os.Getenv("DISCORD_BOT_TOKEN"),
+		TelegramBotToken: os.Getenv("TELEGRAM_BOT_TOKEN"),
+		Delay:            time.Duration(envInt("NOTIFY_DELAY_MS", 1000)) * time.Millisecond,
+		Burst:            envInt("NOTIFY_BURST", 5),
+		BurstWindow:      time.Duration(envInt("NOTIFY_BURST_WINDOW_MINUTES", 10)) * time.Minute,
 	}
-	if c.DiscordBotToken == "" {
-		return c, errors.New("DISCORD_BOT_TOKEN is required")
+	if c.DiscordBotToken == "" && c.TelegramBotToken == "" {
+		return c, errNoChatToken
 	}
 	if c.Burst < 1 || c.BurstWindow <= 0 {
 		return c, errors.New("NOTIFY_BURST and NOTIFY_BURST_WINDOW_MINUTES must be positive")
@@ -232,12 +235,16 @@ func selfServiceFromEnv() SelfService {
 	}
 }
 
+// errNoChatToken: the bot and the notifier need at least one chat platform.
+var errNoChatToken = errors.New("set DISCORD_BOT_TOKEN or TELEGRAM_BOT_TOKEN (or both)")
+
 // Bot is the chat bot users talk to (/watch, /searches, /dashboard). Each
-// platform with a token is served; Discord for now.
+// platform with a token is served.
 type Bot struct {
 	Common
 	SelfService
-	DiscordBotToken string
+	DiscordBotToken  string
+	TelegramBotToken string
 	// GuildID registers the commands on one server only: they update
 	// instantly there, while global commands can take a while.
 	GuildID        string
@@ -248,10 +255,11 @@ func BotFromEnv() (Bot, error) {
 	c := Bot{
 		Common: commonFromEnv(), SelfService: selfServiceFromEnv(),
 		DiscordBotToken: os.Getenv("DISCORD_BOT_TOKEN"), GuildID: os.Getenv("DISCORD_GUILD_ID"),
-		FeedCollapseAt: envInt("FEED_COLLAPSE_AT", 3),
+		TelegramBotToken: os.Getenv("TELEGRAM_BOT_TOKEN"),
+		FeedCollapseAt:   envInt("FEED_COLLAPSE_AT", 3),
 	}
-	if c.DiscordBotToken == "" {
-		return c, errors.New("DISCORD_BOT_TOKEN is required")
+	if c.DiscordBotToken == "" && c.TelegramBotToken == "" {
+		return c, errNoChatToken
 	}
 	return c, nil
 }

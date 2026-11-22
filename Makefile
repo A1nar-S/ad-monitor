@@ -18,7 +18,7 @@ env:
 	@test ! -f .env || { echo ".env already exists; not overwriting"; exit 1; }
 	@sed -e "s/^DB_PASSWORD=.*/DB_PASSWORD=$$(openssl rand -hex 24)/" -e "s/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=$$(openssl rand -hex 16)/" -e "s/^MONITOR_DB_PASSWORD=.*/MONITOR_DB_PASSWORD=$$(openssl rand -hex 16)/" .env.example > .env
 	@chmod 600 .env
-	@echo "created .env; now set DISCORD_BOT_TOKEN, ADMIN_USERS and ADMIN_CHANNEL_ID"
+	@echo "created .env; now set DISCORD_BOT_TOKEN and/or TELEGRAM_BOT_TOKEN, ADMIN_USERS and ADMIN_CHANNEL_ID"
 
 up: .env
 	@grep -q '^MONITOR_DB_PASSWORD=.' .env || echo "note: .env has no MONITOR_DB_PASSWORD; add MONITOR_DB_PASSWORD=<openssl rand -hex 16> for Postgres metrics (see README)"

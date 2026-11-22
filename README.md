@@ -1,6 +1,6 @@
 # Advertisement monitoring
 
-Watches ss.com (cars, flats), rrr.lt (used car parts) and pinned product pages, and sends new matching ads and price drops to Discord.
+Watches ss.com (cars, flats), rrr.lt (used car parts) and pinned product pages, and sends new matching ads and price drops to Discord or Telegram.
 Details: [docs/PROJECT_NOTES.md](docs/PROJECT_NOTES.md). Plans: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Run
@@ -8,7 +8,7 @@ Details: [docs/PROJECT_NOTES.md](docs/PROJECT_NOTES.md). Plans: [docs/ROADMAP.md
 Needs Docker, `make`, `openssl`.
 
 ```sh
-make env    # creates .env; then set DISCORD_BOT_TOKEN
+make env    # creates .env; then set DISCORD_BOT_TOKEN and/or TELEGRAM_BOT_TOKEN
 make up     # start everything
 make logs   # make down stops it
 ```
@@ -25,12 +25,19 @@ Deploying to a server: [deploy/README.md](deploy/README.md) (k3s, dashboard publ
 
 Optional: extra admins in `ADMIN_USERS`, `DISCORD_GUILD_ID` to register commands on one server only.
 
+## Telegram bot
+
+Message @BotFather → `/newbot` → token into `TELEGRAM_BOT_TOKEN`. It works in private chats; options are written
+`key=value`: `/watch cars name=Parents make=Skoda, Toyota price_max=7000`. `/help` lists the commands.
+
+`/link` gives a code; `/link CODE` on the other app joins both accounts (shared searches, watches, dashboard).
+
 ## Commands
 
 - `/watch cars name:Parents make:Skoda, Toyota price_max:7000 channel:#monitoring`
 - `/watch flats name:Rent region:Rīga deal:Izīrē rooms_min:2`
 - `/edit cars name:Parents price_max:9000 clear:model`
-- `/searches`, `/unwatch`, `/matches`, `/dashboard` (login link)
+- `/searches`, `/unwatch`, `/matches`, `/dashboard` (login link), `/link`
 - Admins: `/setup status-channel`, `/setup status-off`, `/setup show`
 
 Alerts go to your DMs, or to `channel:`.

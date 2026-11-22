@@ -1,4 +1,4 @@
-// Command notifier delivers notification requests to Discord (later Telegram).
+// Command notifier delivers notification requests to Discord and Telegram.
 package main
 
 import (
@@ -12,8 +12,11 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/A1nar-S/advertisiment-monitoring/internal/app"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/notifications"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/notifications/discord"
+	notifytelegram "github.com/A1nar-S/advertisiment-monitoring/internal/notifications/telegram"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/config"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/telegram"
 )
 
 func main() {
@@ -33,9 +36,16 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	dc, err := discord.New(cfg.DiscordBotToken)
-	if err != nil {
-		return err
+	var notifiers []notifications.Notifier
+	if cfg.DiscordBotToken != "" {
+		dc, err := discord.New(cfg.DiscordBotToken)
+		if err != nil {
+			return err
+		}
+		notifiers = append(notifiers, dc)
 	}
-	return app.Notifier(ctx, cfg, dc)
+	if cfg.TelegramBotToken != "" {
+		notifiers = append(notifiers, notifytelegram.New(telegram.New(cfg.TelegramBotToken)))
+	}
+	return app.Notifier(ctx, cfg, notifiers...)
 }
