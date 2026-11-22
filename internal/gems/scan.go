@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"math/rand/v2"
 	"slices"
 	"strings"
 	"time"
@@ -39,21 +40,41 @@ type Store interface {
 	SaveDetails(ctx context.Context, before, enriched events.ListingDiscovered) error
 }
 
-// Scanner runs the scans admins request, one at a time.
+// Scanner runs the scans admins request, one at a time. A scan has two
+// passes: it reads every listing of the feed and rates each from what the
+// list shows (saved at once, so the finder is usable), then reads the ad
+// page of every potential buy not read before (deals.Candidate: fair price,
+// no risky engine, a sane mileage) for its gearbox, body, region and
+// equipment, and rates everything again.
 type Scanner struct {
 	Service *Service
 	Store   Store
 	Sources sources.Registry
-	// Wait spaces a source's feed requests; shared with its regular
-	// scraping, so a scan does not double the load on the site.
+	// Wait spaces a source's requests; shared with its regular scraping,
+	// so a scan does not double the load on the site.
 	Wait func(ctx context.Context, source string) bool
-	// Detail is how many of the best-rated cars get their ad page read
-	// (equipment, gearbox) and are rated again.
-	Detail int
+	// DetailGap is an extra pause before each ad page, on top of Wait,
+	// stretched by up to half again at random.
+	DetailGap time.Duration
+	// Sleep pauses; nil is a real sleep. Tests skip the waiting.
+	Sleep func(ctx context.Context, d time.Duration) bool
 	// MaxPages caps a scan; one that reaches it marks nothing sold.
 	MaxPages  int
 	PollEvery time.Duration
 }
+
+// Pass 2's manners: a longer break (20–40 s) and a save (re-rating
+// everything) every 100 ad pages, and on a site pushing back (429, 403, 5xx) a pause
+// of 1, 2, 4 minutes; the third push without a good read between ends the
+// pass, as do 10 failed reads without one.
+const (
+	breakEvery   = 100
+	breakFor     = 20 * time.Second // to 40 s
+	saveEvery    = 100
+	pushbackWait = time.Minute
+	maxPushbacks = 3
+	maxFailures  = 10
+)
 
 // Run looks for requested scans until ctx is done.
 func (s *Scanner) Run(ctx context.Context) {
@@ -89,25 +110,26 @@ func (s *Scanner) Run(ctx context.Context) {
 type outcome struct {
 	gone, rated int
 	complete    bool
-	note        string // why it was not complete, or what it skipped
+	notes       []string // why it was not complete, or what it skipped
 }
 
 func (s *Scanner) run(ctx context.Context, scan Scan) {
 	slog.Info("gem scan started", "id", scan.ID, "source", scan.Source)
 	out, err := s.scan(ctx, scan)
 	status, msg := "done", ""
+	note := strings.Join(out.notes, "; ")
 	if err != nil {
 		status, msg = "failed", err.Error()
 		slog.Error("gem scan failed", "id", scan.ID, "err", err)
 	} else {
-		slog.Info("gem scan done", "id", scan.ID, "gone", out.gone, "rated", out.rated, "complete", out.complete, "note", out.note)
+		slog.Info("gem scan done", "id", scan.ID, "gone", out.gone, "rated", out.rated, "complete", out.complete, "note", note)
 	}
 	// A fresh context: a scan cut short by shutdown still records it.
 	fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	if err := s.Service.q.FinishScan(fctx, gemsdb.FinishScanParams{
 		ID: scan.ID, Status: status, Gone: int32(out.gone), Rated: int32(out.rated), Error: msg,
-		Complete: out.complete, Note: out.note,
+		Complete: out.complete, Note: note,
 	}); err != nil {
 		slog.Error("finish gem scan", "id", scan.ID, "err", err)
 	}
@@ -125,32 +147,55 @@ func (s *Scanner) scan(ctx context.Context, scan Scan) (outcome, error) {
 		return out, fmt.Errorf("%s cannot be scanned for cars", scan.Source)
 	}
 
+	// Pass 1: every listing, rated from the list page.
 	ads, complete, err := s.crawl(ctx, scan, src, whole.CarSaleFeed())
 	if err != nil {
 		return out, err
 	}
 	if !complete {
-		out.note = fmt.Sprintf("stopped after %d pages before the end; sold cars not updated", s.MaxPages)
+		out.notes = append(out.notes, fmt.Sprintf("stopped after %d pages before the end; sold cars not updated", s.MaxPages))
 	} else if scan.StartedAt != nil {
-		out.gone, out.note, err = s.markGone(ctx, scan.Source, *scan.StartedAt, ads, cars)
+		var note string
+		out.gone, note, err = s.markGone(ctx, scan.Source, *scan.StartedAt, ads, cars)
 		if err != nil {
 			return out, err
 		}
-		out.complete = out.note == ""
+		out.complete = note == ""
+		if note != "" {
+			out.notes = append(out.notes, note)
+		}
 	}
-
 	stored, err := s.Store.StoredCars(ctx, scan.Source)
 	if err != nil {
 		return out, fmt.Errorf("stored cars: %w", err)
 	}
 	r := newRater(stored, cars)
 	results := r.rateAll()
-	results = s.detailTop(ctx, src, r, results)
 	if err := s.save(ctx, scan, results); err != nil {
 		return out, err
 	}
 	out.rated = len(results)
-	return out, nil
+
+	// Pass 2: the potential buys' ad pages, then everything rated again
+	// (peers' equipment changed too).
+	gone, note, err := s.detail(ctx, scan, src, r, results)
+	out.gone += gone
+	if note != "" {
+		out.notes = append(out.notes, note)
+	}
+	// Cut short by shutdown, what was read is still saved.
+	sctx := ctx
+	if ctx.Err() != nil {
+		var cancel context.CancelFunc
+		sctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+	}
+	results = r.rateAll()
+	if serr := s.save(sctx, scan, results); serr != nil {
+		return out, serr
+	}
+	out.rated = len(results)
+	return out, err
 }
 
 // errEmptyStart: the feed's first page listed nothing. A block or a layout
@@ -225,50 +270,131 @@ func (s *Scanner) markGone(ctx context.Context, source string, since time.Time, 
 	return int(n), "", err
 }
 
-// detailTop reads the ad pages of the best-rated cars not read before, for
-// their equipment and gearbox, and rates them again. A removed one is
-// marked sold and dropped.
-func (s *Scanner) detailTop(ctx context.Context, src sources.Source, r *rater, results []result) []result {
+// detail reads the ad page of every potential buy among results not read
+// before, best first, paced by Wait plus DetailGap and backing off when the
+// site pushes back. It saves the re-rated cars every saveEvery pages, so
+// progress shows. A removed ad is marked sold. note says why it stopped
+// early; err is only ctx's or a failed save.
+func (s *Scanner) detail(ctx context.Context, scan Scan, src sources.Source, r *rater, results []result) (gone int, note string, err error) {
 	enricher, ok := src.(sources.Enricher)
-	if !ok || s.Detail <= 0 {
-		return results
+	if !ok {
+		return 0, "", nil
 	}
-	var drop []string
-	read := 0
-	for i := range results {
-		if read == s.Detail || ctx.Err() != nil {
-			break
+	var todo []int
+	for _, x := range results {
+		if !r.cars[x.car].stored.Detailed && deals.Candidate(x.ratings) {
+			todo = append(todo, x.car)
 		}
-		c := &r.cars[results[i].car]
-		if c.stored.Detailed || math.IsInf(results[i].score, -1) {
-			continue
+	}
+	progress := func(done int) error {
+		return s.Service.q.DetailProgress(ctx, gemsdb.DetailProgressParams{ID: scan.ID, DetailTotal: int32(len(todo)), Detailed: int32(done)})
+	}
+	if err := progress(0); err != nil || len(todo) == 0 {
+		return 0, "", err
+	}
+	slog.Info("gem scan: reading ad pages", "id", scan.ID, "candidates", len(todo))
+
+	var removed []string
+	markRemoved := func() {
+		if len(removed) == 0 {
+			return
 		}
-		read++
+		fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		n, err := s.Store.MarkGoneIDs(fctx, src.Name(), removed)
+		if err != nil {
+			slog.Warn("gem scan: mark removed", "err", err)
+		}
+		gone += int(n)
+		removed = nil
+	}
+	defer markRemoved()
+
+	read, pushbacks, failures := 0, 0, 0
+	for n, i := range todo {
+		if n > 0 && n%breakEvery == 0 && !s.sleep(ctx, jittered(breakFor, 1)) {
+			return gone, "", ctx.Err()
+		}
+		if !s.sleep(ctx, jittered(s.DetailGap, 0.5)) || !s.Wait(ctx, src.Name()) {
+			return gone, "", ctx.Err()
+		}
+		c := &r.cars[i]
 		l := c.stored.Listing
 		enriched, err := enricher.Enrich(ctx, l)
 		switch {
+		case ctx.Err() != nil:
+			return gone, "", ctx.Err()
 		case errors.Is(err, sources.ErrGone):
-			drop = append(drop, l.ExternalID)
-			continue
+			pushbacks, failures = 0, 0
+			removed = append(removed, l.ExternalID)
+			c.stored.Active = false
+		case pushedBack(err):
+			pushbacks++
+			slog.Warn("gem scan: the site pushed back", "id", l.ExternalID, "err", err, "times", pushbacks)
+			if pushbacks >= maxPushbacks {
+				return gone, fmt.Sprintf("%s pushed back (%v); read %d of %d ad pages, the rest next scan", src.Name(), err, read, len(todo)), nil
+			}
+			if !s.sleep(ctx, pushbackWait<<(pushbacks-1)) {
+				return gone, "", ctx.Err()
+			}
 		case err != nil:
+			failures++
 			slog.Warn("gem scan: ad page unavailable", "id", l.ExternalID, "err", err)
-			continue
+			if failures >= maxFailures {
+				return gone, fmt.Sprintf("%d ad pages in a row failed (%v); read %d of %d, the rest next scan", failures, err, read, len(todo)), nil
+			}
+		default:
+			pushbacks, failures = 0, 0
+			if err := s.Store.SaveDetails(ctx, l, enriched); err != nil {
+				slog.Warn("gem scan: save ad page", "id", l.ExternalID, "err", err)
+			}
+			c.stored.Listing, c.stored.Detailed = enriched, true
+			r.refresh(i)
+			read++
 		}
-		if err := s.Store.SaveDetails(ctx, l, enriched); err != nil {
-			slog.Warn("gem scan: save ad page", "id", l.ExternalID, "err", err)
+		if err := progress(n + 1); err != nil {
+			return gone, "", err
 		}
-		c.stored.Listing, c.stored.Detailed = enriched, true
-		r.refresh(results[i].car)
-		results[i] = r.rate(results[i].car)
+		if (n+1)%saveEvery == 0 {
+			markRemoved()
+			if err := s.save(ctx, scan, r.rateAll()); err != nil {
+				return gone, "", err
+			}
+		}
 	}
-	if len(drop) > 0 {
-		if _, err := s.Store.MarkGoneIDs(ctx, src.Name(), drop); err != nil {
-			slog.Warn("gem scan: mark removed", "err", err)
-		}
-		results = slices.DeleteFunc(results, func(x result) bool { return slices.Contains(drop, r.cars[x.car].stored.Listing.ExternalID) })
+	return gone, "", nil
+}
+
+// pushedBack: the site answered with a status that says to slow down.
+func pushedBack(err error) bool {
+	var h interface{ HTTPStatus() int }
+	if !errors.As(err, &h) {
+		return false
 	}
-	sortResults(results)
-	return results
+	code := h.HTTPStatus()
+	return code == 429 || code == 403 || code >= 500
+}
+
+func (s *Scanner) sleep(ctx context.Context, d time.Duration) bool {
+	if s.Sleep != nil {
+		return s.Sleep(ctx, d)
+	}
+	if d <= 0 {
+		return ctx.Err() == nil
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
+}
+
+// jittered is d stretched by a random share of itself up to jitter.
+func jittered(d time.Duration, jitter float64) time.Duration {
+	return d + time.Duration(rand.Float64()*jitter*float64(d))
 }
 
 // save replaces the source's gems with results, in one transaction.
@@ -330,11 +456,12 @@ func (r *rater) refresh(i int) {
 }
 
 type result struct {
-	car     int // index into rater.cars
-	info    deals.Car
-	listing events.ListingDiscovered
-	ratings deals.Ratings
-	score   float64
+	car      int // index into rater.cars
+	info     deals.Car
+	listing  events.ListingDiscovered
+	detailed bool
+	ratings  deals.Ratings
+	score    float64
 }
 
 // rateAll rates every active car for sale that has enough to go on, best
@@ -369,7 +496,7 @@ func (r *rater) rate(i int) result {
 		peers = append(peers, p.peer)
 	}
 	ratings := deals.Rate(c.car, peers)
-	return result{car: i, info: c.car, listing: c.stored.Listing, ratings: ratings, score: ratings.Score()}
+	return result{car: i, info: c.car, listing: c.stored.Listing, detailed: c.stored.Detailed, ratings: ratings, score: ratings.Score()}
 }
 
 func sortResults(rs []result) {
@@ -385,14 +512,34 @@ func (x result) row(scan Scan) gemsdb.InsertGemParams {
 	b, _, _ := x.ratings.Overall()
 	overall, _ := x.ratings.Text()
 	fields, _ := json.Marshal(deals.FieldsOf(x.ratings))
+	components, _ := json.Marshal(x.ratings.Components())
 	car := x.info
 	score := x.score
 	if math.IsInf(score, -1) {
 		score = -1e9 // Postgres takes -Infinity, but JSON and sorting are simpler without
 	}
+	var diff *float64
+	if x.ratings.Price != nil {
+		diff = &x.ratings.Price.Diff
+	}
+	region, _ := l.Str("region")
 	return gemsdb.InsertGemParams{
 		Source: l.Source, ExternalID: l.ExternalID, ScanID: scan.ID, Title: l.Title, Url: l.URL, ImageUrl: l.ImageURL,
 		Make: car.Make, Model: car.Model, Year: int32(car.Year), MileageKm: int32(car.MileageKm), Fuel: string(car.Fuel),
 		Price: l.Price, PriceValue: *l.PriceValue, Buy: buyNames[b], Score: score, Overall: overall, Fields: fields,
+		Gearbox: string(car.Gearbox), Inspection: inspectionOf(x.ratings), Body: string(car.Body), Region: region, EngineL: car.EngineL, Detailed: x.detailed,
+		DisplayScore: int32(deals.Display(x.score)), PriceDiff: diff, Components: components,
 	}
+}
+
+// inspectionOf is what the filter goes by: valid, none (also one that ran
+// out), or "" when unknown.
+func inspectionOf(r deals.Ratings) string {
+	switch i := r.Inspection; {
+	case i == nil:
+		return ""
+	case i.Valid:
+		return string(deals.Inspected)
+	}
+	return string(deals.NotInspected)
 }

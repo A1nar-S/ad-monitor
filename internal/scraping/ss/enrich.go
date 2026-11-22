@@ -74,6 +74,10 @@ func (c *Client) adURL(u string) string {
 	return u
 }
 
+// InspectionUntilAttr is the month a car's technical inspection runs out,
+// "2027-02", read from its ad page.
+const InspectionUntilAttr = "inspection_until"
+
 var (
 	inspectionRe = regexp.MustCompile(`\d{2}\.\d{4}`)
 	leadingNum   = regexp.MustCompile(`^[\d.,\s]+`)
@@ -134,6 +138,9 @@ func parseAdPage(cb *Codebook, r io.Reader) (map[string]any, error) {
 		case inspectionRe.MatchString(v):
 			o, ok := f.Option("Jā")
 			set("inspection", o, ok)
+			// "02.2027" is kept as "2027-02", for how long it still runs.
+			mm, yyyy, _ := strings.Cut(inspectionRe.FindString(v), ".")
+			attrs[InspectionUntilAttr] = yyyy + "-" + mm
 		case v != "":
 			o, ok := f.OptionPrefix(v)
 			set("inspection", o, ok)

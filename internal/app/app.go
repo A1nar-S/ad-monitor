@@ -96,10 +96,11 @@ func Scraper(ctx context.Context, cfg config.Scraper, reg sources.Registry) erro
 	alert(ctx, fmt.Sprintf("🚀 **Scraper started**\nSources: %v, every %s", reg.Names(), cfg.CrawlInterval))
 
 	var wg sync.WaitGroup
-	// One request spacing per site, shared by its scraping and gem scans.
+	// One request spacing per site, shared by its scraping and gem scans,
+	// jittered so the site never sees a fixed beat.
 	throttles := map[string]*scraping.Throttle{}
 	for _, name := range reg.Names() {
-		throttles[name] = &scraping.Throttle{Gap: cfg.RequestGap}
+		throttles[name] = &scraping.Throttle{Gap: cfg.RequestGap, Jitter: requestJitter}
 	}
 	for _, name := range reg.Names() {
 		src := reg[name]
@@ -122,7 +123,7 @@ func Scraper(ctx context.Context, cfg config.Scraper, reg sources.Registry) erro
 			runner.Run(ctx)
 		}()
 	}
-	runGemScans(ctx, gemScans, history, reg, throttles, &wg)
+	runGemScans(ctx, gemScans, history, reg, throttles, cfg.GemDetailGap, &wg)
 	// Price watches: pinned pages, read on their own schedule.
 	wg.Add(1)
 	go func() {

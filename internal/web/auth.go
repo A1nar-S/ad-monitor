@@ -94,7 +94,7 @@ func (s *server) me(w http.ResponseWriter, _ *http.Request, o subscriptions.Owne
 	me := map[string]any{
 		"name": o.Name, "platform": o.Platform, "admin": o.Admin, "maxSearches": s.MaxSearches,
 		"maxWatches": s.MaxWatches, "watchIntervals": []int{},
-		"gems": o.Admin && s.Gems != nil && s.GemSource != "",
+		"gems": s.Gems != nil && s.GemSource != "",
 	}
 	if s.Watches != nil {
 		me["watchIntervals"] = s.Watches.AllowedWatchIntervals()

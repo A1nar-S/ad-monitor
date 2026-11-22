@@ -37,7 +37,7 @@ const tab = computed(() =>
 )
 const expired = new URLSearchParams(location.search).get('login') === 'expired'
 
-const navigation = [
+const navigation = computed(() => [
   {
     id: 'searches' as const,
     href: '/searches',
@@ -56,14 +56,6 @@ const navigation = [
     label: 'app.alerts' as const,
     icon: Bell,
   },
-]
-const adminNavigation = computed(() => [
-  {
-    id: 'overview' as const,
-    href: '/overview',
-    label: 'app.overview' as const,
-    icon: LayoutGrid,
-  },
   // Only when the server has a source to scan.
   ...(me.value?.gems
     ? [
@@ -76,6 +68,14 @@ const adminNavigation = computed(() => [
       ]
     : []),
 ])
+const adminNavigation = [
+  {
+    id: 'overview' as const,
+    href: '/overview',
+    label: 'app.overview' as const,
+    icon: LayoutGrid,
+  },
+]
 const initials = computed(() =>
   (me.value?.name ?? '')
     .split(/[\s._-]+/)
@@ -262,7 +262,7 @@ async function logout() {
         <WatchesView v-else-if="route.name === 'watches'" :me="me" />
         <MatchesView v-else-if="route.name === 'alerts'" />
         <AdminOverview v-else-if="route.name === 'overview' && me.admin" />
-        <GemsView v-else-if="route.name === 'gems' && me.gems" />
+        <GemsView v-else-if="route.name === 'gems' && me.gems" :me="me" />
         <SearchesView v-else :me="me" />
       </div>
     </main>

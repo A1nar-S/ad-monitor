@@ -48,3 +48,26 @@ func TestThrottle(t *testing.T) {
 		t.Error("wait went ahead after its context ended")
 	}
 }
+
+// Jitter stretches each gap by up to its share, never shrinks it.
+func TestJittered(t *testing.T) {
+	gap := time.Second
+	for range 1000 {
+		if d := Jittered(gap, 0.5); d < gap || d > gap*3/2 {
+			t.Fatalf("Jittered(1s, 0.5) = %v, want within [1s, 1.5s]", d)
+		}
+	}
+	if d := Jittered(gap, 0); d != gap {
+		t.Errorf("no jitter: %v", d)
+	}
+}
+
+func TestThrottleJitter(t *testing.T) {
+	th := &Throttle{Gap: 10 * time.Millisecond, Jitter: 1}
+	th.Wait(context.Background())
+	start := time.Now()
+	th.Wait(context.Background())
+	if d := time.Since(start); d < 9*time.Millisecond || d > 40*time.Millisecond {
+		t.Errorf("second request after %v, want within [10ms, 20ms] (with slack)", d)
+	}
+}

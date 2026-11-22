@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
 )
@@ -24,10 +25,16 @@ type Car struct {
 	Make, Model string
 	Fuel        Fuel    // "" = unknown
 	Gearbox     Gearbox // "" = unknown (ss.com: only the ad page has it)
-	Year        int
-	EngineL     float64 // 0 = unknown
-	MileageKm   float64 // 0 = unknown
-	Price       float64 // 0 = no price
+	Body        Body    // "" = unknown (ss.com: only the ad page has it); not rated, for filtering
+	// Inspection is whether it has a valid technical inspection (ss.com:
+	// only the ad page says), InspectionUntil the month it runs out (zero =
+	// not said).
+	Inspection      Inspection
+	InspectionUntil time.Time
+	Year            int
+	EngineL         float64 // 0 = unknown
+	MileageKm       float64 // 0 = unknown
+	Price           float64 // 0 = no price
 	// Equipment are feature names (see features); none = unknown or not
 	// ticked (ss.com: only the ad page has it).
 	Equipment []string
@@ -51,9 +58,24 @@ const (
 	Manual    Gearbox = "manual"
 )
 
+// Inspection is whether a car has a valid technical inspection.
+type Inspection string
+
+const (
+	Inspected    Inspection = "valid"
+	NotInspected Inspection = "none"
+)
+
+// Body is a car's body type.
+type Body string
+
+// Bodies are the body types, as the gem finder offers them.
+var Bodies = []Body{"sedan", "wagon", "hatchback", "suv", "coupe", "convertible", "minivan", "minibus", "pickup"}
+
 // Terms translates one of a source's attr values into this package's
-// vocabulary: for "fuel" a Fuel, for "gearbox" a Gearbox, for "equipment" a
-// feature name. "" = no equivalent.
+// vocabulary: for "fuel" a Fuel, for "gearbox" a Gearbox, for "body" a Body,
+// for "inspection" an Inspection, for "equipment" a feature name. "" = no
+// equivalent. A car's "inspection_until" ("2027-02") is read as is.
 type Terms func(key, value string) string
 
 // Knows reports whether term is in the vocabulary for key, so a source can
@@ -64,6 +86,10 @@ func Knows(key, term string) bool {
 		return slices.Contains([]Fuel{Petrol, Diesel, Hybrid, Electric}, Fuel(term))
 	case "gearbox":
 		return term == string(Automatic) || term == string(Manual)
+	case "body":
+		return slices.Contains(Bodies, Body(term))
+	case "inspection":
+		return term == string(Inspected) || term == string(NotInspected)
 	case "equipment":
 		_, ok := features[term]
 		return ok
@@ -86,6 +112,13 @@ func CarOf(l events.ListingDiscovered, terms Terms) (Car, bool) {
 	c.Fuel = Fuel(terms("fuel", fuel))
 	gearbox, _ := l.Str("gearbox")
 	c.Gearbox = Gearbox(terms("gearbox", gearbox))
+	body, _ := l.Str("body")
+	c.Body = Body(terms("body", body))
+	inspection, _ := l.Str("inspection")
+	c.Inspection = Inspection(terms("inspection", inspection))
+	if until, ok := l.Str("inspection_until"); ok {
+		c.InspectionUntil, _ = time.Parse("2006-01", until)
+	}
 	c.EngineL, _ = l.Num("engine_l")
 	c.MileageKm, _ = l.Num("mileage_km")
 	c.Equipment = Translate(terms, "equipment", Strings(l.Attrs["equipment"]))
@@ -314,6 +347,12 @@ func FieldsOf(r Ratings) []events.Field {
 	}
 	if r.Price != nil {
 		fs = append(fs, events.Field{Name: "🏷️ Price verdict", Value: r.Price.Text()})
+	}
+	if r.Mileage != nil {
+		fs = append(fs, events.Field{Name: "📏 Mileage verdict", Value: r.Mileage.Text()})
+	}
+	if r.Inspection != nil {
+		fs = append(fs, events.Field{Name: "📋 Inspection verdict", Value: r.Inspection.Text()})
 	}
 	if r.Engine != nil {
 		fs = append(fs, events.Field{Name: "🔧 Engine verdict", Value: r.Engine.Text()})

@@ -11,13 +11,13 @@ import (
 	"github.com/A1nar-S/advertisiment-monitoring/internal/sources"
 )
 
-// Gem scans: the 50 best-rated cars get their ad page read, a scan stops at
-// 1500 pages (ss.com's cars for sale are about 400), and the scraper looks
-// for requests every 15 seconds.
+// Gem scans stop at 2000 pages (ss.com's cars for sale are about 850), and
+// the scraper looks for requests every 15 seconds. Every request to a site
+// waits its gap plus up to half again, at random.
 const (
-	gemDetail    = 50
-	gemMaxPages  = 1500
-	gemPollEvery = 15 * time.Second
+	gemMaxPages   = 2000
+	gemPollEvery  = 15 * time.Second
+	requestJitter = 0.5
 )
 
 // gemStore lets the gems slice use the listings slice through its own types.
@@ -35,9 +35,9 @@ func (s gemStore) StoredCars(ctx context.Context, source string) ([]gems.Car, er
 	return out, nil
 }
 
-// runGemScans runs the scans admins request, spacing feed requests with the
-// regular scraping's throttles.
-func runGemScans(ctx context.Context, svc *gems.Service, store *listings.Service, reg sources.Registry, throttles map[string]*scraping.Throttle, wg *sync.WaitGroup) {
+// runGemScans runs the scans admins request, spacing feed and ad-page
+// requests with the regular scraping's throttles.
+func runGemScans(ctx context.Context, svc *gems.Service, store *listings.Service, reg sources.Registry, throttles map[string]*scraping.Throttle, detailGap time.Duration, wg *sync.WaitGroup) {
 	scanner := &gems.Scanner{
 		Service: svc, Store: gemStore{store}, Sources: reg,
 		Wait: func(ctx context.Context, source string) bool {
@@ -46,7 +46,7 @@ func runGemScans(ctx context.Context, svc *gems.Service, store *listings.Service
 			}
 			return ctx.Err() == nil
 		},
-		Detail: gemDetail, MaxPages: gemMaxPages, PollEvery: gemPollEvery,
+		DetailGap: detailGap, MaxPages: gemMaxPages, PollEvery: gemPollEvery,
 	}
 	wg.Add(1)
 	go func() {

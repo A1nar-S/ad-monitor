@@ -97,10 +97,24 @@ dashboard api ─┴─> subscriptions (users, channels, searches, logins) <─�
   is announced to no one. ss.com's own server search was rejected: it is POST + session, 2 requests per search per cycle.
 - **Reposts:** sources set `Fingerprint` (the item, not the ad; ss.com: `scraping/ss/reposts.go`). A new ad with a known
   fingerprint is still announced, as an orange "♻️ Reposted listing" with its price history.
-- **Gem finder** (`internal/gems`, admin tab): scans every ss.com car for sale, marks vanished ones sold, rates all,
-  reads the top 50 ad pages. Scanned-only rows have `seen_by_feed = false`, so alerts behave as if no scan ran.
-- **Car verdicts** (`internal/deals`): overall, price vs similar stored ads, engine/gearbox reputation and trim level
-  (`deals/codebook/*.json`). English only; sources translate via `CarAds.CarTerm` (ss.com: `scraping/ss/cars.go`).
+- **Gem finder** (`internal/gems`, a tab for everyone; only admins start a fetch): two passes. Pass 1 reads every page
+  of `transport/cars/sell`, marks vanished cars sold, rates every car from its list row and saves at once. Pass 2 reads
+  the ad page of every potential buy (`deals.Candidate`: price known and < +8% vs similar ads, not suspicious, no risky
+  engine, mileage x ≥ −0.5) not read before (`listings.detailed_at` is the cache), saving every 100, then rates
+  everything again. Pacing: the site's shared `scraping.Throttle` (REQUEST_GAP, jittered up to +50%) plus
+  `GEM_DETAIL_GAP_SECONDS` (default 1, jittered) per ad page, a 20–40 s break every 100, and on 429/403/5xx pauses of
+  1, 2, 4 min; the third push back (or 10 failures) in a row ends pass 2 with a note. ~8k candidates take ~8 h the
+  first time, then only new ones. Body, region and gearbox (the filters) exist only for read cars; a car with
+  too few similar ads has no price verdict, so it is never a candidate. A running scan blocks a new request until it
+  shows no progress (`progress_at`) for 30 minutes.
+  Scanned-only rows have `seen_by_feed = false`, so alerts behave as if no scan ran.
+- **Car verdicts** (`internal/deals`): overall, price vs similar stored ads, mileage for its age, engine/gearbox
+  reputation and trim level (`deals/codebook/*.json`). The score is a weighted sum of parts x ∈ [−1, 1] (`score.go`):
+  price 3 (`−diff/0.20`), mileage 2 (`mileage.go`: km vs 18 000/year, −log₂ ratio, weighted `10/(age+5)` so the same
+  km costs a new car more), technical inspection 2 (ad page: none or expired −1, < 3 months left −0.25, valid 0),
+  engine 2 (risky × wear `km/200k`), gearbox 1.5, equipment 1.5. Good ≥ 4, bad ≤ −2,
+  shown as `50 + 5·S` (0–100). Alerts and the gem finder share it. English only; sources translate via
+  `CarAds.CarTerm` (ss.com: `scraping/ss/cars.go`).
   Car alerts read the ad page if no filter did already (one request; a failed read is tolerated).
 - **Flats:** `region`/`district`/`deal` compile into feed paths (shared by everyone watching the area); the rest are local
   filters.

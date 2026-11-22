@@ -268,6 +268,11 @@ select.field {
   @apply badge bg-brand-50 text-brand-700 ring-1 ring-brand-100 ring-inset;
 }
 
+/* Toggle chips for filters: aria-pressed marks the chosen ones. */
+@utility chip {
+  @apply inline-flex h-7 items-center gap-1.5 rounded-full bg-raised px-2.5 text-small text-gray-700 ring-1 ring-gray-200 transition-colors duration-100 ring-inset select-none hover:text-gray-900 hover:ring-gray-300 aria-pressed:bg-brand-50 aria-pressed:font-medium aria-pressed:text-brand-700 aria-pressed:ring-brand-200;
+}
+
 @utility message-bar {
   @apply flex items-start gap-2.5 rounded-md px-3 py-2.5 text-sm text-gray-900;
 }

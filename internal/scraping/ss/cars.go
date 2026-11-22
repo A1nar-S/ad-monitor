@@ -39,6 +39,21 @@ var carTerms = map[string]map[string]string{
 		"Automāts": "automatic",
 		"Manuāla":  "manual",
 	},
+	"inspection": {
+		"Jā":  "valid",
+		"Nav": "none",
+	},
+	"body": {
+		"Sedans":        "sedan",
+		"Universāls":    "wagon",
+		"Hečbeks":       "hatchback",
+		"Apvidus":       "suv",
+		"Kupeja":        "coupe",
+		"Kabriolets":    "convertible",
+		"Minivens":      "minivan",
+		"Mikroautobuss": "minibus",
+		"Pikaps":        "pickup",
+	},
 	"equipment": {
 		"Klimata kontrole":            "climate control",
 		"Kondicionieris":              "air conditioning",

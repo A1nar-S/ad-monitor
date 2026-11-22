@@ -426,8 +426,10 @@ func TestOverall(t *testing.T) {
 	}{
 		{"pricey with a risky engine", Ratings{Price: price(Pricey, 0.12), Engine: risky}, BadBuy, "12% above similar ads, risky engine (2.0d N47)"},
 		{"a steal cancels a risky engine", Ratings{Price: price(Steal, -0.2), Engine: risky}, AverageBuy, "20% below similar ads, risky engine (2.0d N47)"},
-		{"fair, durable, well equipped", Ratings{Price: price(Fair, 0), Engine: good, Equipment: &EquipmentRating{Level: WellEquipped}}, GoodBuy,
-			"priced like similar ads, durable engine (2.0d B47), well equipped"},
+		{"fair, durable, well equipped", Ratings{Price: price(Fair, 0), Engine: good, Gearbox: good, Equipment: &EquipmentRating{Level: WellEquipped}}, GoodBuy,
+			"priced like similar ads, durable engine (2.0d B47), durable gearbox (2.0d B47), well equipped"},
+		{"fair and durable is not yet good", Ratings{Price: price(Fair, 0), Engine: good, Gearbox: good}, AverageBuy,
+			"priced like similar ads, durable engine (2.0d B47), durable gearbox (2.0d B47)"},
 		{"no price: engine and equipment", Ratings{Engine: risky, Equipment: &EquipmentRating{Level: Basic}}, BadBuy, "risky engine (2.0d N47), basic equipment"},
 		{"suspicious price overrides", Ratings{Price: price(Suspicious, -0.5), Engine: good}, CheckFirst, "50% below similar ads, which usually means damage, a scam or a typo"},
 	}
@@ -451,14 +453,17 @@ func TestFields(t *testing.T) {
 	for _, f := range fs {
 		names = append(names, f.Name)
 	}
-	if got := strings.Join(names, ", "); got != "⭐ Overall, 🏷️ Price verdict, 🔧 Engine verdict, 🕹️ Gearbox verdict" {
+	if got := strings.Join(names, ", "); got != "⭐ Overall, 🏷️ Price verdict, 📏 Mileage verdict, 🔧 Engine verdict, 🕹️ Gearbox verdict" {
 		t.Errorf("fields = %s", got)
 	}
 	want := "✅ Potentially a good buy: 5% below similar ads, durable engine (2.0d B47), durable gearbox (ZF 6- or 8-speed automatic). Still have it inspected before paying."
 	if fs[0].Value != want {
 		t.Errorf("overall = %q\nwant      %q", fs[0].Value, want)
 	}
-	if fs[2].Value != "👍 Good: 2.0d B47. Much more reliable than the N47 it replaced. Usual diesel items: DPF, EGR cooler (there was a recall), dual-mass flywheel." {
+	if fs[2].Value != "😐 Usual mileage: 180k km at 11 years, 0.9× the usual 196k km for its age." {
+		t.Errorf("mileage line = %q", fs[2].Value)
+	}
+	if fs[3].Value != "👍 Good: 2.0d B47. Much more reliable than the N47 it replaced. Usual diesel items: DPF, EGR cooler (there was a recall), dual-mass flywheel." {
 		t.Errorf("engine line = %q", fs[2].Value)
 	}
 	if fs := Fields(Car{Make: "Lada", Model: "Niva", Year: 2010, Price: 2000}, nil); len(fs) != 0 {

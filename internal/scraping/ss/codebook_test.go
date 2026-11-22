@@ -191,6 +191,9 @@ func TestParseAdPage(t *testing.T) {
 			t.Errorf("%s = %v, want %v", k, attrs[k], v)
 		}
 	}
+	if attrs[InspectionUntilAttr] != "2027-02" {
+		t.Errorf("inspection until %v, want 2027-02", attrs[InspectionUntilAttr])
+	}
 	eq, _ := attrs["equipment"].([]any)
 	if !containsAny(eq, "Kondicionieris") || containsAny(eq, "Atpakaļskata kamera") {
 		t.Errorf("equipment = %v (bold items only)", eq)

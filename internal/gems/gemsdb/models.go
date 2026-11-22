@@ -9,23 +9,32 @@ import (
 )
 
 type Gem struct {
-	Source     string
-	ExternalID string
-	ScanID     int64
-	Title      string
-	Url        string
-	ImageUrl   string
-	Make       string
-	Model      string
-	Year       int32
-	MileageKm  int32
-	Fuel       string
-	Price      string
-	PriceValue float64
-	Buy        string
-	Score      float64
-	Overall    string
-	Fields     []byte
+	Source       string
+	ExternalID   string
+	ScanID       int64
+	Title        string
+	Url          string
+	ImageUrl     string
+	Make         string
+	Model        string
+	Year         int32
+	MileageKm    int32
+	Fuel         string
+	Price        string
+	PriceValue   float64
+	Buy          string
+	Score        float64
+	Overall      string
+	Fields       []byte
+	Gearbox      string
+	Inspection   string
+	Body         string
+	Region       string
+	EngineL      float64
+	Detailed     bool
+	DisplayScore int32
+	PriceDiff    *float64
+	Components   []byte
 }
 
 type GemScan struct {
@@ -42,4 +51,8 @@ type GemScan struct {
 	Error       string
 	Complete    bool
 	Note        string
+	Phase       string
+	DetailTotal int32
+	Detailed    int32
+	ProgressAt  pgtype.Timestamptz
 }

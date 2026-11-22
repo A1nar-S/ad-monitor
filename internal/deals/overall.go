@@ -1,7 +1,6 @@
 package deals
 
 import (
-	"fmt"
 	"math"
 	"strings"
 )
@@ -22,10 +21,12 @@ func (b Buy) String() string {
 
 // Ratings are what is known about one car; nil = unknown.
 type Ratings struct {
-	Price     *PriceRating
-	Engine    *Note
-	Gearbox   *Note
-	Equipment *EquipmentRating
+	Price      *PriceRating
+	Mileage    *MileageRating
+	Inspection *InspectionRating
+	Engine     *Note
+	Gearbox    *Note
+	Equipment  *EquipmentRating
 }
 
 // Rate gathers everything there is to say about c.
@@ -33,6 +34,12 @@ func Rate(c Car, peers []Peer) Ratings {
 	var r Ratings
 	if p, ok := RatePrice(c, peers); ok {
 		r.Price = &p
+	}
+	if m, ok := RateMileage(c); ok {
+		r.Mileage = &m
+	}
+	if i, ok := RateInspection(c); ok {
+		r.Inspection = &i
 	}
 	if n, ok := RateEngine(c); ok {
 		r.Engine = &n
@@ -46,10 +53,9 @@ func Rate(c Car, peers []Peer) Ratings {
 	return r
 }
 
-// Overall weighs the ratings into one verdict: price counts most (up to ±2),
-// a risky engine as much as a high price, the gearbox and the equipment
-// one step each. It needs two of the four known, or there is too little to
-// go on, and a suspiciously low price overrides everything.
+// Overall turns the score (see score.go) into one verdict. It needs two of
+// its parts known, or there is too little to go on, and a
+// suspiciously low price overrides everything.
 func (r Ratings) Overall() (Buy, []string, bool) {
 	score, why, ok := r.judge()
 	switch {
@@ -57,90 +63,23 @@ func (r Ratings) Overall() (Buy, []string, bool) {
 		return 0, nil, false
 	case r.Price != nil && r.Price.Verdict == Suspicious:
 		return CheckFirst, why, true
-	case score >= 2:
+	case score >= goodScore:
 		return GoodBuy, why, true
-	case score <= -2:
+	case score <= badScore:
 		return BadBuy, why, true
 	}
 	return AverageBuy, why, true
 }
 
-// Score ranks cars by how good a buy they look, highest first: Overall's
-// points, broken by how far below similar ads the price is. Suspiciously
-// cheap ones and those with too little known rank last.
+// Score ranks cars by how good a buy they look, highest first: the
+// weighted sum of score.go. Suspiciously cheap ones and those with too
+// little known rank last.
 func (r Ratings) Score() float64 {
 	score, _, ok := r.judge()
 	if !ok || r.Price != nil && r.Price.Verdict == Suspicious {
 		return math.Inf(-1)
 	}
-	s := float64(score)
-	if r.Price != nil {
-		s -= r.Price.Diff // 14% below adds 0.14
-	}
-	return s
-}
-
-func (r Ratings) judge() (int, []string, bool) {
-	known := 0
-	for _, k := range []bool{r.Price != nil, r.Engine != nil, r.Gearbox != nil, r.Equipment != nil} {
-		if k {
-			known++
-		}
-	}
-	if known < 2 {
-		return 0, nil, false
-	}
-	var score int
-	var why []string
-	if p := r.Price; p != nil {
-		pct := int(math.Round(math.Abs(p.Diff) * 100))
-		switch p.Verdict {
-		case Suspicious:
-			return 0, []string{fmt.Sprintf("%d%% below similar ads, which usually means damage, a scam or a typo", pct)}, true
-		case Steal:
-			score += 2
-			why = append(why, fmt.Sprintf("%d%% below similar ads", pct))
-		case Good:
-			score++
-			why = append(why, fmt.Sprintf("%d%% below similar ads", pct))
-		case Fair:
-			why = append(why, "priced like similar ads")
-		case Pricey:
-			score--
-			why = append(why, fmt.Sprintf("%d%% above similar ads", pct))
-		case Overpriced:
-			score -= 2
-			why = append(why, fmt.Sprintf("%d%% above similar ads", pct))
-		}
-	}
-	part := func(n *Note, what string, risky int) {
-		if n == nil {
-			return
-		}
-		switch n.Rating {
-		case RatingGood:
-			score++
-			why = append(why, fmt.Sprintf("durable %s (%s)", what, n.Name))
-		case RatingRisky:
-			score -= risky
-			why = append(why, fmt.Sprintf("risky %s (%s)", what, n.Name))
-		case RatingMixed:
-			why = append(why, fmt.Sprintf("%s depends on the version", what))
-		}
-	}
-	part(r.Engine, "engine", 2)
-	part(r.Gearbox, "gearbox", 1)
-	if e := r.Equipment; e != nil {
-		switch e.Level {
-		case WellEquipped:
-			score++
-			why = append(why, "well equipped")
-		case Basic:
-			score--
-			why = append(why, "basic equipment")
-		}
-	}
-	return score, why, true
+	return score
 }
 
 // Text is the overall line, as in an alert.

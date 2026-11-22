@@ -11,11 +11,13 @@ export type Me = {
   maxWatches: number
   // Check intervals a price watch may use, in minutes.
   watchIntervals: number[]
-  // The admin's gem finder is on.
+  // The gem finder is on (everyone browses; admins scan).
   gems: boolean
 }
 
-// A full scan of every car for sale, rated: the gem finder.
+// A full scan of every car for sale, rated: the gem finder. Pass 1
+// (phase listing) reads every listing; pass 2 (detailing) the ad pages of
+// the potential buys.
 export type GemScan = {
   id: number
   status: 'requested' | 'running' | 'done' | 'failed'
@@ -30,9 +32,24 @@ export type GemScan = {
   // The crawl reached the end and sold cars were marked; note says why not.
   complete: boolean
   note?: string
+  phase?: 'listing' | 'detailing'
+  detailTotal: number
+  detailed: number
 }
 
+// A site the finder covers and what it can be scanned for.
+export type GemSource = { id: string; name: string; categories: string[] }
+
 export type GemBuy = 'good' | 'average' | 'bad' | 'check'
+
+// One part of a car's score: x from -1 to +1, weighted.
+export type GemComponent = {
+  key: 'price' | 'mileage' | 'inspection' | 'engine' | 'gearbox' | 'equipment'
+  x: number
+  weight: number
+  points: number
+  why: string
+}
 
 export type Gem = {
   externalId: string
@@ -43,31 +60,83 @@ export type Gem = {
   model: string
   year: number
   mileageKm: number
+  engineL: number
   fuel: string
+  // Known once the ad page was read (detailed); '' otherwise.
+  gearbox: string
+  inspection: '' | 'valid' | 'none'
+  body: string
+  region: string
+  detailed: boolean
   price: string
   priceValue: number
+  // vs similar ads: -0.14 is 14% below; null = not compared.
+  priceDiff: number | null
   buy: GemBuy
+  score: number // 0-100
   overall: string
   fields: { name: string; value: string }[]
+  components: GemComponent[]
 }
 
+export type GemSort = '' | 'price' | 'year' | 'mileage' | 'discount'
+
 export type GemQuery = {
+  source?: string
+  category?: string
   make?: string
   model?: string
   buy?: GemBuy | ''
+  fuel?: string[]
+  gearbox?: string[]
+  body?: string[]
+  region?: string[]
+  minPrice?: number
   maxPrice?: number
   minYear?: number
+  maxYear?: number
   maxMileage?: number
-  sort?: '' | 'price' | 'year'
+  detailed?: boolean
+  inspected?: boolean
+  sort?: GemSort
   page?: number
 }
+
+export type GemCount = { value: string; count: number }
 
 export type GemPage = {
   items: Gem[]
   total: number
   page: number
   pageSize: number
-  models: { make: string; model: string; count: number }[]
+  facets: {
+    models: { make: string; model: string; count: number }[]
+    fuels: GemCount[]
+    gearboxes: GemCount[]
+    bodies: GemCount[]
+    regions: GemCount[]
+  }
+  // detailed of all gems had their ad page read.
+  detailed: number
+  all: number
+}
+
+// The query as URL parameters: lists repeat, empty values are left out.
+// The gem finder's address and API share it.
+export function gemParams(q: GemQuery): URLSearchParams {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(q)) {
+    if (Array.isArray(value)) for (const v of value) params.append(key, v)
+    else if (value === true) params.set(key, '1')
+    else if (
+      value !== undefined &&
+      value !== '' &&
+      value !== 0 &&
+      value !== false
+    )
+      params.set(key, String(value))
+  }
+  return params
 }
 
 export type FieldSpec = {
@@ -187,15 +256,18 @@ export const api = {
   deleteSearch: (id: number) => call<void>('DELETE', `/api/searches/${id}`),
   matches: (limit = 50) => call<Match[]>('GET', `/api/matches?limit=${limit}`),
 
-  gemScan: () => call<GemScan | null>('GET', '/api/gems/scan'),
-  requestGemScan: () => call<GemScan>('POST', '/api/gems/scan'),
-  gems: (q: GemQuery) => {
-    const params = new URLSearchParams()
-    for (const [key, value] of Object.entries(q))
-      if (value !== undefined && value !== '' && value !== 0)
-        params.set(key, String(value))
-    return call<GemPage>('GET', `/api/gems?${params}`)
-  },
+  gemSources: () => call<GemSource[]>('GET', '/api/gems/sources'),
+  gemScan: (source: string) =>
+    call<GemScan | null>(
+      'GET',
+      `/api/gems/scan?source=${encodeURIComponent(source)}`,
+    ),
+  requestGemScan: (source: string) =>
+    call<GemScan>(
+      'POST',
+      `/api/gems/scan?source=${encodeURIComponent(source)}`,
+    ),
+  gems: (q: GemQuery) => call<GemPage>('GET', `/api/gems?${gemParams(q)}`),
 
   watches: (all = false) =>
     call<Watch[]>('GET', `/api/watches${all ? '?all=1' : ''}`),

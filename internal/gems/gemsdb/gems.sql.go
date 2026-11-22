@@ -10,12 +10,12 @@ import (
 )
 
 const claimScan = `-- name: ClaimScan :one
-UPDATE gem_scans SET status = 'running', started_at = now()
+UPDATE gem_scans SET status = 'running', started_at = now(), progress_at = now()
 WHERE id = (
     SELECT id FROM gem_scans WHERE status = 'requested' AND source = ANY($1::text[])
     ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED
 )
-RETURNING id, source, status, requested_at, started_at, finished_at, pages, ads, gone, rated, error, complete, note
+RETURNING id, source, status, requested_at, started_at, finished_at, pages, ads, gone, rated, error, complete, note, phase, detail_total, detailed, progress_at
 `
 
 // The oldest waiting request, now running. SKIP LOCKED: two scrapers never
@@ -37,6 +37,10 @@ func (q *Queries) ClaimScan(ctx context.Context, sources []string) (GemScan, err
 		&i.Error,
 		&i.Complete,
 		&i.Note,
+		&i.Phase,
+		&i.DetailTotal,
+		&i.Detailed,
+		&i.ProgressAt,
 	)
 	return i, err
 }
@@ -56,19 +60,39 @@ WHERE source = $1
   AND ($2::text = '' OR make = $2::text)
   AND ($3::text = '' OR model = $3::text)
   AND ($4::text = '' OR buy = $4::text)
-  AND ($5::float8 = 0 OR price_value <= $5::float8)
-  AND ($6::int = 0 OR year >= $6::int)
-  AND ($7::int = 0 OR (mileage_km > 0 AND mileage_km <= $7::int))
+  AND (cardinality($5::text[]) = 0 OR fuel = ANY($5::text[]))
+  AND (cardinality($6::text[]) = 0 OR gearbox = ANY($6::text[]))
+  AND (cardinality($7::text[]) = 0 OR body = ANY($7::text[]))
+  AND (cardinality($8::text[]) = 0 OR region = ANY($8::text[]))
+  AND ($9::float8 = 0 OR price_value >= $9::float8)
+  AND ($10::float8 = 0 OR price_value <= $10::float8)
+  AND ($11::int = 0 OR year >= $11::int)
+  AND ($12::int = 0 OR year <= $12::int)
+  AND ($13::int = 0 OR (mileage_km > 0 AND mileage_km <= $13::int))
+  AND ($14::float8 = 0 OR engine_l >= $14::float8)
+  AND ($15::float8 = 0 OR (engine_l > 0 AND engine_l <= $15::float8))
+  AND (NOT $16::boolean OR detailed)
+  AND (NOT $17::boolean OR inspection = 'valid')
 `
 
 type CountGemsParams struct {
-	Source     string
-	Make       string
-	Model      string
-	Buy        string
-	MaxPrice   float64
-	MinYear    int32
-	MaxMileage int32
+	Source        string
+	Make          string
+	Model         string
+	Buy           string
+	Fuels         []string
+	Gearboxes     []string
+	Bodies        []string
+	Regions       []string
+	MinPrice      float64
+	MaxPrice      float64
+	MinYear       int32
+	MaxYear       int32
+	MaxMileage    int32
+	MinEngine     float64
+	MaxEngine     float64
+	DetailedOnly  bool
+	InspectedOnly bool
 }
 
 func (q *Queries) CountGems(ctx context.Context, arg CountGemsParams) (int64, error) {
@@ -77,13 +101,55 @@ func (q *Queries) CountGems(ctx context.Context, arg CountGemsParams) (int64, er
 		arg.Make,
 		arg.Model,
 		arg.Buy,
+		arg.Fuels,
+		arg.Gearboxes,
+		arg.Bodies,
+		arg.Regions,
+		arg.MinPrice,
 		arg.MaxPrice,
 		arg.MinYear,
+		arg.MaxYear,
 		arg.MaxMileage,
+		arg.MinEngine,
+		arg.MaxEngine,
+		arg.DetailedOnly,
+		arg.InspectedOnly,
 	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const detailProgress = `-- name: DetailProgress :exec
+UPDATE gem_scans SET phase = 'detailing', detail_total = $1, detailed = $2, progress_at = now() WHERE id = $3
+`
+
+type DetailProgressParams struct {
+	DetailTotal int32
+	Detailed    int32
+	ID          int64
+}
+
+func (q *Queries) DetailProgress(ctx context.Context, arg DetailProgressParams) error {
+	_, err := q.db.Exec(ctx, detailProgress, arg.DetailTotal, arg.Detailed, arg.ID)
+	return err
+}
+
+const detailedCount = `-- name: DetailedCount :one
+SELECT count(*) FILTER (WHERE detailed)::int AS detailed, count(*)::int AS total FROM gems WHERE source = $1
+`
+
+type DetailedCountRow struct {
+	Detailed int32
+	Total    int32
+}
+
+// How many gems had their ad page read, for the hint by the filters.
+func (q *Queries) DetailedCount(ctx context.Context, source string) (DetailedCountRow, error) {
+	row := q.db.QueryRow(ctx, detailedCount, source)
+	var i DetailedCountRow
+	err := row.Scan(&i.Detailed, &i.Total)
+	return i, err
 }
 
 const finishScan = `-- name: FinishScan :exec
@@ -115,27 +181,34 @@ func (q *Queries) FinishScan(ctx context.Context, arg FinishScanParams) error {
 	return err
 }
 
-const gemMakes = `-- name: GemMakes :many
-SELECT make, model, count(*)::int AS n FROM gems WHERE source = $1 GROUP BY make, model ORDER BY make, model
+const gemFacets = `-- name: GemFacets :many
+SELECT f.kind::text AS kind, f.value::text AS value, count(*)::int AS n
+FROM gems g
+CROSS JOIN LATERAL (VALUES ('model', g.make || '|' || g.model), ('fuel', g.fuel), ('gearbox', g.gearbox),
+                           ('body', g.body), ('region', g.region)) AS f(kind, value)
+WHERE g.source = $1 AND f.value <> ''
+GROUP BY f.kind, f.value
+ORDER BY f.kind, f.value
 `
 
-type GemMakesRow struct {
-	Make  string
-	Model string
+type GemFacetsRow struct {
+	Kind  string
+	Value string
 	N     int32
 }
 
-// The makes and models there are, for the filters.
-func (q *Queries) GemMakes(ctx context.Context, source string) ([]GemMakesRow, error) {
-	rows, err := q.db.Query(ctx, gemMakes, source)
+// What the filters can offer, with how many gems have each: kind is model
+// (value "make|model"), fuel, gearbox, body or region.
+func (q *Queries) GemFacets(ctx context.Context, source string) ([]GemFacetsRow, error) {
+	rows, err := q.db.Query(ctx, gemFacets, source)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GemMakesRow
+	var items []GemFacetsRow
 	for rows.Next() {
-		var i GemMakesRow
-		if err := rows.Scan(&i.Make, &i.Model, &i.N); err != nil {
+		var i GemFacetsRow
+		if err := rows.Scan(&i.Kind, &i.Value, &i.N); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -148,29 +221,40 @@ func (q *Queries) GemMakes(ctx context.Context, source string) ([]GemMakesRow, e
 
 const insertGem = `-- name: InsertGem :exec
 INSERT INTO gems (source, external_id, scan_id, title, url, image_url, make, model, year, mileage_km, fuel,
-                  price, price_value, buy, score, overall, fields)
+                  price, price_value, buy, score, overall, fields,
+                  gearbox, inspection, body, region, engine_l, detailed, display_score, price_diff, components)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-        $12, $13, $14, $15, $16, $17)
+        $12, $13, $14, $15, $16, $17,
+        $18, $19, $20, $21, $22, $23, $24, $25, $26)
 `
 
 type InsertGemParams struct {
-	Source     string
-	ExternalID string
-	ScanID     int64
-	Title      string
-	Url        string
-	ImageUrl   string
-	Make       string
-	Model      string
-	Year       int32
-	MileageKm  int32
-	Fuel       string
-	Price      string
-	PriceValue float64
-	Buy        string
-	Score      float64
-	Overall    string
-	Fields     []byte
+	Source       string
+	ExternalID   string
+	ScanID       int64
+	Title        string
+	Url          string
+	ImageUrl     string
+	Make         string
+	Model        string
+	Year         int32
+	MileageKm    int32
+	Fuel         string
+	Price        string
+	PriceValue   float64
+	Buy          string
+	Score        float64
+	Overall      string
+	Fields       []byte
+	Gearbox      string
+	Inspection   string
+	Body         string
+	Region       string
+	EngineL      float64
+	Detailed     bool
+	DisplayScore int32
+	PriceDiff    *float64
+	Components   []byte
 }
 
 func (q *Queries) InsertGem(ctx context.Context, arg InsertGemParams) error {
@@ -192,12 +276,21 @@ func (q *Queries) InsertGem(ctx context.Context, arg InsertGemParams) error {
 		arg.Score,
 		arg.Overall,
 		arg.Fields,
+		arg.Gearbox,
+		arg.Inspection,
+		arg.Body,
+		arg.Region,
+		arg.EngineL,
+		arg.Detailed,
+		arg.DisplayScore,
+		arg.PriceDiff,
+		arg.Components,
 	)
 	return err
 }
 
 const latestScan = `-- name: LatestScan :one
-SELECT id, source, status, requested_at, started_at, finished_at, pages, ads, gone, rated, error, complete, note FROM gem_scans WHERE source = $1 ORDER BY id DESC LIMIT 1
+SELECT id, source, status, requested_at, started_at, finished_at, pages, ads, gone, rated, error, complete, note, phase, detail_total, detailed, progress_at FROM gem_scans WHERE source = $1 ORDER BY id DESC LIMIT 1
 `
 
 func (q *Queries) LatestScan(ctx context.Context, source string) (GemScan, error) {
@@ -217,50 +310,86 @@ func (q *Queries) LatestScan(ctx context.Context, source string) (GemScan, error
 		&i.Error,
 		&i.Complete,
 		&i.Note,
+		&i.Phase,
+		&i.DetailTotal,
+		&i.Detailed,
+		&i.ProgressAt,
 	)
 	return i, err
 }
 
 const listGems = `-- name: ListGems :many
-SELECT source, external_id, scan_id, title, url, image_url, make, model, year, mileage_km, fuel, price, price_value, buy, score, overall, fields FROM gems
+SELECT source, external_id, scan_id, title, url, image_url, make, model, year, mileage_km, fuel, price, price_value, buy, score, overall, fields, gearbox, inspection, body, region, engine_l, detailed, display_score, price_diff, components FROM gems
 WHERE source = $1
   AND ($2::text = '' OR make = $2::text)
   AND ($3::text = '' OR model = $3::text)
   AND ($4::text = '' OR buy = $4::text)
-  AND ($5::float8 = 0 OR price_value <= $5::float8)
-  AND ($6::int = 0 OR year >= $6::int)
-  AND ($7::int = 0 OR (mileage_km > 0 AND mileage_km <= $7::int))
+  AND (cardinality($5::text[]) = 0 OR fuel = ANY($5::text[]))
+  AND (cardinality($6::text[]) = 0 OR gearbox = ANY($6::text[]))
+  AND (cardinality($7::text[]) = 0 OR body = ANY($7::text[]))
+  AND (cardinality($8::text[]) = 0 OR region = ANY($8::text[]))
+  AND ($9::float8 = 0 OR price_value >= $9::float8)
+  AND ($10::float8 = 0 OR price_value <= $10::float8)
+  AND ($11::int = 0 OR year >= $11::int)
+  AND ($12::int = 0 OR year <= $12::int)
+  AND ($13::int = 0 OR (mileage_km > 0 AND mileage_km <= $13::int))
+  AND ($14::float8 = 0 OR engine_l >= $14::float8)
+  AND ($15::float8 = 0 OR (engine_l > 0 AND engine_l <= $15::float8))
+  AND (NOT $16::boolean OR detailed)
+  AND (NOT $17::boolean OR inspection = 'valid')
 ORDER BY
-  CASE WHEN $8::text = 'price' THEN price_value END ASC,
-  CASE WHEN $8::text = 'year' THEN year END DESC,
+  CASE WHEN $18::text = 'price' THEN price_value END ASC,
+  CASE WHEN $18::text = 'year' THEN year END DESC,
+  CASE WHEN $18::text = 'mileage' THEN NULLIF(mileage_km, 0) END ASC NULLS LAST,
+  CASE WHEN $18::text = 'discount' THEN price_diff END ASC NULLS LAST,
   score DESC, price_value ASC, external_id
-LIMIT $10 OFFSET $9
+LIMIT $20 OFFSET $19
 `
 
 type ListGemsParams struct {
-	Source     string
-	Make       string
-	Model      string
-	Buy        string
-	MaxPrice   float64
-	MinYear    int32
-	MaxMileage int32
-	Sort       string
-	Off        int32
-	Lim        int32
+	Source        string
+	Make          string
+	Model         string
+	Buy           string
+	Fuels         []string
+	Gearboxes     []string
+	Bodies        []string
+	Regions       []string
+	MinPrice      float64
+	MaxPrice      float64
+	MinYear       int32
+	MaxYear       int32
+	MaxMileage    int32
+	MinEngine     float64
+	MaxEngine     float64
+	DetailedOnly  bool
+	InspectedOnly bool
+	Sort          string
+	Off           int32
+	Lim           int32
 }
 
 // One page of rated cars, best first unless asked otherwise. Empty filters
-// match everything.
+// match everything; keep the WHERE in step with CountGems.
 func (q *Queries) ListGems(ctx context.Context, arg ListGemsParams) ([]Gem, error) {
 	rows, err := q.db.Query(ctx, listGems,
 		arg.Source,
 		arg.Make,
 		arg.Model,
 		arg.Buy,
+		arg.Fuels,
+		arg.Gearboxes,
+		arg.Bodies,
+		arg.Regions,
+		arg.MinPrice,
 		arg.MaxPrice,
 		arg.MinYear,
+		arg.MaxYear,
 		arg.MaxMileage,
+		arg.MinEngine,
+		arg.MaxEngine,
+		arg.DetailedOnly,
+		arg.InspectedOnly,
 		arg.Sort,
 		arg.Off,
 		arg.Lim,
@@ -290,6 +419,15 @@ func (q *Queries) ListGems(ctx context.Context, arg ListGemsParams) ([]Gem, erro
 			&i.Score,
 			&i.Overall,
 			&i.Fields,
+			&i.Gearbox,
+			&i.Inspection,
+			&i.Body,
+			&i.Region,
+			&i.EngineL,
+			&i.Detailed,
+			&i.DisplayScore,
+			&i.PriceDiff,
+			&i.Components,
 		); err != nil {
 			return nil, err
 		}
@@ -317,13 +455,16 @@ INSERT INTO gem_scans (source)
 SELECT $1::text
 WHERE NOT EXISTS (
     SELECT 1 FROM gem_scans
-    WHERE source = $1::text AND status IN ('requested', 'running') AND requested_at > now() - interval '3 hours'
+    WHERE source = $1::text AND (
+        status = 'requested' AND requested_at > now() - interval '3 hours'
+        OR status = 'running' AND COALESCE(progress_at, started_at) > now() - interval '30 minutes')
 )
-RETURNING id, source, status, requested_at, started_at, finished_at, pages, ads, gone, rated, error, complete, note
+RETURNING id, source, status, requested_at, started_at, finished_at, pages, ads, gone, rated, error, complete, note, phase, detail_total, detailed, progress_at
 `
 
-// A new request, unless one is waiting or running. One stuck for hours
-// (its scraper died) no longer blocks. Run under LockSource.
+// A new request, unless one is waiting or running. A scan takes hours, so
+// a running one blocks until it shows no progress for 30 minutes (its
+// scraper died); a waiting one for 3 hours. Run under LockSource.
 func (q *Queries) RequestScan(ctx context.Context, source string) (GemScan, error) {
 	row := q.db.QueryRow(ctx, requestScan, source)
 	var i GemScan
@@ -341,12 +482,16 @@ func (q *Queries) RequestScan(ctx context.Context, source string) (GemScan, erro
 		&i.Error,
 		&i.Complete,
 		&i.Note,
+		&i.Phase,
+		&i.DetailTotal,
+		&i.Detailed,
+		&i.ProgressAt,
 	)
 	return i, err
 }
 
 const scanProgress = `-- name: ScanProgress :exec
-UPDATE gem_scans SET pages = $1, ads = $2 WHERE id = $3
+UPDATE gem_scans SET phase = 'listing', pages = $1, ads = $2, progress_at = now() WHERE id = $3
 `
 
 type ScanProgressParams struct {

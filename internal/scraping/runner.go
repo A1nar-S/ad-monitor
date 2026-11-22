@@ -289,22 +289,35 @@ func (r *Runner) throttle(ctx context.Context) bool {
 }
 
 // Throttle spaces requests to one site across goroutines: each waits until
-// Gap has passed since the previous one, whoever made it.
+// Gap has passed since the previous one, whoever made it, plus a random
+// share of Gap up to Jitter (0.5: 1–1.5 × Gap), so requests never come on
+// a fixed beat.
 type Throttle struct {
-	Gap  time.Duration
-	mu   sync.Mutex
-	last time.Time
+	Gap    time.Duration
+	Jitter float64
+	mu     sync.Mutex
+	last   time.Time
+	next   time.Duration // the gap drawn for the request after last
 }
 
 // Wait blocks until the next request may go; false if ctx ended first.
 func (t *Throttle) Wait(ctx context.Context) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if wait := t.Gap - time.Since(t.last); wait > 0 && !sleep(ctx, wait) {
+	if wait := t.next - time.Since(t.last); wait > 0 && !sleep(ctx, wait) {
 		return false
 	}
 	t.last = time.Now()
+	t.next = Jittered(t.Gap, t.Jitter)
 	return true
+}
+
+// Jittered is d stretched by a random share of itself up to jitter.
+func Jittered(d time.Duration, jitter float64) time.Duration {
+	if jitter <= 0 || d <= 0 {
+		return d
+	}
+	return d + time.Duration(rand.Float64()*jitter*float64(d))
 }
 
 func (r *Runner) alert(ctx context.Context, text string) {

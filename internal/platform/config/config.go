@@ -80,6 +80,9 @@ type Scraper struct {
 	AdminChannel AdminChannel
 	// PublicURL is the dashboard, for links in price-watch alerts.
 	PublicURL string
+	// GemDetailGap is the extra pause before each ad page a gem scan reads
+	// (its second pass), on top of RequestGap, jittered by half.
+	GemDetailGap time.Duration
 }
 
 type AdminChannel struct{ Kind, Target string }
@@ -95,8 +98,12 @@ func ScraperFromEnv() (Scraper, error) {
 		FeedCollapseAt: envInt("FEED_COLLAPSE_AT", 3),
 		AdminChannel:   AdminChannel{Kind: env("ADMIN_CHANNEL_KIND", "discord"), Target: os.Getenv("ADMIN_CHANNEL_ID")},
 		PublicURL:      selfServiceFromEnv().PublicURL,
+		GemDetailGap:   time.Duration(envInt("GEM_DETAIL_GAP_SECONDS", 1)) * time.Second,
 	}
 	var errs []error
+	if c.GemDetailGap < 0 {
+		errs = append(errs, errors.New("GEM_DETAIL_GAP_SECONDS must not be negative"))
+	}
 	if c.CrawlInterval <= 0 {
 		errs = append(errs, errors.New("CRAWL_INTERVAL_MINUTES must be positive"))
 	}
