@@ -6,7 +6,9 @@ WORKDIR /web
 COPY web/package.json web/bun.lock ./
 RUN bun install --frozen-lockfile
 COPY web/ ./
-RUN bun run build
+# The release tag, shown in the dashboard footer.
+ARG VERSION=dev
+RUN VITE_APP_VERSION=$VERSION bun run build
 
 FROM golang:1.26 AS build
 ARG CMD

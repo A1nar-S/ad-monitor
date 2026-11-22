@@ -13,6 +13,7 @@ import {
   TriangleAlert,
 } from 'lucide-vue-next'
 import AdminOverview from './components/AdminOverview.vue'
+import AppFooter from './components/AppFooter.vue'
 import GemsView from './components/GemsView.vue'
 import MatchesView from './components/MatchesView.vue'
 import SearchEditor from './components/SearchEditor.vue'
@@ -265,6 +266,7 @@ async function logout() {
         <GemsView v-else-if="route.name === 'gems' && me.gems" :me="me" />
         <SearchesView v-else :me="me" />
       </div>
+      <AppFooter class="px-4 pb-6" />
     </main>
   </div>
 
@@ -340,6 +342,7 @@ async function logout() {
           <RefreshCw :size="14" />{{ t('common.tryAgain') }}
         </button>
       </section>
+      <AppFooter class="mt-6" />
     </div>
   </main>
   <ToastHost />

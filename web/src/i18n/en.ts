@@ -43,6 +43,8 @@ const en = {
     administrator: 'Administrator',
     member: 'Member',
     signOut: 'Sign out',
+    license: 'MIT License',
+    source: 'Source code',
   },
 
   prefs: {

@@ -42,6 +42,8 @@ const lv: Messages = {
     administrator: 'Administrators',
     member: 'Dalībnieks',
     signOut: 'Iziet',
+    license: 'MIT licence',
+    source: 'Pirmkods',
   },
 
   prefs: {
