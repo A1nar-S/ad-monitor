@@ -63,6 +63,15 @@ type Scanner struct {
 	// MaxPages caps a scan; one that reaches it marks nothing sold.
 	MaxPages  int
 	PollEvery time.Duration
+	// RerateEvery queues a recalculation (Rate) of a category this long
+	// after its last scan finished, so the finder follows what the regular
+	// scraping stores: new and changed ads rated, new candidates' ad pages
+	// read (a removed one is found sold then). Ads sold meanwhile are only
+	// all found by a full scan. Only a category an admin scanned once is
+	// kept up; 0 = never.
+	RerateEvery time.Duration
+	// Now is the clock; nil is time.Now. Tests set it.
+	Now func() time.Time
 }
 
 // Pass 2's manners: a longer break (20–40 s) and a save (re-rating
@@ -110,6 +119,7 @@ func (s *Scanner) Run(ctx context.Context) {
 		r, err := s.Service.q.ClaimScan(ctx, names)
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
+			s.scheduleRerates(ctx, names)
 		case err != nil:
 			if ctx.Err() == nil {
 				slog.Error("claim gem scan", "err", err)
@@ -121,6 +131,35 @@ func (s *Scanner) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-time.After(s.PollEvery):
+		}
+	}
+}
+
+// scheduleRerates queues a recalculation of every category of names whose
+// last scan finished RerateEvery ago. The next poll claims it.
+func (s *Scanner) scheduleRerates(ctx context.Context, names []string) {
+	if s.RerateEvery <= 0 {
+		return
+	}
+	now := time.Now()
+	if s.Now != nil {
+		now = s.Now()
+	}
+	for _, name := range names {
+		sc, _ := s.Sources.Lookup(name).(sources.Scannable)
+		for _, cat := range s.Service.cats {
+			if _, ok := sc.ScanScope(cat.ID()); !ok {
+				continue
+			}
+			last, ok, err := s.Service.LatestScan(ctx, name, cat.ID())
+			if err != nil || !ok || last.FinishedAt == nil || now.Sub(*last.FinishedAt) < s.RerateEvery {
+				continue // never scanned, still going, or recent
+			}
+			if _, err := s.Service.RequestScan(ctx, name, cat.ID(), Rate); err == nil {
+				slog.Info("gem recalculation queued", "source", name, "category", cat.ID(), "last", last.FinishedAt)
+			} else if !errors.Is(err, ErrBusy) && ctx.Err() == nil {
+				slog.Warn("queue gem recalculation", "source", name, "category", cat.ID(), "err", err)
+			}
 		}
 	}
 }

@@ -118,7 +118,8 @@ dashboard api ─┴─> subscriptions (users, channels, searches, logins) <─�
   too few similar ads has no price verdict, so it is never a candidate. A running scan blocks a new request until it
   shows no progress (`progress_at`) for 30 minutes. A scan's `mode` is `full` (the above) or `rate` ("Recalculate":
   pass 1 skipped, the stored listings rated again, then pass 2 for candidates not read yet; for a rating change or to
-  finish a scan cut short). Filter counts are faceted: each choice counts the gems every other filter lets through
+  finish a scan cut short). The scraper queues a `rate` scan itself `GEM_RERATE_MINUTES` (default 60, 0 = off)
+  after a category's last scan finished, once an admin has scanned it; only a full scan finds every sold ad. Filter counts are faceted: each choice counts the gems every other filter lets through
   (`GemFacets`; a choice also ignores the ones it narrows, a make the model). `db.Open` turns Postgres JIT off: it
   spent ~0.5 s compiling the facet query that runs in ~40 ms.
   Scanned-only rows have `seen_by_feed = false`, so alerts behave as if no scan ran.

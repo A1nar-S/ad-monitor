@@ -165,7 +165,7 @@ func Scraper(ctx context.Context, cfg config.Scraper, reg sources.Registry) erro
 			runner.Run(ctx)
 		}()
 	}
-	runGemScans(ctx, gemScans, history, pub, reg, throttles, cfg.GemDetailGap, &wg)
+	runGemScans(ctx, gemScans, history, pub, reg, throttles, cfg.GemDetailGap, cfg.GemRerateEvery, &wg)
 	// Scan requests from the api: recorded here, where the scans run.
 	wg.Add(1)
 	go func() {

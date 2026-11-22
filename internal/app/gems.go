@@ -45,7 +45,7 @@ func (s gemStore) Stored(ctx context.Context, source, location string) ([]gems.I
 // runGemScans runs the scans admins request, spacing feed and ad-page
 // requests with the regular scraping's throttles.
 func runGemScans(ctx context.Context, svc *gems.Service, store *listings.Service, pub publisher, reg sources.Registry,
-	throttles map[string]*scraping.Throttle, detailGap time.Duration, wg *sync.WaitGroup) {
+	throttles map[string]*scraping.Throttle, detailGap, rerateEvery time.Duration, wg *sync.WaitGroup) {
 	scanner := &gems.Scanner{
 		Service: svc, Store: gemStore{store}, Keep: pub.listing, KeepAdPage: pub.adPage, Sources: reg,
 		Wait: func(ctx context.Context, source string) bool {
@@ -54,7 +54,7 @@ func runGemScans(ctx context.Context, svc *gems.Service, store *listings.Service
 			}
 			return ctx.Err() == nil
 		},
-		DetailGap: detailGap, MaxPages: gemMaxPages, PollEvery: gemPollEvery,
+		DetailGap: detailGap, MaxPages: gemMaxPages, PollEvery: gemPollEvery, RerateEvery: rerateEvery,
 	}
 	wg.Add(1)
 	go func() {

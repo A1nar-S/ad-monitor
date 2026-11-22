@@ -81,6 +81,9 @@ type Scraper struct {
 	// GemDetailGap is the extra pause before each ad page a gem scan reads
 	// (its second pass), on top of RequestGap, jittered by half.
 	GemDetailGap time.Duration
+	// GemRerateEvery is how long after a gem scan finished its category is
+	// recalculated from the stored ads; 0 = only when an admin asks.
+	GemRerateEvery time.Duration
 }
 
 type AdminChannel struct{ Kind, Target string }
@@ -96,10 +99,14 @@ func ScraperFromEnv() (Scraper, error) {
 		FeedCollapseAt: envInt("FEED_COLLAPSE_AT", 3),
 		AdminChannel:   AdminChannel{Kind: env("ADMIN_CHANNEL_KIND", "discord"), Target: os.Getenv("ADMIN_CHANNEL_ID")},
 		GemDetailGap:   time.Duration(envInt("GEM_DETAIL_GAP_SECONDS", 1)) * time.Second,
+		GemRerateEvery: time.Duration(envInt("GEM_RERATE_MINUTES", 60)) * time.Minute,
 	}
 	var errs []error
 	if c.GemDetailGap < 0 {
 		errs = append(errs, errors.New("GEM_DETAIL_GAP_SECONDS must not be negative"))
+	}
+	if c.GemRerateEvery < 0 {
+		errs = append(errs, errors.New("GEM_RERATE_MINUTES must not be negative"))
 	}
 	if c.CrawlInterval <= 0 {
 		errs = append(errs, errors.New("CRAWL_INTERVAL_MINUTES must be positive"))

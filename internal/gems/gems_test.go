@@ -602,3 +602,41 @@ func TestRunInterruptsLeftovers(t *testing.T) {
 	}
 }
 
+// A category scanned once is recalculated RerateEvery after its last scan
+// finished, and not before; one never scanned is left to the admins.
+func TestScheduleRerates(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+	site := &fakeSite{pages: [][]events.ListingDiscovered{{thing("a", 9000, "red", 2020)}}}
+	scanner := newScanner(svc, site, newStore(), &pacing{}, 10)
+	scanner.RerateEvery = time.Hour
+	now := time.Now()
+	scanner.Now = func() time.Time { return now }
+	latest := func() Scan {
+		t.Helper()
+		scan, _, err := svc.LatestScan(ctx, "site", "things")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return scan
+	}
+
+	scanner.scheduleRerates(ctx, []string{"site"})
+	if _, ok, _ := svc.LatestScan(ctx, "site", "things"); ok {
+		t.Fatal("recalculation queued for a category never scanned")
+	}
+
+	first := runScan(t, svc, scanner)
+	scanner.scheduleRerates(ctx, []string{"site"})
+	if got := latest(); got.ID != first.ID {
+		t.Fatalf("queued %+v right after a scan", got)
+	}
+
+	now = first.FinishedAt.Add(time.Hour + time.Minute)
+	scanner.scheduleRerates(ctx, []string{"site"})
+	scanner.scheduleRerates(ctx, []string{"site"}) // once is enough
+	got := latest()
+	if got.ID == first.ID || got.Mode != Rate || got.Status != "requested" {
+		t.Fatalf("an hour later: latest %+v, want a requested recalculation", got)
+	}
+}
