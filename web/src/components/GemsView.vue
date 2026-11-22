@@ -372,7 +372,9 @@ onUnmounted(() => clearTimeout(timer))
 
     <div class="grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
       <aside class="hidden lg:block" :aria-label="t('gems.filters')">
-        <div class="card sticky top-6 p-4">
+        <div
+          class="card sticky top-6 max-h-[calc(100dvh-3rem)] overflow-y-auto overscroll-contain p-4"
+        >
           <div class="mb-4 flex items-center justify-between">
             <h2 class="text-sm font-semibold text-gray-900">
               {{ t('gems.filters') }}
