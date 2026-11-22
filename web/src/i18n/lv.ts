@@ -4,6 +4,17 @@ import { plural, type Messages } from './en'
 // other: "10 paziņojumu", "21 paziņojums", "2 paziņojumi".
 const lv: Messages = {
   common: {
+    previous: 'Iepriekšējā',
+    next: 'Nākamā',
+    pages: 'Lapas',
+    pageOf: 'Lapa {page} no {pages}',
+    filters: 'Filtri',
+    clearAll: 'Notīrīt visu',
+    showResults: plural(
+      'Rādīt {n} rezultātu',
+      'Rādīt {n} rezultātus',
+      'Rādīt {n} rezultātu',
+    ),
     cancel: 'Atcelt',
     delete: 'Dzēst',
     edit: 'Rediģēt',
@@ -338,7 +349,6 @@ const lv: Messages = {
     count: plural('{n} rezultāts', '{n} rezultāti', '{n} rezultātu'),
     emptyTitle: 'Nekas neatbilst',
     emptyBody: 'Mīkstiniet filtrus vai gaidiet nākamo ielādi.',
-    pagination: 'Lapas',
     prev: 'Iepriekšējā',
     next: 'Nākamā',
     page: 'Lapa {page} no {pages}',

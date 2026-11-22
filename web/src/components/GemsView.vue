@@ -13,6 +13,7 @@ import EmptyState from './EmptyState.vue'
 import GemCard from './GemCard.vue'
 import GemFilters from './GemFilters.vue'
 import PageHeader from './PageHeader.vue'
+import PageNav from './PageNav.vue'
 import TabBar from './TabBar.vue'
 import {
   api,
@@ -69,25 +70,6 @@ const pages = computed(() =>
     ? Math.max(1, Math.ceil(page.value.total / page.value.pageSize))
     : 1,
 )
-
-// The page buttons: the first and last, two either side of the current
-// one, and 0 for a gap ("…"). A gap of one page shows that page instead.
-const pageLinks = computed(() => {
-  const current = page.value?.page ?? 1
-  const last = pages.value
-  const shown = new Set([1, last])
-  for (let n = current - 2; n <= current + 2; n++)
-    if (n >= 1 && n <= last) shown.add(n)
-  const sorted = [...shown].sort((a, b) => a - b)
-  const out: number[] = []
-  for (const n of sorted) {
-    const prev = out[out.length - 1]
-    if (prev !== undefined && n - prev === 2) out.push(n - 1)
-    else if (prev !== undefined && n - prev > 2) out.push(0)
-    out.push(n)
-  }
-  return out
-})
 
 const status = computed(() => {
   const s = scan.value
@@ -499,45 +481,13 @@ onUnmounted(() => clearTimeout(timer))
           />
         </ul>
 
-        <nav
-          v-if="page && pages > 1"
-          class="mt-5 flex flex-wrap items-center justify-center gap-1 text-small"
-          :aria-label="t('gems.pagination')"
-        >
-          <button
-            class="btn-subtle"
-            :disabled="page.page <= 1"
-            @click="goTo(page.page - 1)"
-          >
-            {{ t('gems.prev') }}
-          </button>
-          <template v-for="(n, i) in pageLinks" :key="i">
-            <span v-if="n === 0" class="px-1 text-gray-400" aria-hidden="true"
-              >…</span
-            >
-            <button
-              v-else
-              class="h-8 min-w-8 rounded-md px-2 tabular-nums transition-colors"
-              :class="
-                n === page.page
-                  ? 'bg-brand-600 font-medium text-white'
-                  : 'text-gray-700 hover:bg-gray-100'
-              "
-              :aria-current="n === page.page ? 'page' : undefined"
-              :aria-label="t('gems.page', { page: n, pages })"
-              @click="n !== page.page && goTo(n)"
-            >
-              {{ formatNumber(n) }}
-            </button>
-          </template>
-          <button
-            class="btn-subtle"
-            :disabled="page.page >= pages"
-            @click="goTo(page.page + 1)"
-          >
-            {{ t('gems.next') }}
-          </button>
-        </nav>
+        <PageNav
+          v-if="page"
+          class="mt-5"
+          :page="page.page"
+          :pages="pages"
+          @go="goTo"
+        />
       </div>
     </div>
 

@@ -2,7 +2,6 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   ArrowUpRight,
-  ChevronLeft,
   ChevronRight,
   CircleAlert,
   Database,
@@ -16,7 +15,9 @@ import {
 } from 'lucide-vue-next'
 import BaseDialog from './BaseDialog.vue'
 import EmptyState from './EmptyState.vue'
+import OverviewFilters from './OverviewFilters.vue'
 import PageHeader from './PageHeader.vue'
+import PageNav from './PageNav.vue'
 import TabBar from './TabBar.vue'
 import { ApiError, readListingDetails } from '../api'
 import { toast, toastError } from '../toast'
@@ -91,6 +92,7 @@ const openListing = ref<Listing | null>(null)
 const openSearch = ref<SavedSearch | null>(null)
 const failedImages = ref(new Set<number>())
 const refreshing = ref(false) // a refresh asked for with the button
+const drawer = ref(false) // the filters, on narrow screens
 let timer: ReturnType<typeof setInterval> | undefined
 let typing: ReturnType<typeof setTimeout> | undefined
 let controller: AbortController | undefined
@@ -382,6 +384,55 @@ function safeURL(value: string) {
 function formatTime(value: string) {
   return formatDate(value, { dateStyle: 'medium', timeStyle: 'short' })
 }
+// The filters set, as removable chips above the results.
+const filterChips = computed(() => {
+  const out: { id: string; label: string; clear: () => void }[] = []
+  if (query.value)
+    out.push({
+      id: 'q',
+      label: `“${query.value}”`,
+      clear: () => (query.value = ''),
+    })
+  if (view.value === 'listings' && category.value !== 'all')
+    out.push({
+      id: 'category',
+      label: categoryName(category.value),
+      clear: () => (category.value = 'all'),
+    })
+  if (status.value !== 'all')
+    out.push({
+      id: 'status',
+      label:
+        status.value === 'active'
+          ? view.value === 'listings'
+            ? t('common.active')
+            : t('common.enabled')
+          : view.value === 'listings'
+            ? t('common.inactive')
+            : t('common.paused'),
+      clear: () => (status.value = 'all'),
+    })
+  if (source.value !== 'all')
+    out.push({
+      id: 'source',
+      label: source.value,
+      clear: () => (source.value = 'all'),
+    })
+  return out
+})
+
+// A few telling specs for a listing's row, as the gem finder's cards show.
+const rowSpecs = ['year', 'mileage_km', 'fuel', 'rooms', 'area_m2', 'floor']
+function quickSpecs(listing: Listing) {
+  return rowSpecs
+    .filter((key) => {
+      const v = listing.attrs?.[key]
+      return v !== undefined && v !== null && v !== ''
+    })
+    .slice(0, 4)
+    .map((key) => formatAttribute(key, listing.attrs[key]))
+}
+
 function resetFilters() {
   query.value = ''
   source.value = 'all'
@@ -469,337 +520,314 @@ onUnmounted(() => {
       @update:model-value="changeView"
     />
 
-    <div v-if="hasRecords" class="mt-5 mb-4 flex flex-wrap items-center gap-2">
-      <label
-        class="field-within flex h-8 w-full items-center gap-2 pr-1 pl-2.5 sm:w-72"
+    <div class="mt-5 grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
+      <aside
+        v-if="hasRecords"
+        class="hidden lg:block"
+        :aria-label="t('common.filters')"
       >
-        <Search :size="15" class="shrink-0 text-gray-400" />
-        <input
-          v-model="query"
-          class="h-full w-full min-w-0 bg-transparent text-sm outline-none placeholder:text-gray-400 focus-visible:outline-none"
-          :placeholder="
-            view === 'listings'
-              ? t('overview.searchListings')
-              : t('overview.searchSearches')
-          "
-          :aria-label="t('overview.searchRecords')"
-        />
-        <button
-          v-if="query"
-          class="grid size-6 shrink-0 place-items-center rounded text-gray-500 hover:bg-gray-100 hover:text-gray-900"
-          :aria-label="t('overview.clearSearch')"
-          :title="t('overview.clearSearch')"
-          @click.prevent="query = ''"
+        <div
+          class="card sticky top-6 max-h-[calc(100dvh-3rem)] overflow-y-auto overscroll-contain p-4"
         >
-          <X :size="14" />
-        </button>
-      </label>
-
-      <div
-        v-if="view === 'listings'"
-        class="flex rounded-md bg-gray-150/80 p-0.5"
-        role="group"
-        :aria-label="t('overview.category')"
-      >
-        <button
-          v-for="option in categoryOptions"
-          :key="option.value"
-          :aria-pressed="category === option.value"
-          class="h-7 rounded-[5px] px-3 text-small transition-colors"
-          :class="
-            category === option.value
-              ? 'bg-raised font-medium text-gray-900 shadow-card'
-              : 'text-gray-600 hover:text-gray-900'
-          "
-          @click="category = option.value"
-        >
-          {{ option.label() }}
-        </button>
-      </div>
-
-      <select
-        v-model="status"
-        class="field w-auto"
-        :aria-label="t('overview.status')"
-      >
-        <option value="all">{{ t('overview.anyStatus') }}</option>
-        <option value="active">
-          {{ view === 'listings' ? t('common.active') : t('common.enabled') }}
-        </option>
-        <option value="inactive">
-          {{ view === 'listings' ? t('common.inactive') : t('common.paused') }}
-        </option>
-      </select>
-      <select
-        v-if="sources.length > 1"
-        v-model="source"
-        class="field w-auto"
-        :aria-label="t('overview.source')"
-      >
-        <option value="all">{{ t('overview.allSources') }}</option>
-        <option v-for="item in sources" :key="item" :value="item">
-          {{ item }}
-        </option>
-      </select>
-      <button v-if="hasFilters" class="btn-subtle" @click="resetFilters">
-        {{ t('overview.clearFilters') }}
-      </button>
-      <select
-        v-if="view === 'listings'"
-        v-model="sort"
-        class="field w-auto sm:ml-auto"
-        :aria-label="t('overview.sort')"
-      >
-        <option value="newest">{{ t('overview.newest') }}</option>
-        <option value="oldest">{{ t('overview.oldest') }}</option>
-        <option value="title">{{ t('overview.byTitle') }}</option>
-      </select>
-    </div>
-    <div v-else class="mt-5" />
-
-    <div
-      class="card overflow-hidden transition-opacity duration-150"
-      :class="{ 'opacity-50': refreshing }"
-      :aria-busy="loading"
-    >
-      <div
-        v-if="!current && loading"
-        class="divide-y divide-gray-100"
-        role="status"
-        :aria-label="t('common.loading')"
-      >
-        <div v-for="n in 5" :key="n" class="flex items-center gap-4 px-4 py-3">
-          <div class="skeleton h-9 w-12 rounded-md" />
-          <div class="flex-1">
-            <div class="skeleton h-4 w-80 max-w-full" />
-            <div class="skeleton mt-2 h-3 w-40" />
-          </div>
-          <div class="skeleton h-4 w-16" />
-        </div>
-      </div>
-
-      <EmptyState
-        v-else-if="!current && error"
-        :icon="Database"
-        :title="t('overview.unavailableTitle')"
-        :description="t('overview.unavailableBody')"
-      >
-        <button class="btn-secondary" @click="refresh(true)">
-          <RefreshCw :size="14" />{{ t('common.tryAgain') }}
-        </button>
-      </EmptyState>
-
-      <EmptyState
-        v-else-if="resultCount === 0"
-        :icon="
-          hasFilters
-            ? Search
-            : view === 'listings'
-              ? Layers3
-              : SlidersHorizontal
-        "
-        :title="
-          hasFilters
-            ? t('overview.noMatchTitle')
-            : view === 'listings'
-              ? t('overview.noListingsTitle')
-              : t('overview.noSearchesTitle')
-        "
-        :description="
-          hasFilters
-            ? t('overview.noMatchBody')
-            : view === 'listings'
-              ? t('overview.noListingsBody')
-              : t('overview.noSearchesBody')
-        "
-      >
-        <button v-if="hasFilters" class="btn-secondary" @click="resetFilters">
-          {{ t('overview.clearFilters') }}
-        </button>
-      </EmptyState>
-
-      <div v-else-if="view === 'listings'" class="overflow-x-auto">
-        <table class="w-full min-w-[720px] border-collapse">
-          <thead class="border-b border-gray-150 bg-gray-25">
-            <tr>
-              <th class="table-head w-1/2">{{ t('overview.colListing') }}</th>
-              <th class="table-head text-right">
-                {{ t('overview.colPrice') }}
-              </th>
-              <th class="table-head">{{ t('overview.colStatus') }}</th>
-              <th class="table-head">{{ t('overview.colFirstSeen') }}</th>
-              <th class="table-head w-12">
-                <span class="sr-only">{{ t('overview.colDetails') }}</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-100">
-            <tr
-              v-for="listing in visibleListings"
-              :key="listing.id"
-              class="group cursor-pointer transition-colors hover:bg-gray-25"
-              @click="openListing = listing"
+          <div class="mb-4 flex items-center justify-between">
+            <h2 class="text-sm font-semibold text-gray-900">
+              {{ t('common.filters') }}
+            </h2>
+            <button
+              v-if="hasFilters"
+              class="text-small text-brand-600 hover:underline"
+              @click="resetFilters"
             >
-              <td class="max-w-0 px-4 py-2.5">
-                <div class="flex items-center gap-3">
-                  <div
-                    class="grid h-9 w-12 shrink-0 place-items-center overflow-hidden rounded-md bg-gray-100 text-gray-400"
-                  >
-                    <img
-                      v-if="
-                        safeURL(listing.imageUrl) &&
-                        !failedImages.has(listing.id)
-                      "
-                      :src="safeURL(listing.imageUrl)"
-                      alt=""
-                      class="size-full object-cover"
-                      loading="lazy"
-                      referrerpolicy="no-referrer"
-                      @error="failedImages.add(listing.id)"
-                    /><ImageOff v-else :size="15" />
-                  </div>
-                  <div class="min-w-0">
-                    <button
-                      class="block max-w-full truncate text-left text-sm text-gray-900 focus-visible:outline-offset-0"
-                      @click.stop="openListing = listing"
-                    >
-                      {{ listing.title }}
-                    </button>
-                    <p class="mt-0.5 truncate text-xs text-gray-500">
-                      {{ listing.source }} ·
-                      {{ listing.location || t('overview.noCategory') }}
-                    </p>
-                  </div>
-                </div>
-              </td>
-              <td
-                class="px-4 py-2.5 text-right text-sm font-medium whitespace-nowrap text-gray-900 tabular-nums"
+              {{ t('common.clearAll') }}
+            </button>
+          </div>
+          <OverviewFilters
+            v-model:query="query"
+            v-model:category="category"
+            v-model:status="status"
+            v-model:source="source"
+            :view="view"
+            :sources="sources"
+          />
+        </div>
+      </aside>
+
+      <div class="min-w-0" :class="{ 'lg:col-span-2': !hasRecords }">
+        <div v-if="hasRecords" class="mb-3 flex flex-wrap items-center gap-2">
+          <button class="btn-secondary lg:hidden" @click="drawer = true">
+            <SlidersHorizontal :size="16" />{{ t('common.filters') }}
+            <span v-if="filterChips.length" class="badge-brand tabular-nums">{{
+              filterChips.length
+            }}</span>
+          </button>
+          <span v-if="current" class="text-sm text-gray-600 tabular-nums">
+            {{
+              t('overview.range', {
+                from: resultCount ? (page - 1) * pageSize + 1 : 0,
+                to: Math.min(page * pageSize, resultCount),
+                total: resultCount,
+              })
+            }}
+          </span>
+          <select
+            v-if="view === 'listings'"
+            v-model="sort"
+            class="field ml-auto w-auto"
+            :aria-label="t('overview.sort')"
+          >
+            <option value="newest">{{ t('overview.newest') }}</option>
+            <option value="oldest">{{ t('overview.oldest') }}</option>
+            <option value="title">{{ t('overview.byTitle') }}</option>
+          </select>
+        </div>
+
+        <div
+          v-if="filterChips.length"
+          class="mb-4 flex flex-wrap items-center gap-1.5"
+        >
+          <button
+            v-for="c in filterChips"
+            :key="c.id"
+            type="button"
+            class="chip"
+            aria-pressed="true"
+            @click="c.clear"
+          >
+            {{ c.label }}<X :size="12" />
+          </button>
+          <button
+            class="ml-1 text-small text-gray-600 hover:text-gray-900 hover:underline"
+            @click="resetFilters"
+          >
+            {{ t('common.clearAll') }}
+          </button>
+        </div>
+
+        <ul
+          v-if="!current && loading"
+          class="space-y-3"
+          role="status"
+          :aria-label="t('common.loading')"
+        >
+          <li v-for="n in 5" :key="n" class="card flex gap-3 p-4">
+            <div class="skeleton h-15 w-20 rounded-md" />
+            <div class="flex-1">
+              <div class="skeleton h-4 w-80 max-w-full" />
+              <div class="skeleton mt-2 h-3 w-40" />
+              <div class="skeleton mt-3 h-5 w-56 max-w-full" />
+            </div>
+          </li>
+        </ul>
+
+        <div v-else-if="!current && error" class="card">
+          <EmptyState
+            :icon="Database"
+            :title="t('overview.unavailableTitle')"
+            :description="t('overview.unavailableBody')"
+          >
+            <button class="btn-secondary" @click="refresh(true)">
+              <RefreshCw :size="14" />{{ t('common.tryAgain') }}
+            </button>
+          </EmptyState>
+        </div>
+
+        <div v-else-if="resultCount === 0" class="card">
+          <EmptyState
+            :icon="
+              hasFilters
+                ? Search
+                : view === 'listings'
+                  ? Layers3
+                  : SlidersHorizontal
+            "
+            :title="
+              hasFilters
+                ? t('overview.noMatchTitle')
+                : view === 'listings'
+                  ? t('overview.noListingsTitle')
+                  : t('overview.noSearchesTitle')
+            "
+            :description="
+              hasFilters
+                ? t('overview.noMatchBody')
+                : view === 'listings'
+                  ? t('overview.noListingsBody')
+                  : t('overview.noSearchesBody')
+            "
+          >
+            <button
+              v-if="hasFilters"
+              class="btn-secondary"
+              @click="resetFilters"
+            >
+              {{ t('overview.clearFilters') }}
+            </button>
+          </EmptyState>
+        </div>
+
+        <ul
+          v-else-if="view === 'listings'"
+          class="space-y-3 transition-opacity duration-150"
+          :class="{ 'opacity-60': loading }"
+          :aria-busy="loading"
+        >
+          <li
+            v-for="listing in visibleListings"
+            :key="listing.id"
+            class="card group cursor-pointer p-4 transition-shadow hover:shadow-raised"
+            @click="openListing = listing"
+          >
+            <div class="flex items-start gap-3">
+              <div
+                class="grid h-15 w-20 shrink-0 place-items-center overflow-hidden rounded-md bg-gray-100 text-gray-400"
               >
-                {{ listing.price || '—' }}
-              </td>
-              <td class="px-4 py-2.5">
+                <img
+                  v-if="
+                    safeURL(listing.imageUrl) && !failedImages.has(listing.id)
+                  "
+                  :src="safeURL(listing.imageUrl)"
+                  alt=""
+                  class="size-full object-cover"
+                  loading="lazy"
+                  referrerpolicy="no-referrer"
+                  @error="failedImages.add(listing.id)"
+                /><ImageOff v-else :size="16" />
+              </div>
+              <div class="min-w-0 flex-1">
+                <button
+                  class="block max-w-full truncate text-left text-base font-semibold text-gray-900 group-hover:text-brand-600"
+                  @click.stop="openListing = listing"
+                >
+                  {{ listing.title }}
+                </button>
+                <p class="truncate text-small text-gray-500">
+                  {{ listing.source }} ·
+                  {{ listing.location || t('overview.noCategory') }}
+                </p>
+              </div>
+              <div class="shrink-0 text-right">
+                <p class="text-base font-semibold text-gray-900 tabular-nums">
+                  {{ listing.price || '—' }}
+                </p>
+                <p class="text-small text-gray-500 tabular-nums">
+                  {{ formatTime(listing.firstSeenAt) }}
+                </p>
+              </div>
+            </div>
+            <ul class="mt-2 flex flex-wrap gap-1.5 text-small text-gray-700">
+              <li>
                 <span
                   :class="listing.active ? 'badge-success' : 'badge-neutral'"
                   >{{
                     listing.active ? t('common.active') : t('common.inactive')
                   }}</span
                 >
-              </td>
-              <td
-                class="px-4 py-2.5 text-small whitespace-nowrap text-gray-600 tabular-nums"
+              </li>
+              <li
+                v-if="listing.category"
+                class="rounded bg-gray-100 px-1.5 py-0.5"
               >
-                {{ formatTime(listing.firstSeenAt) }}
-              </td>
-              <td class="px-4 py-2.5 text-gray-400">
-                <ChevronRight
-                  :size="16"
-                  class="transition-colors group-hover:text-gray-700"
-                />
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+                {{ categoryName(listing.category) }}
+              </li>
+              <li
+                v-for="spec in quickSpecs(listing)"
+                :key="spec"
+                class="rounded bg-gray-100 px-1.5 py-0.5 tabular-nums"
+              >
+                {{ spec }}
+              </li>
+            </ul>
+          </li>
+        </ul>
 
-      <div v-else class="overflow-x-auto">
-        <table class="w-full min-w-[720px] border-collapse">
-          <thead class="border-b border-gray-150 bg-gray-25">
-            <tr>
-              <th class="table-head w-1/2">{{ t('overview.colSearch') }}</th>
-              <th class="table-head">{{ t('overview.colSendsTo') }}</th>
-              <th class="table-head text-right">
-                {{ t('overview.colMatches') }}
-              </th>
-              <th class="table-head">{{ t('overview.colStatus') }}</th>
-              <th class="table-head w-12">
-                <span class="sr-only">{{ t('overview.colDetails') }}</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-100">
-            <tr
-              v-for="saved in visibleSearches"
-              :key="saved.id"
-              class="group cursor-pointer transition-colors hover:bg-gray-25"
-              @click="openSearch = saved"
-            >
-              <td class="max-w-0 px-4 py-3">
+        <ul
+          v-else
+          class="space-y-3 transition-opacity duration-150"
+          :class="{ 'opacity-60': loading }"
+          :aria-busy="loading"
+        >
+          <li
+            v-for="saved in visibleSearches"
+            :key="saved.id"
+            class="card group cursor-pointer p-4 transition-shadow hover:shadow-raised"
+            @click="openSearch = saved"
+          >
+            <div class="flex items-start gap-3">
+              <div class="min-w-0 flex-1">
                 <button
-                  class="block max-w-full truncate text-left text-sm text-gray-900 focus-visible:outline-offset-0"
+                  class="block max-w-full truncate text-left text-base font-semibold text-gray-900 group-hover:text-brand-600"
                   @click.stop="openSearch = saved"
                 >
                   {{ saved.name }}
                 </button>
-                <p class="mt-0.5 truncate text-xs text-gray-500">
+                <p class="truncate text-small text-gray-500">
                   {{ saved.userName }} · {{ saved.source }}
                 </p>
-              </td>
-              <td class="max-w-48 truncate px-4 py-3 text-small text-gray-600">
-                {{ saved.channel || '—' }}
-              </td>
-              <td
-                class="px-4 py-3 text-right text-sm text-gray-900 tabular-nums"
-              >
-                {{ formatNumber(saved.matches) }}
-              </td>
-              <td class="px-4 py-3">
+              </div>
+              <div class="shrink-0 text-right">
+                <p class="text-base font-semibold text-gray-900 tabular-nums">
+                  {{ formatNumber(saved.matches) }}
+                </p>
+                <p class="text-small text-gray-500">
+                  {{ t('overview.colMatches') }}
+                </p>
+              </div>
+            </div>
+            <ul class="mt-2 flex flex-wrap gap-1.5 text-small text-gray-700">
+              <li>
                 <span
                   :class="saved.enabled ? 'badge-success' : 'badge-warning'"
                   >{{
                     saved.enabled ? t('common.enabled') : t('common.paused')
                   }}</span
                 >
-              </td>
-              <td class="px-4 py-3 text-gray-400">
-                <ChevronRight
-                  :size="16"
-                  class="transition-colors group-hover:text-gray-700"
-                />
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+              </li>
+              <li
+                v-if="saved.channel"
+                class="max-w-64 truncate rounded bg-gray-100 px-1.5 py-0.5"
+              >
+                {{ t('overview.colSendsTo') }}: {{ saved.channel }}
+              </li>
+            </ul>
+          </li>
+        </ul>
 
-      <footer
-        v-if="resultCount > 0"
-        class="flex items-center justify-between gap-4 border-t border-gray-150 px-4 py-2 text-small text-gray-500"
-      >
-        <span class="tabular-nums">{{
-          t('overview.range', {
-            from: (page - 1) * pageSize + 1,
-            to: Math.min(page * pageSize, resultCount),
-            total: resultCount,
-          })
-        }}</span>
-        <div v-if="pageCount > 1" class="flex items-center gap-1">
-          <span class="mr-2 tabular-nums">{{
-            t('overview.page', { page, pages: pageCount })
-          }}</span>
-          <button
-            class="btn-icon"
-            :aria-label="t('overview.previousPage')"
-            :title="t('overview.previousPage')"
-            :disabled="page === 1"
-            @click="goTo(page - 1)"
-          >
-            <ChevronLeft :size="16" />
-          </button>
-          <button
-            class="btn-icon"
-            :aria-label="t('overview.nextPage')"
-            :title="t('overview.nextPage')"
-            :disabled="page === pageCount"
-            @click="goTo(page + 1)"
-          >
-            <ChevronRight :size="16" />
-          </button>
-        </div>
-      </footer>
+        <PageNav
+          v-if="current"
+          class="mt-5"
+          :page="page"
+          :pages="pageCount"
+          @go="goTo"
+        />
+        <p class="mt-3 text-xs text-gray-500">
+          {{ t('overview.footnote') }}
+        </p>
+      </div>
     </div>
-    <p class="mt-3 text-xs text-gray-500">
-      {{ t('overview.footnote') }}
-    </p>
+
+    <BaseDialog
+      v-if="drawer"
+      :title="t('common.filters')"
+      light-dismiss
+      @close="drawer = false"
+    >
+      <OverviewFilters
+        v-model:query="query"
+        v-model:category="category"
+        v-model:status="status"
+        v-model:source="source"
+        :view="view"
+        :sources="sources"
+      />
+      <template #footer>
+        <button v-if="hasFilters" class="btn-subtle" @click="resetFilters">
+          {{ t('common.clearAll') }}
+        </button>
+        <button class="btn-primary" @click="drawer = false">
+          {{ t('common.showResults', { n: resultCount }) }}
+        </button>
+      </template>
+    </BaseDialog>
 
     <BaseDialog
       v-if="openListing"
