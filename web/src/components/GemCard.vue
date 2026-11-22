@@ -4,15 +4,15 @@ import {
   ArrowUpRight,
   ChevronDown,
   ImageOff,
-  MapPin,
   Info,
+  MapPin,
 } from 'lucide-vue-next'
-import type { Gem, GemBuy } from '../api'
+import type { Gem, GemBuy, GemSpec } from '../api'
 import { formatNumber, t, tKey } from '../i18n'
 
-// One rated car: photo, price against the market, the verdict and its
-// score, the specs, and on demand how the score was made.
-const props = defineProps<{ gem: Gem }>()
+// One rated listing: photo, price against the market, the verdict and its
+// score, the specs its category shows, and on demand how the score was made.
+const props = defineProps<{ gem: Gem; spec: GemSpec; category: string }>()
 
 const open = ref(false)
 const broken = ref(false)
@@ -29,6 +29,10 @@ const ring: Record<GemBuy, string> = {
   bad: 'text-danger-600',
   check: 'text-warning-600',
 }
+const tones = {
+  good: 'bg-success-50 text-success-700',
+  bad: 'bg-danger-50 text-danger-700',
+}
 
 const market = computed(() => {
   const d = props.gem.priceDiff
@@ -40,21 +44,30 @@ const market = computed(() => {
     : { text: t('gems.aboveMarket', { pct }), tone: 'text-danger-700' }
 })
 
-const specs = computed(() => {
-  const g = props.gem
-  return [
-    String(g.year),
-    g.mileageKm ? t('gems.km', { km: formatNumber(g.mileageKm) }) : '',
-    g.engineL
-      ? t('gems.litres', {
-          l: formatNumber(g.engineL, { minimumFractionDigits: 1 }),
-        })
-      : '',
-    g.fuel ? tKey(`gems.fuels.${g.fuel}`, g.fuel) : '',
-    g.gearbox ? tKey(`gems.gearboxes.${g.gearbox}`, g.gearbox) : '',
-    g.body ? tKey(`gems.bodies.${g.body}`, g.body) : '',
-  ].filter(Boolean)
-})
+// The card fields the gem has, formatted: numbers with their unit, words
+// in the reader's language.
+const specs = computed(() =>
+  props.spec.fields
+    .filter((f) => f.card && props.gem.attrs[f.key] !== undefined)
+    .map((f) => {
+      const v = props.gem.attrs[f.key]!
+      let text: string
+      if (typeof v === 'number') {
+        const n = formatNumber(
+          v,
+          f.unit === 'l' ? { minimumFractionDigits: 1 } : {},
+        )
+        text = f.unit ? tKey(`gems.units.${f.unit}`, n, { n }) : String(v)
+      } else text = tKey(`gems.values.${f.key}.${v}`, v)
+      const tone = f.tones?.[String(v)]
+      return {
+        key: f.key,
+        text,
+        pin: f.icon === 'pin',
+        tone: tone ? tones[tone] : 'bg-gray-100',
+      }
+    }),
+)
 
 // The breakdown's bars share one scale: the largest weight, 3 points.
 const maxPoints = 3
@@ -65,6 +78,7 @@ const parts = computed(() =>
     width: `${Math.min(1, Math.abs(c.points) / maxPoints) * 50}%`,
   })),
 )
+const formula = computed(() => tKey(`gems.formulas.${props.category}`, ''))
 const verdictLines = computed(() => props.gem.fields.slice(1))
 </script>
 
@@ -75,7 +89,7 @@ const verdictLines = computed(() => props.gem.fields.slice(1))
       target="_blank"
       rel="noopener noreferrer"
       class="relative grid aspect-[4/3] shrink-0 place-items-center bg-gray-100 text-gray-400 sm:aspect-auto sm:w-48"
-      :aria-label="`${gem.make} ${gem.model}`"
+      :aria-label="gem.heading"
     >
       <img
         v-if="gem.imageUrl && !broken"
@@ -98,7 +112,7 @@ const verdictLines = computed(() => props.gem.fields.slice(1))
             rel="noopener noreferrer"
             class="group inline-flex max-w-full items-center gap-1 text-base font-semibold text-gray-900 hover:text-brand-600"
           >
-            <span class="truncate">{{ gem.make }} {{ gem.model }}</span>
+            <span class="truncate">{{ gem.heading }}</span>
             <ArrowUpRight
               :size="15"
               class="shrink-0 text-gray-400 group-hover:text-brand-600"
@@ -123,27 +137,11 @@ const verdictLines = computed(() => props.gem.fields.slice(1))
       <ul class="mt-2 flex flex-wrap gap-1.5 text-small text-gray-700">
         <li
           v-for="s in specs"
-          :key="s"
-          class="rounded bg-gray-100 px-1.5 py-0.5 tabular-nums"
+          :key="s.key"
+          class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 tabular-nums"
+          :class="s.tone"
         >
-          {{ s }}
-        </li>
-        <li
-          v-if="gem.region"
-          class="inline-flex items-center gap-1 rounded bg-gray-100 px-1.5 py-0.5"
-        >
-          <MapPin :size="12" class="text-gray-500" />{{ gem.region }}
-        </li>
-        <li
-          v-if="gem.inspection"
-          class="rounded px-1.5 py-0.5"
-          :class="
-            gem.inspection === 'valid'
-              ? 'bg-success-50 text-success-700'
-              : 'bg-danger-50 text-danger-700'
-          "
-        >
-          {{ t(`gems.inspection.${gem.inspection}`) }}
+          <MapPin v-if="s.pin" :size="12" class="text-gray-500" />{{ s.text }}
         </li>
         <li
           v-if="!gem.detailed"
@@ -245,7 +243,7 @@ const verdictLines = computed(() => props.gem.fields.slice(1))
             >
           </li>
         </ul>
-        <p class="text-xs text-gray-500">{{ t('gems.formula') }}</p>
+        <p v-if="formula" class="text-xs text-gray-500">{{ formula }}</p>
         <dl class="space-y-2 text-small">
           <div v-for="f in verdictLines" :key="f.name">
             <dt class="font-medium text-gray-900">{{ f.name }}</dt>

@@ -6,9 +6,11 @@ import (
 	"time"
 
 	"github.com/A1nar-S/advertisiment-monitoring/internal/gems"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/gems/cars"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/listings"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/scraping"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/sources"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/web"
 )
 
 // Gem scans stop at 2000 pages (ss.com's cars for sale are about 850), and
@@ -20,17 +22,21 @@ const (
 	requestJitter = 0.5
 )
 
+// gemCategories are what the gem finder rates: the one place a category
+// is added.
+func gemCategories() []gems.Category { return []gems.Category{cars.Category{}} }
+
 // gemStore lets the gems slice use the listings slice through its own types.
 type gemStore struct{ *listings.Service }
 
-func (s gemStore) StoredCars(ctx context.Context, source string) ([]gems.Car, error) {
-	rows, err := s.Service.StoredCars(ctx, source)
+func (s gemStore) Stored(ctx context.Context, source, location string) ([]gems.Item, error) {
+	rows, err := s.StoredIn(ctx, source, location)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]gems.Car, len(rows))
+	out := make([]gems.Item, len(rows))
 	for i, r := range rows {
-		out[i] = gems.Car{Listing: r.Listing, Active: r.Active, Detailed: r.Detailed}
+		out[i] = gems.Item{Listing: r.Listing, Active: r.Active, Detailed: r.Detailed}
 	}
 	return out, nil
 }
@@ -55,12 +61,24 @@ func runGemScans(ctx context.Context, svc *gems.Service, store *listings.Service
 	}()
 }
 
-// gemSource is the source the gem finder scans: the one that can.
-func gemSource(reg sources.Registry) string {
+// gemSources maps each source that can be scanned to the categories it
+// can be scanned for, for the web.
+func gemSources(reg sources.Registry, svc *gems.Service) []web.GemSource {
+	var out []web.GemSource
 	for _, n := range reg.Names() {
-		if _, ok := reg[n].(sources.CarScan); ok {
-			return n
+		sc, ok := reg[n].(sources.Scannable)
+		if !ok {
+			continue
+		}
+		var cats []string
+		for _, c := range svc.Categories() {
+			if _, ok := sc.ScanScope(c.ID()); ok {
+				cats = append(cats, c.ID())
+			}
+		}
+		if len(cats) > 0 {
+			out = append(out, web.GemSource{ID: n, Name: n, Categories: cats})
 		}
 	}
-	return ""
+	return out
 }

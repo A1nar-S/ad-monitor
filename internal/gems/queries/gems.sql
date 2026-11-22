@@ -1,21 +1,27 @@
--- name: LockSource :exec
+-- name: LockScans :exec
 -- Held to the end of the transaction: two requests at once (a double click)
 -- are checked in turn, so only one scan is created.
-SELECT pg_advisory_xact_lock(hashtext('gem_scans|' || @source::text));
+SELECT pg_advisory_xact_lock(hashtext('gem_scans|' || @source::text || '|' || @category::text));
 
 -- name: RequestScan :one
 -- A new request, unless one is waiting or running. A scan takes hours, so
 -- a running one blocks until it shows no progress for 30 minutes (its
--- scraper died); a waiting one for 3 hours. Run under LockSource.
-INSERT INTO gem_scans (source)
-SELECT @source::text
+-- scraper died); a waiting one for 3 hours. Run under LockScans.
+INSERT INTO gem_scans (source, category)
+SELECT @source::text, @category::text
 WHERE NOT EXISTS (
     SELECT 1 FROM gem_scans
-    WHERE source = @source::text AND (
+    WHERE source = @source::text AND category = @category::text AND (
         status = 'requested' AND requested_at > now() - interval '3 hours'
         OR status = 'running' AND COALESCE(progress_at, started_at) > now() - interval '30 minutes')
 )
 RETURNING *;
+
+-- name: InterruptScans :execrows
+-- A scraper starting up: the scans of its sources still running were its
+-- own, cut short when it stopped.
+UPDATE gem_scans SET status = 'failed', finished_at = now(), error = 'interrupted: the scraper restarted'
+WHERE status = 'running' AND source = ANY(@sources::text[]);
 
 -- name: ClaimScan :one
 -- The oldest waiting request, now running. SKIP LOCKED: two scrapers never
@@ -39,79 +45,72 @@ UPDATE gem_scans SET status = @status, finished_at = now(), gone = @gone, rated 
 WHERE id = @id;
 
 -- name: LatestScan :one
-SELECT * FROM gem_scans WHERE source = @source ORDER BY id DESC LIMIT 1;
+SELECT * FROM gem_scans WHERE source = @source AND category = @category ORDER BY id DESC LIMIT 1;
 
 -- name: ClearGems :exec
-DELETE FROM gems WHERE source = @source;
+DELETE FROM gems WHERE source = @source AND category = @category;
 
 -- name: InsertGem :exec
-INSERT INTO gems (source, external_id, scan_id, title, url, image_url, make, model, year, mileage_km, fuel,
-                  price, price_value, buy, score, overall, fields,
-                  gearbox, inspection, body, region, engine_l, detailed, display_score, price_diff, components)
-VALUES (@source, @external_id, @scan_id, @title, @url, @image_url, @make, @model, @year, @mileage_km, @fuel,
-        @price, @price_value, @buy, @score, @overall, @fields,
-        @gearbox, @inspection, @body, @region, @engine_l, @detailed, @display_score, sqlc.narg(price_diff), @components);
+INSERT INTO gems (source, category, external_id, scan_id, title, url, image_url, price, price_value, buy, score,
+                  display_score, price_diff, heading, overall, fields, components, detailed, attrs)
+VALUES (@source, @category, @external_id, @scan_id, @title, @url, @image_url, @price, @price_value, @buy, @score,
+        @display_score, sqlc.narg(price_diff), @heading, @overall, @fields, @components, @detailed, @attrs);
 
 -- name: ListGems :many
--- One page of rated cars, best first unless asked otherwise. Empty filters
--- match everything; keep the WHERE in step with CountGems.
+-- One page of rated listings, best first unless asked otherwise. Empty
+-- filters match everything; keep the WHERE in step with CountGems.
+-- choices: {"body": ["wagon", "sedan"]}, the attr must be one of them.
+-- ranges: {"year": [2015, 0]}, from and to with 0 = open; a "to" also needs
+-- the attr known.
 SELECT * FROM gems
-WHERE source = @source
-  AND (@make::text = '' OR make = @make::text)
-  AND (@model::text = '' OR model = @model::text)
+WHERE source = @source AND category = @category
   AND (@buy::text = '' OR buy = @buy::text)
-  AND (cardinality(@fuels::text[]) = 0 OR fuel = ANY(@fuels::text[]))
-  AND (cardinality(@gearboxes::text[]) = 0 OR gearbox = ANY(@gearboxes::text[]))
-  AND (cardinality(@bodies::text[]) = 0 OR body = ANY(@bodies::text[]))
-  AND (cardinality(@regions::text[]) = 0 OR region = ANY(@regions::text[]))
   AND (@min_price::float8 = 0 OR price_value >= @min_price::float8)
   AND (@max_price::float8 = 0 OR price_value <= @max_price::float8)
-  AND (@min_year::int = 0 OR year >= @min_year::int)
-  AND (@max_year::int = 0 OR year <= @max_year::int)
-  AND (@max_mileage::int = 0 OR (mileage_km > 0 AND mileage_km <= @max_mileage::int))
-  AND (@min_engine::float8 = 0 OR engine_l >= @min_engine::float8)
-  AND (@max_engine::float8 = 0 OR (engine_l > 0 AND engine_l <= @max_engine::float8))
   AND (NOT @detailed_only::boolean OR detailed)
-  AND (NOT @inspected_only::boolean OR inspection = 'valid')
+  AND NOT EXISTS (
+      SELECT 1 FROM jsonb_each(@choices::jsonb) c
+      WHERE NOT COALESCE(c.value ? (attrs->>c.key), FALSE))
+  AND NOT EXISTS (
+      SELECT 1 FROM jsonb_each(@ranges::jsonb) r
+      WHERE (r.value->>0)::float8 > 0 AND COALESCE((attrs->>r.key)::float8, 0) < (r.value->>0)::float8
+         OR (r.value->>1)::float8 > 0 AND COALESCE((attrs->>r.key)::float8, 0) NOT BETWEEN 1e-9 AND (r.value->>1)::float8)
 ORDER BY
   CASE WHEN @sort::text = 'price' THEN price_value END ASC,
-  CASE WHEN @sort::text = 'year' THEN year END DESC,
-  CASE WHEN @sort::text = 'mileage' THEN NULLIF(mileage_km, 0) END ASC NULLS LAST,
   CASE WHEN @sort::text = 'discount' THEN price_diff END ASC NULLS LAST,
+  CASE WHEN @sort_key::text <> '' AND NOT @sort_desc::boolean THEN NULLIF((attrs->>(@sort_key::text))::float8, 0) END ASC NULLS LAST,
+  CASE WHEN @sort_key::text <> '' AND @sort_desc::boolean THEN NULLIF((attrs->>(@sort_key::text))::float8, 0) END DESC NULLS LAST,
   score DESC, price_value ASC, external_id
 LIMIT @lim OFFSET @off;
 
 -- name: CountGems :one
 SELECT count(*) FROM gems
-WHERE source = @source
-  AND (@make::text = '' OR make = @make::text)
-  AND (@model::text = '' OR model = @model::text)
+WHERE source = @source AND category = @category
   AND (@buy::text = '' OR buy = @buy::text)
-  AND (cardinality(@fuels::text[]) = 0 OR fuel = ANY(@fuels::text[]))
-  AND (cardinality(@gearboxes::text[]) = 0 OR gearbox = ANY(@gearboxes::text[]))
-  AND (cardinality(@bodies::text[]) = 0 OR body = ANY(@bodies::text[]))
-  AND (cardinality(@regions::text[]) = 0 OR region = ANY(@regions::text[]))
   AND (@min_price::float8 = 0 OR price_value >= @min_price::float8)
   AND (@max_price::float8 = 0 OR price_value <= @max_price::float8)
-  AND (@min_year::int = 0 OR year >= @min_year::int)
-  AND (@max_year::int = 0 OR year <= @max_year::int)
-  AND (@max_mileage::int = 0 OR (mileage_km > 0 AND mileage_km <= @max_mileage::int))
-  AND (@min_engine::float8 = 0 OR engine_l >= @min_engine::float8)
-  AND (@max_engine::float8 = 0 OR (engine_l > 0 AND engine_l <= @max_engine::float8))
   AND (NOT @detailed_only::boolean OR detailed)
-  AND (NOT @inspected_only::boolean OR inspection = 'valid');
+  AND NOT EXISTS (
+      SELECT 1 FROM jsonb_each(@choices::jsonb) c
+      WHERE NOT COALESCE(c.value ? (attrs->>c.key), FALSE))
+  AND NOT EXISTS (
+      SELECT 1 FROM jsonb_each(@ranges::jsonb) r
+      WHERE (r.value->>0)::float8 > 0 AND COALESCE((attrs->>r.key)::float8, 0) < (r.value->>0)::float8
+         OR (r.value->>1)::float8 > 0 AND COALESCE((attrs->>r.key)::float8, 0) NOT BETWEEN 1e-9 AND (r.value->>1)::float8);
 
 -- name: GemFacets :many
--- What the filters can offer, with how many gems have each: kind is model
--- (value "make|model"), fuel, gearbox, body or region.
-SELECT f.kind::text AS kind, f.value::text AS value, count(*)::int AS n
+-- The values each choice attr takes, with how many gems have each. keys:
+-- {"model": "make", "fuel": ""}, each attr with the choice it narrows;
+-- parent is that one's value (a model's make), "" if none.
+SELECT f.key::text AS key, (g.attrs->>f.key)::text AS value, COALESCE(g.attrs->>f.value, '')::text AS parent,
+       count(*)::int AS n
 FROM gems g
-CROSS JOIN LATERAL (VALUES ('model', g.make || '|' || g.model), ('fuel', g.fuel), ('gearbox', g.gearbox),
-                           ('body', g.body), ('region', g.region)) AS f(kind, value)
-WHERE g.source = @source AND f.value <> ''
-GROUP BY f.kind, f.value
-ORDER BY f.kind, f.value;
+CROSS JOIN jsonb_each_text(@keys::jsonb) AS f
+WHERE g.source = @source AND g.category = @category AND g.attrs->>f.key <> ''
+GROUP BY 1, 2, 3
+ORDER BY 1, 2, 3;
 
 -- name: DetailedCount :one
 -- How many gems had their ad page read, for the hint by the filters.
-SELECT count(*) FILTER (WHERE detailed)::int AS detailed, count(*)::int AS total FROM gems WHERE source = @source;
+SELECT count(*) FILTER (WHERE detailed)::int AS detailed, count(*)::int AS total
+FROM gems WHERE source = @source AND category = @category;

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/sources"
 )
 
 // otherModel is the codebook's catch-all model ("other"): an ad under it
@@ -20,8 +21,14 @@ func (*Client) RateableCar(l events.ListingDiscovered) bool {
 	return strings.HasPrefix(l.Location, CarsCategory+"/") && parseFeed(l.Feed).deal == "sell"
 }
 
-// CarSaleFeed implements sources.CarScan: every car for sale.
-func (*Client) CarSaleFeed() string { return CarsCategory + "/sell" }
+// ScanScope implements sources.Scannable: every car for sale. Flats have
+// no feed of every flat (they are listed by region), so are not scanned.
+func (*Client) ScanScope(category string) (sources.ScanScope, bool) {
+	if category != CategoryCars {
+		return sources.ScanScope{}, false
+	}
+	return sources.ScanScope{Feed: CarsCategory + "/sell", Location: CarsCategory + "/"}, true
+}
 
 // carTerms translates the codebook's names (the search form's) for the car
 // attrs internal/deals rates into its English vocabulary. Equipment that

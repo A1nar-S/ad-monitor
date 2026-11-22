@@ -3,12 +3,14 @@ import { computed } from 'vue'
 import { Info } from 'lucide-vue-next'
 import MultiSelect from './MultiSelect.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
-import type { GemBuy, GemCount, GemPage, GemQuery } from '../api'
+import type { GemBuy, GemField, GemPage, GemQuery, GemSpec } from '../api'
 import { formatNumber, t, tKey } from '../i18n'
 
-// The gem finder's filters. The parent owns the query (v-model) and loads
-// the cars when it changes; facets say which values there are, with counts.
+// The gem finder's filters, drawn from the category's spec: the parent owns
+// the query (v-model) and loads the gems when it changes; facets say which
+// values the gems have, with counts.
 const props = defineProps<{
+  spec: GemSpec
   facets: GemPage['facets'] | null
   detailed: number
   all: number
@@ -16,86 +18,71 @@ const props = defineProps<{
 const query = defineModel<GemQuery>({ required: true })
 
 const buys: GemBuy[] = ['good', 'average', 'bad', 'check']
-const bodyOrder = [
-  'sedan',
-  'wagon',
-  'hatchback',
-  'suv',
-  'coupe',
-  'convertible',
-  'minivan',
-  'minibus',
-  'pickup',
-]
 
-const makes = computed(() => {
-  const counts = new Map<string, number>()
-  for (const m of props.facets?.models ?? [])
-    counts.set(m.make, (counts.get(m.make) ?? 0) + m.count)
-  return [...counts].map(([make, count]) => ({ make, count }))
-})
-const models = computed(() =>
-  (props.facets?.models ?? []).filter((m) => m.make === query.value.make),
-)
-const bodies = computed(() =>
-  [...(props.facets?.bodies ?? [])].sort(
-    (a, b) => bodyOrder.indexOf(a.value) - bodyOrder.indexOf(b.value),
-  ),
-)
-const regions = computed(() =>
-  [...(props.facets?.regions ?? [])]
-    .sort((a, b) => b.count - a.count)
-    .map((r) => r.value),
-)
+const label = (key: string) => tKey(`gems.fields.${key}`, key)
+const valueLabel = (key: string, v: string) =>
+  tKey(`gems.values.${key}.${v}`, v)
 
-// The list filters toggle a value in or out.
-type ListKey = 'fuel' | 'gearbox' | 'body'
-function has(key: ListKey, value: string) {
-  return query.value[key]?.includes(value) ?? false
-}
-function toggle(key: ListKey, value: string) {
-  const now = query.value[key] ?? []
-  query.value = {
-    ...query.value,
-    [key]: now.includes(value)
-      ? now.filter((v) => v !== value)
-      : [...now, value],
+// The detail fields are known only for read ad pages: the hint goes above
+// the first of them.
+const details = computed(() => props.spec.fields.filter((f) => f.detail))
+const firstDetail = computed(() => details.value[0]?.key)
+
+const picked = (key: string) => query.value.choices[key] ?? []
+
+// The values a choice offers: those the gems have (with counts), narrowed
+// by the choice it depends on.
+function options(f: GemField) {
+  let all = props.facets?.[f.key] ?? []
+  if (f.dependsOn) {
+    const parent = picked(f.dependsOn)[0]
+    all = parent ? all.filter((x) => x.parent === parent) : []
   }
+  const counts = new Map<string, number>()
+  for (const x of all) counts.set(x.value, (counts.get(x.value) ?? 0) + x.count)
+  return [...counts].map(([value, count]) => ({ value, count }))
+}
+
+// Setting a choice clears those that depend on it.
+function setChoice(key: string, values: string[]) {
+  const choices = { ...query.value.choices, [key]: values }
+  if (!values.length) delete choices[key]
+  for (const f of props.spec.fields)
+    if (f.dependsOn === key) delete choices[f.key]
+  query.value = { ...query.value, choices }
+}
+function toggle(key: string, value: string) {
+  const now = picked(key)
+  setChoice(
+    key,
+    now.includes(value) ? now.filter((v) => v !== value) : [...now, value],
+  )
+}
+function selected(key: string, event: Event) {
+  const v = (event.target as HTMLSelectElement).value
+  setChoice(key, v ? [v] : [])
+}
+function number(event: Event) {
+  const n = Number((event.target as HTMLInputElement).value)
+  return Number.isFinite(n) && n > 0 ? n : undefined
+}
+function setRange(key: string, end: 'min' | 'max', event: Event) {
+  const ranges = {
+    ...query.value.ranges,
+    [key]: { ...query.value.ranges[key], [end]: number(event) },
+  }
+  query.value = { ...query.value, ranges }
+}
+function setPrice(end: 'minPrice' | 'maxPrice', event: Event) {
+  query.value = { ...query.value, [end]: number(event) }
 }
 function setBuy(b: GemBuy) {
   query.value = { ...query.value, buy: query.value.buy === b ? '' : b }
 }
-function setNumber(key: keyof GemQuery, event: Event) {
-  const raw = (event.target as HTMLInputElement).value
-  const n = raw === '' ? undefined : Math.max(0, Number(raw))
-  query.value = { ...query.value, [key]: Number.isFinite(n) ? n : undefined }
-}
-function setMake(make: string) {
-  query.value = { ...query.value, make, model: '' }
-}
-
-const groups = computed<
-  { key: ListKey; label: string; items: GemCount[]; prefix: string }[]
->(() => [
-  {
-    key: 'body',
-    label: t('gems.body'),
-    items: bodies.value,
-    prefix: 'gems.bodies',
-  },
-  {
-    key: 'fuel',
-    label: t('gems.fuel'),
-    items: props.facets?.fuels ?? [],
-    prefix: 'gems.fuels',
-  },
-  {
-    key: 'gearbox',
-    label: t('gems.gearbox'),
-    items: props.facets?.gearboxes ?? [],
-    prefix: 'gems.gearboxes',
-  },
-])
+const ends = [
+  { id: 'min', label: () => t('gems.from') },
+  { id: 'max', label: () => t('gems.to') },
+] as const
 </script>
 
 <template>
@@ -116,132 +103,116 @@ const groups = computed<
       </div>
     </fieldset>
 
-    <div class="grid grid-cols-2 gap-2">
-      <label class="col-span-2 sm:col-span-1 lg:col-span-2">
-        <span class="field-label">{{ t('gems.make') }}</span>
-        <select
-          class="field"
-          :value="query.make ?? ''"
-          @change="setMake(($event.target as HTMLSelectElement).value)"
-        >
-          <option value="">{{ t('gems.anyMake') }}</option>
-          <option v-for="m in makes" :key="m.make" :value="m.make">
-            {{ m.make }} ({{ formatNumber(m.count) }})
-          </option>
-        </select>
-      </label>
-      <label class="col-span-2 sm:col-span-1 lg:col-span-2">
-        <span class="field-label">{{ t('gems.model') }}</span>
-        <select
-          class="field"
-          :value="query.model ?? ''"
-          :disabled="!query.make"
-          @change="
-            query = {
-              ...query,
-              model: ($event.target as HTMLSelectElement).value,
-            }
-          "
-        >
-          <option value="">{{ t('gems.anyModel') }}</option>
-          <option v-for="m in models" :key="m.model" :value="m.model">
-            {{ m.model }} ({{ formatNumber(m.count) }})
-          </option>
-        </select>
-      </label>
-    </div>
-
-    <fieldset
-      v-for="range in [
-        { label: t('gems.price'), min: 'minPrice', max: 'maxPrice', step: 500 },
-        { label: t('gems.year'), min: 'minYear', max: 'maxYear', step: 1 },
-      ] as const"
-      :key="range.min"
-    >
-      <legend class="field-label">{{ range.label }}</legend>
+    <fieldset>
+      <legend class="field-label">{{ t('gems.price') }}</legend>
       <div class="grid grid-cols-2 gap-2">
         <input
+          v-for="end in ends"
+          :key="end.id"
           type="number"
           min="0"
-          :step="range.step"
+          step="500"
           class="field tabular-nums"
-          :placeholder="t('gems.from')"
-          :aria-label="`${range.label}: ${t('gems.from')}`"
-          :value="query[range.min] ?? ''"
-          @change="setNumber(range.min, $event)"
+          :placeholder="end.label()"
+          :aria-label="`${t('gems.price')}: ${end.label()}`"
+          :value="(end.id === 'min' ? query.minPrice : query.maxPrice) ?? ''"
+          @change="setPrice(end.id === 'min' ? 'minPrice' : 'maxPrice', $event)"
         />
+      </div>
+    </fieldset>
+
+    <template v-for="f in spec.fields" :key="f.key">
+      <div
+        v-if="f.key === firstDetail"
+        class="flex items-start gap-2 rounded-md bg-brand-50 px-3 py-2.5 text-xs text-gray-700"
+      >
+        <Info :size="14" class="mt-px shrink-0 text-brand-600" />
+        <span>{{
+          t('gems.detailHint', {
+            fields: details.map((d) => label(d.key)).join(', '),
+            n: detailed,
+            all,
+          })
+        }}</span>
+      </div>
+
+      <label v-if="f.kind === 'choice' && f.control === 'select'" class="block">
+        <span class="field-label">{{ label(f.key) }}</span>
+        <select
+          class="field"
+          :value="picked(f.key)[0] ?? ''"
+          :disabled="!!f.dependsOn && !picked(f.dependsOn).length"
+          @change="selected(f.key, $event)"
+        >
+          <option value="">{{ t('gems.any') }}</option>
+          <option v-for="o in options(f)" :key="o.value" :value="o.value">
+            {{ valueLabel(f.key, o.value) }} ({{ formatNumber(o.count) }})
+          </option>
+        </select>
+      </label>
+
+      <label
+        v-else-if="f.kind === 'choice' && f.control === 'search'"
+        class="block"
+      >
+        <span class="field-label">{{ label(f.key) }}</span>
+        <MultiSelect
+          :model-value="picked(f.key)"
+          :options="f.options ?? options(f).map((o) => o.value)"
+          :placeholder="t('gems.search')"
+          @update:model-value="setChoice(f.key, $event)"
+        />
+      </label>
+
+      <fieldset v-else-if="f.kind === 'choice'" v-show="options(f).length">
+        <legend class="field-label">{{ label(f.key) }}</legend>
+        <div class="flex flex-wrap gap-1.5">
+          <button
+            v-for="o in options(f)"
+            :key="o.value"
+            type="button"
+            class="chip"
+            :aria-pressed="picked(f.key).includes(o.value)"
+            @click="toggle(f.key, o.value)"
+          >
+            {{ valueLabel(f.key, o.value) }}
+            <span class="text-gray-500 tabular-nums">{{
+              formatNumber(o.count)
+            }}</span>
+          </button>
+        </div>
+      </fieldset>
+
+      <label v-else-if="f.control === 'max'" class="block">
+        <span class="field-label">{{ label(f.key) }}</span>
         <input
           type="number"
           min="0"
-          :step="range.step"
           class="field tabular-nums"
-          :placeholder="t('gems.to')"
-          :aria-label="`${range.label}: ${t('gems.to')}`"
-          :value="query[range.max] ?? ''"
-          @change="setNumber(range.max, $event)"
+          :placeholder="t('gems.upTo')"
+          :value="query.ranges[f.key]?.max ?? ''"
+          @change="setRange(f.key, 'max', $event)"
         />
-      </div>
-    </fieldset>
+      </label>
 
-    <label class="block">
-      <span class="field-label">{{ t('gems.mileage') }}</span>
-      <input
-        type="number"
-        min="0"
-        step="10000"
-        class="field tabular-nums"
-        :placeholder="t('gems.maxKm')"
-        :value="query.maxMileage ?? ''"
-        @change="setNumber('maxMileage', $event)"
-      />
-    </label>
-
-    <div
-      class="flex items-start gap-2 rounded-md bg-brand-50 px-3 py-2.5 text-xs text-gray-700"
-    >
-      <Info :size="14" class="mt-px shrink-0 text-brand-600" />
-      <span>{{ t('gems.detailHint', { n: detailed, all }) }}</span>
-    </div>
-
-    <label class="block">
-      <span class="field-label">{{ t('gems.region') }}</span>
-      <MultiSelect
-        :model-value="query.region ?? []"
-        :options="regions"
-        :placeholder="t('gems.regionPlaceholder')"
-        @update:model-value="query = { ...query, region: $event }"
-      />
-    </label>
-
-    <fieldset v-for="g in groups" v-show="g.items.length" :key="g.key">
-      <legend class="field-label">{{ g.label }}</legend>
-      <div class="flex flex-wrap gap-1.5">
-        <button
-          v-for="item in g.items"
-          :key="item.value"
-          type="button"
-          class="chip"
-          :aria-pressed="has(g.key, item.value)"
-          @click="toggle(g.key, item.value)"
-        >
-          {{ tKey(`${g.prefix}.${item.value}`, item.value) }}
-          <span class="text-gray-500 tabular-nums">{{
-            formatNumber(item.count)
-          }}</span>
-        </button>
-      </div>
-    </fieldset>
-
-    <label class="flex items-center justify-between gap-3">
-      <span class="text-small font-medium text-gray-800">{{
-        t('gems.inspectedOnly')
-      }}</span>
-      <ToggleSwitch
-        :model-value="!!query.inspected"
-        :label="t('gems.inspectedOnly')"
-        @update:model-value="query = { ...query, inspected: $event }"
-      />
-    </label>
+      <fieldset v-else>
+        <legend class="field-label">{{ label(f.key) }}</legend>
+        <div class="grid grid-cols-2 gap-2">
+          <input
+            v-for="end in ends"
+            :key="end.id"
+            type="number"
+            min="0"
+            step="any"
+            class="field tabular-nums"
+            :placeholder="end.label()"
+            :aria-label="`${label(f.key)}: ${end.label()}`"
+            :value="query.ranges[f.key]?.[end.id] ?? ''"
+            @change="setRange(f.key, end.id, $event)"
+          />
+        </div>
+      </fieldset>
+    </template>
 
     <label class="flex items-center justify-between gap-3">
       <span class="text-small font-medium text-gray-800">{{

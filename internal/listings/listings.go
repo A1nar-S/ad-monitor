@@ -372,25 +372,26 @@ func (s *Service) MarkGoneIDs(ctx context.Context, source string, ids []string) 
 	return s.q.MarkGoneIDs(ctx, listingsdb.MarkGoneIDsParams{Source: source, Ids: ids})
 }
 
-// StoredCar is a stored ad with a make and a price, ad-page details merged.
-type StoredCar struct {
+// StoredAd is a stored ad with a price, ad-page details merged.
+type StoredAd struct {
 	ID       int64
 	Listing  events.ListingDiscovered
 	Active   bool
 	Detailed bool // its ad page was read
 }
 
-// StoredCars returns every stored ad of source with a make and a price.
-func (s *Service) StoredCars(ctx context.Context, source string) ([]StoredCar, error) {
-	rows, err := s.q.StoredCars(ctx, source)
+// StoredIn returns every stored ad of source with a price whose Location
+// starts with location.
+func (s *Service) StoredIn(ctx context.Context, source, location string) ([]StoredAd, error) {
+	rows, err := s.q.StoredIn(ctx, listingsdb.StoredInParams{Source: source, Location: location})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]StoredCar, len(rows))
+	out := make([]StoredAd, len(rows))
 	for i, r := range rows {
 		l := fromRow(source, r.ExternalID, r.Feed, r.Title, r.Url, r.Location, r.Price, r.PriceValue, r.ImageUrl, r.Attrs, r.PostedAt)
 		l.Fingerprint = r.Fingerprint
-		out[i] = StoredCar{ID: r.ID, Listing: l, Active: r.IsActive, Detailed: r.Detailed}
+		out[i] = StoredAd{ID: r.ID, Listing: l, Active: r.IsActive, Detailed: r.Detailed}
 	}
 	return out, nil
 }

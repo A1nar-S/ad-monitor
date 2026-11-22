@@ -15,26 +15,19 @@ type Gem struct {
 	Title        string
 	Url          string
 	ImageUrl     string
-	Make         string
-	Model        string
-	Year         int32
-	MileageKm    int32
-	Fuel         string
 	Price        string
 	PriceValue   float64
 	Buy          string
 	Score        float64
 	Overall      string
 	Fields       []byte
-	Gearbox      string
-	Inspection   string
-	Body         string
-	Region       string
-	EngineL      float64
 	Detailed     bool
 	DisplayScore int32
 	PriceDiff    *float64
 	Components   []byte
+	Category     string
+	Heading      string
+	Attrs        []byte
 }
 
 type GemScan struct {
@@ -55,4 +48,5 @@ type GemScan struct {
 	DetailTotal int32
 	Detailed    int32
 	ProgressAt  pgtype.Timestamptz
+	Category    string
 }

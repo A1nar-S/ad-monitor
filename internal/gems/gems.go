@@ -1,5 +1,7 @@
-// Package gems is the slice behind the gem finder: a full scan of every car
-// for sale on a source, each one rated (internal/deals), best buys first.
+// Package gems is the slice behind the gem finder: a full scan of every
+// listing of one category for sale on a source, each one rated, best buys
+// first. It is generic: a Category (cars: internal/gems/cars) rates and
+// says what can be filtered; this package scans, stores, filters and lists.
 // It owns the scan requests and the latest scan's ratings; the scraper runs
 // scans (Scanner), the API requests (admins) and lists them (everyone).
 //
@@ -17,14 +19,12 @@ import (
 	"fmt"
 	"io/fs"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/A1nar-S/advertisiment-monitoring/internal/deals"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/gems/gemsdb"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/db"
@@ -33,14 +33,28 @@ import (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-// Service requests scans and reads their results.
+// Service requests scans and reads their results, for the categories it
+// was given.
 type Service struct {
 	pool *pgxpool.Pool
 	q    *gemsdb.Queries
+	cats []Category
 }
 
-func NewService(pool *pgxpool.Pool) *Service {
-	return &Service{pool: pool, q: gemsdb.New(pool)}
+func NewService(pool *pgxpool.Pool, cats ...Category) *Service {
+	return &Service{pool: pool, q: gemsdb.New(pool), cats: cats}
+}
+
+// Categories are the ones this service rates, in the order given.
+func (s *Service) Categories() []Category { return s.cats }
+
+// Category returns the category with id.
+func (s *Service) Category(id string) (Category, bool) {
+	i := slices.IndexFunc(s.cats, func(c Category) bool { return c.ID() == id })
+	if i < 0 {
+		return nil, false
+	}
+	return s.cats[i], true
 }
 
 // Migrate brings this slice's schema up to date.
@@ -55,10 +69,14 @@ func (s *Service) Migrate(ctx context.Context) error {
 // ErrBusy: a scan of the source is already waiting or running.
 var ErrBusy = errors.New("a scan is already waiting or running")
 
+// ErrBadQuery: a filter or category the API cannot take.
+var ErrBadQuery = errors.New("bad query")
+
 // Scan is one scan request and how far it got.
 type Scan struct {
 	ID          int64      `json:"id"`
 	Source      string     `json:"source"`
+	Category    string     `json:"category"`
 	Status      string     `json:"status"` // requested, running, done, failed
 	RequestedAt time.Time  `json:"requestedAt"`
 	StartedAt   *time.Time `json:"startedAt,omitempty"`
@@ -66,9 +84,9 @@ type Scan struct {
 	Pages       int        `json:"pages"`
 	Ads         int        `json:"ads"`
 	Gone        int        `json:"gone"`  // ads no longer on the site, marked sold
-	Rated       int        `json:"rated"` // cars with a verdict
+	Rated       int        `json:"rated"` // listings with a verdict
 	Error       string     `json:"error,omitempty"`
-	// Complete: the crawl reached the end and sold cars were marked. Note
+	// Complete: the crawl reached the end and sold ones were marked. Note
 	// says why not.
 	Complete bool   `json:"complete"`
 	Note     string `json:"note,omitempty"`
@@ -87,7 +105,7 @@ func scanOf(r gemsdb.GemScan) Scan {
 		return &ts.Time
 	}
 	return Scan{
-		ID: r.ID, Source: r.Source, Status: r.Status, RequestedAt: r.RequestedAt.Time,
+		ID: r.ID, Source: r.Source, Category: r.Category, Status: r.Status, RequestedAt: r.RequestedAt.Time,
 		StartedAt: t(r.StartedAt), FinishedAt: t(r.FinishedAt),
 		Pages: int(r.Pages), Ads: int(r.Ads), Gone: int(r.Gone), Rated: int(r.Rated), Error: r.Error,
 		Complete: r.Complete, Note: r.Note,
@@ -95,15 +113,26 @@ func scanOf(r gemsdb.GemScan) Scan {
 	}
 }
 
-// RequestScan asks the scraper to scan source; ErrBusy if one is pending.
-func (s *Service) RequestScan(ctx context.Context, source string) (Scan, error) {
+func (s *Service) known(category string) error {
+	if _, ok := s.Category(category); !ok {
+		return fmt.Errorf("%w: unknown category %q", ErrBadQuery, category)
+	}
+	return nil
+}
+
+// RequestScan asks the scraper to scan source's category; ErrBusy if one
+// is pending.
+func (s *Service) RequestScan(ctx context.Context, source, category string) (Scan, error) {
+	if err := s.known(category); err != nil {
+		return Scan{}, err
+	}
 	var scan Scan
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
-		if err := q.LockSource(ctx, source); err != nil {
+		if err := q.LockScans(ctx, gemsdb.LockScansParams{Source: source, Category: category}); err != nil {
 			return err
 		}
-		r, err := q.RequestScan(ctx, source)
+		r, err := q.RequestScan(ctx, gemsdb.RequestScanParams{Source: source, Category: category})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrBusy
 		}
@@ -113,9 +142,13 @@ func (s *Service) RequestScan(ctx context.Context, source string) (Scan, error) 
 	return scan, err
 }
 
-// LatestScan returns source's newest scan; ok is false if there was none.
-func (s *Service) LatestScan(ctx context.Context, source string) (Scan, bool, error) {
-	r, err := s.q.LatestScan(ctx, source)
+// LatestScan returns the newest scan of source's category; ok is false if
+// there was none.
+func (s *Service) LatestScan(ctx context.Context, source, category string) (Scan, bool, error) {
+	if err := s.known(category); err != nil {
+		return Scan{}, false, err
+	}
+	r, err := s.q.LatestScan(ctx, gemsdb.LatestScanParams{Source: source, Category: category})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Scan{}, false, nil
 	}
@@ -125,59 +158,45 @@ func (s *Service) LatestScan(ctx context.Context, source string) (Scan, bool, er
 	return scanOf(r), true, nil
 }
 
-// Categories are what the finder can scan a source for.
-var Categories = []string{"cars"}
-
-// Gem is one rated car.
+// Gem is one rated listing.
 type Gem struct {
 	ExternalID string         `json:"externalId"`
+	Heading    string         `json:"heading"` // what it is, e.g. "BMW 520"
 	Title      string         `json:"title"`
 	URL        string         `json:"url"`
 	ImageURL   string         `json:"imageUrl"`
-	Make       string         `json:"make"`
-	Model      string         `json:"model"`
-	Year       int            `json:"year"`
-	MileageKm  int            `json:"mileageKm"`  // 0 = unknown
-	EngineL    float64        `json:"engineL"`    // 0 = unknown
-	Fuel       string         `json:"fuel"`       // internal/deals' words: petrol, diesel, ...
-	Gearbox    string         `json:"gearbox"`    // automatic, manual; "" = unknown (ad page not read)
-	Inspection string         `json:"inspection"` // valid, none; "" = unknown
-	Body       string         `json:"body"`       // sedan, wagon, ...; "" = unknown
-	Region     string         `json:"region"`     // the site's words, e.g. "Rīga"; "" = unknown
-	Detailed   bool           `json:"detailed"`   // its ad page was read
 	Price      string         `json:"price"`
 	PriceValue float64        `json:"priceValue"`
-	PriceDiff  *float64       `json:"priceDiff"` // vs similar ads: -0.14 is 14% below; null = not compared
+	PriceDiff  *float64       `json:"priceDiff"` // vs similar listings: -0.14 is 14% below; null = not compared
 	Buy        string         `json:"buy"`       // good, average, bad, check
 	Score      int            `json:"score"`     // 0-100
 	Overall    string         `json:"overall"`
-	Fields     []events.Field `json:"fields"` // the verdict lines, as in an alert
-	// Components are the score's parts (price, mileage, engine, ...).
-	Components []deals.Component `json:"components"`
+	Fields     []events.Field `json:"fields"`   // the verdict lines, as in an alert
+	Detailed   bool           `json:"detailed"` // its ad page was read
+	// Components are the score's parts; Attrs the values of the category's
+	// Spec fields (unknown left out).
+	Components []Component    `json:"components"`
+	Attrs      map[string]any `json:"attrs"`
 }
 
-// Buy values, the deals.Buy verdicts in the API's words.
+// Buy values: the verdicts every category gives.
 var buys = []string{"good", "average", "bad", "check"}
 
-// Sorts the list takes: best buy first, cheapest, newest model year, fewest
-// km, furthest below similar ads.
-var sorts = []string{"", "price", "year", "mileage", "discount"}
+// The orders every category has: best buy first, cheapest, furthest below
+// similar listings. A category adds its own (Spec.Sorts).
+var commonSorts = []string{"", "price", "discount"}
 
-// Query filters and orders the gems. Zero values match everything; a list
-// matches any of its values.
+// Query filters and orders the gems. Zero values match everything.
 type Query struct {
-	Make, Model            string
-	Buy                    string // one of buys
-	Fuels, Gearboxes       []string
-	Bodies, Regions        []string
-	MinPrice, MaxPrice     float64
-	MinYear, MaxYear       int
-	MaxMileage             int
-	MinEngineL, MaxEngineL float64
-	DetailedOnly           bool
-	InspectedOnly          bool   // a valid technical inspection
-	Sort                   string // one of sorts
-	Page                   int    // from 1
+	Buy                string // one of buys
+	MinPrice, MaxPrice float64
+	DetailedOnly       bool
+	// Choices: a choice field's key → the values any of which it must have.
+	Choices map[string][]string
+	// Ranges: a range field's key → from and to; 0 = open.
+	Ranges map[string][2]float64
+	Sort   string // one of commonSorts or the category's
+	Page   int    // from 1
 }
 
 // PageSize is how many gems a page holds.
@@ -185,83 +204,90 @@ const PageSize = 24
 
 // Page is one page of gems, with what the filters can offer.
 type Page struct {
-	Items    []Gem  `json:"items"`
-	Total    int    `json:"total"`
-	Page     int    `json:"page"`
-	PageSize int    `json:"pageSize"`
-	Facets   Facets `json:"facets"`
-	// Detailed of All gems had their ad page read: only those have a
-	// gearbox, body and region to filter on.
+	Items    []Gem `json:"items"`
+	Total    int   `json:"total"`
+	Page     int   `json:"page"`
+	PageSize int   `json:"pageSize"`
+	// Facets: each choice field's key → the values the gems have.
+	Facets map[string][]Facet `json:"facets"`
+	// Detailed of All gems had their ad page read: only those have the
+	// Detail fields to filter on.
 	Detailed int `json:"detailed"`
 	All      int `json:"all"`
 }
 
-// Facets are the values each filter can take among the gems, with counts.
-type Facets struct {
-	Models    []MakeModel `json:"models"`
-	Fuels     []Count     `json:"fuels"`
-	Gearboxes []Count     `json:"gearboxes"`
-	Bodies    []Count     `json:"bodies"`
-	Regions   []Count     `json:"regions"`
+// Facet is one value of a choice and how many gems have it; Parent is the
+// value of the choice it narrows (a model's make).
+type Facet struct {
+	Value  string `json:"value"`
+	Parent string `json:"parent,omitempty"`
+	Count  int    `json:"count"`
 }
 
-// MakeModel is a make and model among the gems, for the filters.
-type MakeModel struct {
-	Make  string `json:"make"`
-	Model string `json:"model"`
-	Count int    `json:"count"`
-}
-
-// Count is one value of a filter and how many gems have it.
-type Count struct {
-	Value string `json:"value"`
-	Count int    `json:"count"`
-}
-
-// ErrBadQuery: a filter the API cannot take.
-var ErrBadQuery = errors.New("bad query")
-
-// List returns one page of source's gems.
-func (s *Service) List(ctx context.Context, source string, q Query) (Page, error) {
+// List returns one page of the gems of source's category.
+func (s *Service) List(ctx context.Context, source, category string, q Query) (Page, error) {
+	cat, ok := s.Category(category)
+	if !ok {
+		return Page{}, fmt.Errorf("%w: unknown category %q", ErrBadQuery, category)
+	}
+	spec := cat.Spec()
 	if q.Buy != "" && !slices.Contains(buys, q.Buy) {
 		return Page{}, fmt.Errorf("%w: buy must be one of %v", ErrBadQuery, buys)
 	}
-	if !slices.Contains(sorts, q.Sort) {
-		return Page{}, fmt.Errorf("%w: sort must be one of %v", ErrBadQuery, sorts[1:])
+	var sortKey string
+	var sortDesc bool
+	if !slices.Contains(commonSorts, q.Sort) {
+		i := slices.IndexFunc(spec.Sorts, func(x Sort) bool { return x.ID == q.Sort })
+		if i < 0 {
+			return Page{}, fmt.Errorf("%w: unknown sort %q", ErrBadQuery, q.Sort)
+		}
+		sortKey, sortDesc = spec.Sorts[i].Key, spec.Sorts[i].Desc
 	}
+	choices := map[string][]string{}
+	for k, v := range q.Choices {
+		if f, ok := spec.field(k); !ok || f.Kind != Choice {
+			return Page{}, fmt.Errorf("%w: %q is not a choice", ErrBadQuery, k)
+		}
+		if len(v) > 0 {
+			choices[k] = v
+		}
+	}
+	ranges := map[string][2]float64{}
+	for k, v := range q.Ranges {
+		if f, ok := spec.field(k); !ok || f.Kind != Range {
+			return Page{}, fmt.Errorf("%w: %q is not a range", ErrBadQuery, k)
+		}
+		if v[0] > 0 || v[1] > 0 {
+			ranges[k] = v
+		}
+	}
+	cj, _ := json.Marshal(choices)
+	rj, _ := json.Marshal(ranges)
 	if q.Page < 1 {
 		q.Page = 1
 	}
-	list := func(v []string) []string { // sqlc sends nil as NULL, which cardinality() does not count
-		if v == nil {
-			return []string{}
-		}
-		return v
-	}
+
 	rows, err := s.q.ListGems(ctx, gemsdb.ListGemsParams{
-		Source: source, Make: q.Make, Model: q.Model, Buy: q.Buy,
-		Fuels: list(q.Fuels), Gearboxes: list(q.Gearboxes), Bodies: list(q.Bodies), Regions: list(q.Regions),
-		MinPrice: q.MinPrice, MaxPrice: q.MaxPrice, MinYear: int32(q.MinYear), MaxYear: int32(q.MaxYear),
-		MaxMileage: int32(q.MaxMileage), MinEngine: q.MinEngineL, MaxEngine: q.MaxEngineL, DetailedOnly: q.DetailedOnly, InspectedOnly: q.InspectedOnly,
-		Sort: q.Sort, Off: int32((q.Page - 1) * PageSize), Lim: PageSize,
+		Source: source, Category: category, Buy: q.Buy, MinPrice: q.MinPrice, MaxPrice: q.MaxPrice,
+		DetailedOnly: q.DetailedOnly, Choices: cj, Ranges: rj,
+		Sort: q.Sort, SortKey: sortKey, SortDesc: sortDesc,
+		Off: int32((q.Page - 1) * PageSize), Lim: PageSize,
 	})
 	if err != nil {
 		return Page{}, err
 	}
 	total, err := s.q.CountGems(ctx, gemsdb.CountGemsParams{
-		Source: source, Make: q.Make, Model: q.Model, Buy: q.Buy,
-		Fuels: list(q.Fuels), Gearboxes: list(q.Gearboxes), Bodies: list(q.Bodies), Regions: list(q.Regions),
-		MinPrice: q.MinPrice, MaxPrice: q.MaxPrice, MinYear: int32(q.MinYear), MaxYear: int32(q.MaxYear),
-		MaxMileage: int32(q.MaxMileage), MinEngine: q.MinEngineL, MaxEngine: q.MaxEngineL, DetailedOnly: q.DetailedOnly, InspectedOnly: q.InspectedOnly,
+		Source: source, Category: category, Buy: q.Buy, MinPrice: q.MinPrice, MaxPrice: q.MaxPrice,
+		DetailedOnly: q.DetailedOnly, Choices: cj, Ranges: rj,
 	})
 	if err != nil {
 		return Page{}, err
 	}
-	facets, err := s.facets(ctx, source)
+	facets, err := s.facets(ctx, source, category, spec)
 	if err != nil {
 		return Page{}, err
 	}
-	counts, err := s.q.DetailedCount(ctx, source)
+	counts, err := s.q.DetailedCount(ctx, gemsdb.DetailedCountParams{Source: source, Category: category})
 	if err != nil {
 		return Page{}, err
 	}
@@ -269,40 +295,35 @@ func (s *Service) List(ctx context.Context, source string, q Query) (Page, error
 		Detailed: int(counts.Detailed), All: int(counts.Total)}
 	for _, r := range rows {
 		g := Gem{
-			ExternalID: r.ExternalID, Title: r.Title, URL: r.Url, ImageURL: r.ImageUrl, Make: r.Make, Model: r.Model,
-			Year: int(r.Year), MileageKm: int(r.MileageKm), EngineL: r.EngineL, Fuel: r.Fuel, Gearbox: r.Gearbox, Inspection: r.Inspection,
-			Body: r.Body, Region: r.Region, Detailed: r.Detailed, Price: r.Price, PriceValue: r.PriceValue,
-			PriceDiff: r.PriceDiff, Buy: r.Buy, Score: int(r.DisplayScore), Overall: r.Overall,
-			Fields: []events.Field{}, Components: []deals.Component{},
+			ExternalID: r.ExternalID, Heading: r.Heading, Title: r.Title, URL: r.Url, ImageURL: r.ImageUrl,
+			Price: r.Price, PriceValue: r.PriceValue, PriceDiff: r.PriceDiff, Buy: r.Buy, Score: int(r.DisplayScore),
+			Overall: r.Overall, Detailed: r.Detailed,
+			Fields: []events.Field{}, Components: []Component{}, Attrs: map[string]any{},
 		}
 		_ = json.Unmarshal(r.Fields, &g.Fields)
 		_ = json.Unmarshal(r.Components, &g.Components)
+		_ = json.Unmarshal(r.Attrs, &g.Attrs)
 		p.Items = append(p.Items, g)
 	}
 	return p, nil
 }
 
-func (s *Service) facets(ctx context.Context, source string) (Facets, error) {
-	rows, err := s.q.GemFacets(ctx, source)
-	if err != nil {
-		return Facets{}, err
-	}
-	f := Facets{Models: []MakeModel{}, Fuels: []Count{}, Gearboxes: []Count{}, Bodies: []Count{}, Regions: []Count{}}
-	for _, r := range rows {
-		c := Count{Value: r.Value, Count: int(r.N)}
-		switch r.Kind {
-		case "model":
-			mk, model, _ := strings.Cut(r.Value, "|")
-			f.Models = append(f.Models, MakeModel{Make: mk, Model: model, Count: c.Count})
-		case "fuel":
-			f.Fuels = append(f.Fuels, c)
-		case "gearbox":
-			f.Gearboxes = append(f.Gearboxes, c)
-		case "body":
-			f.Bodies = append(f.Bodies, c)
-		case "region":
-			f.Regions = append(f.Regions, c)
+func (s *Service) facets(ctx context.Context, source, category string, spec Spec) (map[string][]Facet, error) {
+	keys := map[string]string{}
+	out := map[string][]Facet{}
+	for _, f := range spec.Fields {
+		if f.Kind == Choice {
+			keys[f.Key] = f.DependsOn
+			out[f.Key] = []Facet{}
 		}
 	}
-	return f, nil
+	kj, _ := json.Marshal(keys)
+	rows, err := s.q.GemFacets(ctx, gemsdb.GemFacetsParams{Keys: kj, Source: source, Category: category})
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out[r.Key] = append(out[r.Key], Facet{Value: r.Value, Parent: r.Parent, Count: int(r.N)})
+	}
+	return out, nil
 }

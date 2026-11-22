@@ -63,14 +63,15 @@ WHERE source = @source AND is_active AND last_seen_at < @since;
 -- name: MarkGoneIDs :execrows
 UPDATE listings SET is_active = FALSE WHERE source = @source AND external_id = ANY(@ids::text[]) AND is_active;
 
--- name: StoredCars :many
--- Every stored ad of a source with a make and a price, ad-page details
--- merged: what a gem scan rates and compares with.
+-- name: StoredIn :many
+-- Every stored ad of a source with a price under a location prefix (cars:
+-- "transport/cars/"), ad-page details merged: what a gem scan rates and
+-- compares with.
 SELECT id, external_id, feed, location, title, url, price, price_value, image_url,
        (attrs || COALESCE(details, '{}'::jsonb))::jsonb AS attrs, posted_at, fingerprint, is_active,
        (detailed_at IS NOT NULL)::boolean AS detailed
 FROM listings
-WHERE source = @source AND attrs ? 'make' AND price_value IS NOT NULL;
+WHERE source = @source AND starts_with(location, @location::text) AND price_value IS NOT NULL;
 
 -- name: LockFingerprint :exec
 -- Held to the end of the transaction, so two ads of one item ingested at

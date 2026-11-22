@@ -101,7 +101,7 @@ flowchart TB
     listings[listings] --- t1[(listings, listings_outbox, feed_state)]
     subs[subscriptions] --- t2[(users, channels, searches, matches, sessions, login_tokens, settings, watch_targets, watches, watch_prices, watch_alerts)]
     notif[notifications] --- t3[(deliveries, digest_queue)]
-    gemsl[gems] --- t4[(gem_scans, gems)]
+    gemsl[gems + categories] --- t4[(gem_scans, gems)]
     scraping[sources + scraping: one adapter per site]
 
     listings & subs & notif & gemsl & scraping -.-> events

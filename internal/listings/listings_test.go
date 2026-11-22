@@ -433,11 +433,20 @@ func TestStoreScanned(t *testing.T) {
 	if n, err := svc.MarkGoneIDs(ctx, "ss.com", []string{"known"}); err != nil || n != 1 {
 		t.Errorf("marked %d gone (err %v), want 1", n, err)
 	}
-	cars, err := svc.StoredCars(ctx, "ss.com")
+	if cars, err := svc.StoredIn(ctx, "ss.com", "transport/cars/"); err != nil || len(cars) != 0 {
+		t.Errorf("stored cars = %d (err %v), want 0: the test ads are not under transport/cars/", len(cars), err)
+	}
+	all, err := svc.StoredIn(ctx, "ss.com", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cars) != 0 {
-		t.Errorf("stored cars = %d, want 0: the test ads have no make", len(cars))
+	active := 0
+	for _, a := range all {
+		if a.Active {
+			active++
+		}
+	}
+	if len(all) != 2 || active != 1 {
+		t.Errorf("stored = %d, %d active; want both, the scanned one active", len(all), active)
 	}
 }

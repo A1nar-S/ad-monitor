@@ -567,15 +567,20 @@ func (q *Queries) StoreScanned(ctx context.Context, arg StoreScannedParams) erro
 	return err
 }
 
-const storedCars = `-- name: StoredCars :many
+const storedIn = `-- name: StoredIn :many
 SELECT id, external_id, feed, location, title, url, price, price_value, image_url,
        (attrs || COALESCE(details, '{}'::jsonb))::jsonb AS attrs, posted_at, fingerprint, is_active,
        (detailed_at IS NOT NULL)::boolean AS detailed
 FROM listings
-WHERE source = $1 AND attrs ? 'make' AND price_value IS NOT NULL
+WHERE source = $1 AND starts_with(location, $2::text) AND price_value IS NOT NULL
 `
 
-type StoredCarsRow struct {
+type StoredInParams struct {
+	Source   string
+	Location string
+}
+
+type StoredInRow struct {
 	ID          int64
 	ExternalID  string
 	Feed        string
@@ -592,17 +597,18 @@ type StoredCarsRow struct {
 	Detailed    bool
 }
 
-// Every stored ad of a source with a make and a price, ad-page details
-// merged: what a gem scan rates and compares with.
-func (q *Queries) StoredCars(ctx context.Context, source string) ([]StoredCarsRow, error) {
-	rows, err := q.db.Query(ctx, storedCars, source)
+// Every stored ad of a source with a price under a location prefix (cars:
+// "transport/cars/"), ad-page details merged: what a gem scan rates and
+// compares with.
+func (q *Queries) StoredIn(ctx context.Context, arg StoredInParams) ([]StoredInRow, error) {
+	rows, err := q.db.Query(ctx, storedIn, arg.Source, arg.Location)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []StoredCarsRow
+	var items []StoredInRow
 	for rows.Next() {
-		var i StoredCarsRow
+		var i StoredInRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.ExternalID,

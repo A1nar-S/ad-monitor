@@ -15,7 +15,7 @@ export type Me = {
   gems: boolean
 }
 
-// A full scan of every car for sale, rated: the gem finder. Pass 1
+// A full scan of every listing of a category for sale, rated: the gem finder. Pass 1
 // (phase listing) reads every listing; pass 2 (detailing) the ad pages of
 // the potential buys.
 export type GemScan = {
@@ -29,7 +29,7 @@ export type GemScan = {
   gone: number
   rated: number
   error?: string
-  // The crawl reached the end and sold cars were marked; note says why not.
+  // The crawl reached the end and sold ones were marked; note says why not.
   complete: boolean
   note?: string
   phase?: 'listing' | 'detailing'
@@ -37,14 +37,39 @@ export type GemScan = {
   detailed: number
 }
 
-// A site the finder covers and what it can be scanned for.
-export type GemSource = { id: string; name: string; categories: string[] }
+// What a category's gems carry, as filters and on the cards (gems.Field).
+export type GemField = {
+  key: string
+  kind: 'choice' | 'range'
+  // choice: select (one), chips (any, toggled), search (any, typed);
+  // range: range (from and to) or max (up to).
+  control: 'select' | 'chips' | 'search' | 'range' | 'max'
+  dependsOn?: string
+  detail?: boolean // only read ad pages have it
+  unit?: 'km' | 'l'
+  card?: boolean
+  tones?: Record<string, 'good' | 'bad'>
+  icon?: 'pin'
+  options?: string[] // every value there can be, from the site's catalog
+}
+
+export type GemSpec = {
+  fields: GemField[]
+  sorts: { id: string; key: string; desc?: boolean }[]
+}
+
+// A site the finder covers and the categories it can be scanned for.
+export type GemSource = {
+  id: string
+  name: string
+  categories: { id: string; spec: GemSpec }[]
+}
 
 export type GemBuy = 'good' | 'average' | 'bad' | 'check'
 
-// One part of a car's score: x from -1 to +1, weighted.
+// One part of a score: x from -1 to +1, weighted.
 export type GemComponent = {
-  key: 'price' | 'mileage' | 'inspection' | 'engine' | 'gearbox' | 'equipment'
+  key: string
   x: number
   weight: number
   points: number
@@ -53,90 +78,100 @@ export type GemComponent = {
 
 export type Gem = {
   externalId: string
+  heading: string
   title: string
   url: string
   imageUrl: string
-  make: string
-  model: string
-  year: number
-  mileageKm: number
-  engineL: number
-  fuel: string
-  // Known once the ad page was read (detailed); '' otherwise.
-  gearbox: string
-  inspection: '' | 'valid' | 'none'
-  body: string
-  region: string
-  detailed: boolean
   price: string
   priceValue: number
-  // vs similar ads: -0.14 is 14% below; null = not compared.
+  // vs similar listings: -0.14 is 14% below; null = not compared.
   priceDiff: number | null
   buy: GemBuy
   score: number // 0-100
   overall: string
   fields: { name: string; value: string }[]
+  detailed: boolean
   components: GemComponent[]
+  // The spec fields' values; unknown ones are missing.
+  attrs: Record<string, string | number>
 }
-
-export type GemSort = '' | 'price' | 'year' | 'mileage' | 'discount'
 
 export type GemQuery = {
-  source?: string
-  category?: string
-  make?: string
-  model?: string
   buy?: GemBuy | ''
-  fuel?: string[]
-  gearbox?: string[]
-  body?: string[]
-  region?: string[]
+  sort?: string
+  page?: number
   minPrice?: number
   maxPrice?: number
-  minYear?: number
-  maxYear?: number
-  maxMileage?: number
   detailed?: boolean
-  inspected?: boolean
-  sort?: GemSort
-  page?: number
+  // A choice field's key → any of these values.
+  choices: Record<string, string[]>
+  // A range field's key → from and to.
+  ranges: Record<string, { min?: number; max?: number }>
 }
 
-export type GemCount = { value: string; count: number }
+export type GemFacet = { value: string; parent?: string; count: number }
 
 export type GemPage = {
   items: Gem[]
   total: number
   page: number
   pageSize: number
-  facets: {
-    models: { make: string; model: string; count: number }[]
-    fuels: GemCount[]
-    gearboxes: GemCount[]
-    bodies: GemCount[]
-    regions: GemCount[]
-  }
+  facets: Record<string, GemFacet[]>
   // detailed of all gems had their ad page read.
   detailed: number
   all: number
 }
 
-// The query as URL parameters: lists repeat, empty values are left out.
-// The gem finder's address and API share it.
+// The query as URL parameters, for the API and the page's address alike: a
+// choice repeats its key, a range is <key>_min and <key>_max, and empty
+// values are left out.
 export function gemParams(q: GemQuery): URLSearchParams {
-  const params = new URLSearchParams()
-  for (const [key, value] of Object.entries(q)) {
-    if (Array.isArray(value)) for (const v of value) params.append(key, v)
-    else if (value === true) params.set(key, '1')
-    else if (
-      value !== undefined &&
-      value !== '' &&
-      value !== 0 &&
-      value !== false
-    )
-      params.set(key, String(value))
+  const p = new URLSearchParams()
+  if (q.buy) p.set('buy', q.buy)
+  if (q.sort) p.set('sort', q.sort)
+  if (q.minPrice) p.set('minPrice', String(q.minPrice))
+  if (q.maxPrice) p.set('maxPrice', String(q.maxPrice))
+  if (q.detailed) p.set('detailed', '1')
+  for (const [key, values] of Object.entries(q.choices))
+    for (const v of values) p.append(key, v)
+  for (const [key, r] of Object.entries(q.ranges)) {
+    if (r.min) p.set(`${key}_min`, String(r.min))
+    if (r.max) p.set(`${key}_max`, String(r.max))
   }
-  return params
+  if (q.page && q.page > 1) p.set('page', String(q.page))
+  return p
+}
+
+function target(source: string, category: string) {
+  return new URLSearchParams({ source, category }).toString()
+}
+
+// parseGemParams reads an address's query back for spec.
+export function parseGemParams(p: URLSearchParams, spec: GemSpec): GemQuery {
+  const num = (k: string) => {
+    const n = Number(p.get(k))
+    return n > 0 ? n : undefined
+  }
+  const q: GemQuery = {
+    buy: (p.get('buy') ?? '') as GemQuery['buy'],
+    sort: p.get('sort') ?? '',
+    page: num('page'),
+    minPrice: num('minPrice'),
+    maxPrice: num('maxPrice'),
+    detailed: p.get('detailed') === '1',
+    choices: {},
+    ranges: {},
+  }
+  for (const f of spec.fields) {
+    if (f.kind === 'choice') {
+      const vs = p.getAll(f.key)
+      if (vs.length) q.choices[f.key] = vs
+    } else {
+      const r = { min: num(`${f.key}_min`), max: num(`${f.key}_max`) }
+      if (r.min || r.max) q.ranges[f.key] = r
+    }
+  }
+  return q
 }
 
 export type FieldSpec = {
@@ -257,17 +292,15 @@ export const api = {
   matches: (limit = 50) => call<Match[]>('GET', `/api/matches?limit=${limit}`),
 
   gemSources: () => call<GemSource[]>('GET', '/api/gems/sources'),
-  gemScan: (source: string) =>
-    call<GemScan | null>(
+  gemScan: (source: string, category: string) =>
+    call<GemScan | null>('GET', `/api/gems/scan?${target(source, category)}`),
+  requestGemScan: (source: string, category: string) =>
+    call<GemScan>('POST', `/api/gems/scan?${target(source, category)}`),
+  gems: (source: string, category: string, q: GemQuery) =>
+    call<GemPage>(
       'GET',
-      `/api/gems/scan?source=${encodeURIComponent(source)}`,
+      `/api/gems?${target(source, category)}&${gemParams(q)}`,
     ),
-  requestGemScan: (source: string) =>
-    call<GemScan>(
-      'POST',
-      `/api/gems/scan?source=${encodeURIComponent(source)}`,
-    ),
-  gems: (q: GemQuery) => call<GemPage>('GET', `/api/gems?${gemParams(q)}`),
 
   watches: (all = false) =>
     call<Watch[]>('GET', `/api/watches${all ? '?all=1' : ''}`),

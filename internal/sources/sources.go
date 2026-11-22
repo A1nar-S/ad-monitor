@@ -117,11 +117,21 @@ type CarAds interface {
 	CarTerm(key, value string) string
 }
 
-// CarScan is optionally implemented by a car source whose every car for
-// sale an admin can scan and rate at once (the gem finder, internal/gems).
-type CarScan interface {
-	// CarSaleFeed is the feed listing every car for sale.
-	CarSaleFeed() string
+// Scannable is optionally implemented by a source whose every listing of a
+// category can be read at once and rated (the gem finder, internal/gems).
+type Scannable interface {
+	// ScanScope says where category's listings are; ok is false when the
+	// source has no such category to scan.
+	ScanScope(category string) (scope ScanScope, ok bool)
+}
+
+// ScanScope is where a scan finds one category's listings.
+type ScanScope struct {
+	// Feed lists every one of them that is for sale.
+	Feed string
+	// Location is the prefix of the stored ones' Location: those a scan
+	// rates and compares with (the category decides which count).
+	Location string
 }
 
 // ErrGone is returned by Enrich for an ad that was removed meanwhile.

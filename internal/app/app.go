@@ -60,7 +60,7 @@ func Scraper(ctx context.Context, cfg config.Scraper, reg sources.Registry) erro
 	if err := history.Migrate(ctx); err != nil {
 		return err
 	}
-	gemScans := gems.NewService(pool)
+	gemScans := gems.NewService(pool, gemCategories()...)
 	if err := gemScans.Migrate(ctx); err != nil {
 		return err
 	}
@@ -426,7 +426,7 @@ func API(ctx context.Context, cfg config.API, reg sources.Registry) error {
 	subs := subscriptions.NewService(pool, reg, cfg.FeedCollapseAt).WithLimits(cfg.MaxSearches, cfg.Admins).
 		WithWatchLimits(cfg.MaxWatches, cfg.MinWatchInterval).WithPublicURL(cfg.PublicURL)
 	store := listings.NewService(pool, listings.DefaultSeedWindow)
-	gemList := gems.NewService(pool)
+	gemList := gems.NewService(pool, gemCategories()...)
 	for _, m := range []func(context.Context) error{subs.Migrate, store.Migrate, gemList.Migrate} {
 		if err := m(ctx); err != nil {
 			return err
@@ -445,7 +445,7 @@ func API(ctx context.Context, cfg config.API, reg sources.Registry) error {
 			// Pages for the price picker, read on the user's behalf; the
 			// timeout fits the server's write timeout.
 			Watches: subs, Pages: pages.New(10*time.Second, cfg.RequestGap), MaxWatches: cfg.MaxWatches,
-			Gems: gemList, GemSource: gemSource(reg),
+			Gems: gemList, GemSources: gemSources(reg, gemList),
 		})),
 		ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: time.Minute,
 	}

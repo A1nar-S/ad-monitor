@@ -57,9 +57,9 @@ type Config struct {
 	Watches    Watches
 	Pages      Pages
 	MaxWatches int
-	// The admin's gem finder; nil or no source turns it off.
-	Gems      Gems
-	GemSource string
+	// The gem finder; nil or no source turns it off.
+	Gems       Gems
+	GemSources []GemSource
 }
 
 const (

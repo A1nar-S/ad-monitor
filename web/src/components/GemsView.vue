@@ -18,67 +18,51 @@ import {
   api,
   ApiError,
   gemParams,
+  parseGemParams,
   type GemPage,
   type GemQuery,
   type GemScan,
-  type GemSort,
   type GemSource,
+  type GemSpec,
   type Me,
 } from '../api'
 import { formatNumber, formatRelative, t, tKey } from '../i18n'
 import { toastError } from '../toast'
 
-// The gem finder: every car for sale on a site, rated by the Go side. This
-// page sends the filters (kept in the address, so a view can be shared or
-// reloaded) and renders what comes back. Admins also start the fetch.
+// The gem finder: every listing of a category for sale on a site, rated by
+// the Go side. What can be filtered and shown comes from the category's
+// spec; this page sends the filters (kept in the address, so a view can be
+// shared or reloaded) and renders what comes back. Admins also fetch.
 const props = defineProps<{ me: Me }>()
 
 const sources = ref<GemSource[]>([])
 const source = ref('')
-const category = ref('cars')
+const category = ref('')
 const scan = ref<GemScan | null>(null)
 const page = ref<GemPage | null>(null)
 const error = ref('')
 const loading = ref(true)
 const drawer = ref(false)
 
-// What the address holds: the filters, the sort and the page.
-const listKeys = ['fuel', 'gearbox', 'body', 'region'] as const
-const numberKeys = [
-  'minPrice',
-  'maxPrice',
-  'minYear',
-  'maxYear',
-  'maxMileage',
-  'page',
-] as const
-function fromAddress(): GemQuery {
-  const p = new URLSearchParams(location.search)
-  const q: GemQuery = {
-    make: p.get('make') ?? '',
-    model: p.get('model') ?? '',
-    buy: (p.get('buy') ?? '') as GemQuery['buy'],
-    sort: (p.get('sort') ?? '') as GemSort,
-    detailed: p.get('detailed') === '1',
-    inspected: p.get('inspected') === '1',
-  }
-  for (const k of listKeys) q[k] = p.getAll(k)
-  for (const k of numberKeys) {
-    const n = Number(p.get(k))
-    if (n > 0) q[k] = n
-  }
-  return q
-}
-const query = ref<GemQuery>(fromAddress())
+const empty = (): GemQuery => ({ choices: {}, ranges: {} })
+const query = ref<GemQuery>(empty())
+
+const site = computed(() => sources.value.find((s) => s.id === source.value))
+const siteName = computed(() => site.value?.name ?? '')
+const categories = computed(() => site.value?.categories ?? [])
+const spec = computed<GemSpec>(
+  () =>
+    categories.value.find((c) => c.id === category.value)?.spec ?? {
+      fields: [],
+      sorts: [],
+    },
+)
+const lead = computed(() =>
+  tKey(`gems.leads.${category.value}`, t('gems.lead')),
+)
 
 const running = computed(
   () => scan.value?.status === 'requested' || scan.value?.status === 'running',
-)
-const siteName = computed(
-  () => sources.value.find((s) => s.id === source.value)?.name ?? 'ss.com',
-)
-const categories = computed(
-  () => sources.value.find((s) => s.id === source.value)?.categories ?? [],
 )
 const pages = computed(() =>
   page.value
@@ -88,11 +72,11 @@ const pages = computed(() =>
 
 const status = computed(() => {
   const s = scan.value
-  const site = siteName.value
+  const name = siteName.value
   if (!s)
     return props.me.admin
       ? t('gems.neverScannedAdmin')
-      : t('gems.neverScanned', { site })
+      : t('gems.neverScanned', { site: name })
   if (s.status === 'requested') return t('gems.requested')
   if (s.status === 'running')
     return s.phase === 'detailing'
@@ -113,8 +97,25 @@ const progress = computed(() => {
   return s.detailTotal ? s.detailed / s.detailTotal : 0
 })
 
+const label = (key: string) => tKey(`gems.fields.${key}`, key)
+const sorts = computed(() => [
+  { id: '', label: t('gems.sortBest') },
+  { id: 'discount', label: t('gems.sortDiscount') },
+  { id: 'price', label: t('gems.sortPrice') },
+  ...spec.value.sorts.map((s) => ({
+    id: s.id,
+    label: tKey(`gems.sorts.${s.id}`, s.id),
+  })),
+])
+
 // The filters set, as removable chips above the results.
 type Chip = { id: string; label: string; clear: () => void }
+const range = (name: string, lo?: number, hi?: number) =>
+  lo && hi
+    ? `${name}: ${formatNumber(lo)}–${formatNumber(hi)}`
+    : lo
+      ? `${name} ≥ ${formatNumber(lo)}`
+      : `${name} ≤ ${formatNumber(hi ?? 0)}`
 const chips = computed<Chip[]>(() => {
   const q = query.value
   const out: Chip[] = []
@@ -126,59 +127,38 @@ const chips = computed<Chip[]>(() => {
       label: t(`gems.buy.${q.buy}`),
       clear: () => set({ buy: '' }),
     })
-  if (q.make)
-    out.push({
-      id: 'make',
-      label: [q.make, q.model].filter(Boolean).join(' '),
-      clear: () => set({ make: '', model: '' }),
-    })
-  const prefix = {
-    fuel: 'gems.fuels',
-    gearbox: 'gems.gearboxes',
-    body: 'gems.bodies',
-    region: '',
-  }
-  for (const k of listKeys)
-    for (const v of q[k] ?? [])
-      out.push({
-        id: `${k}:${v}`,
-        label: prefix[k] ? tKey(`${prefix[k]}.${v}`, v) : v,
-        clear: () => set({ [k]: (q[k] ?? []).filter((x) => x !== v) }),
-      })
-  const range = (
-    label: string,
-    lo: number | undefined,
-    hi: number | undefined,
-  ) =>
-    lo && hi
-      ? `${label}: ${formatNumber(lo)}–${formatNumber(hi)}`
-      : lo
-        ? `${label} ≥ ${formatNumber(lo)}`
-        : `${label} ≤ ${formatNumber(hi ?? 0)}`
   if (q.minPrice || q.maxPrice)
     out.push({
       id: 'price',
       label: range(t('gems.price'), q.minPrice, q.maxPrice),
       clear: () => set({ minPrice: undefined, maxPrice: undefined }),
     })
-  if (q.minYear || q.maxYear)
-    out.push({
-      id: 'year',
-      label: range(t('gems.year'), q.minYear, q.maxYear),
-      clear: () => set({ minYear: undefined, maxYear: undefined }),
-    })
-  if (q.maxMileage)
-    out.push({
-      id: 'km',
-      label: range(t('gems.mileage'), undefined, q.maxMileage),
-      clear: () => set({ maxMileage: undefined }),
-    })
-  if (q.inspected)
-    out.push({
-      id: 'inspected',
-      label: t('gems.inspectedOnly'),
-      clear: () => set({ inspected: false }),
-    })
+  for (const f of spec.value.fields) {
+    if (f.kind === 'choice')
+      for (const v of q.choices[f.key] ?? [])
+        out.push({
+          id: `${f.key}:${v}`,
+          label: tKey(`gems.values.${f.key}.${v}`, v),
+          clear: () => {
+            const choices = { ...q.choices }
+            choices[f.key] = (q.choices[f.key] ?? []).filter((x) => x !== v)
+            for (const d of spec.value.fields)
+              if (d.dependsOn === f.key) delete choices[d.key]
+            set({ choices })
+          },
+        })
+    const r = q.ranges[f.key]
+    if (f.kind === 'range' && (r?.min || r?.max))
+      out.push({
+        id: f.key,
+        label: range(label(f.key), r.min, r.max),
+        clear: () => {
+          const ranges = { ...q.ranges }
+          delete ranges[f.key]
+          set({ ranges })
+        },
+      })
+  }
   if (q.detailed)
     out.push({
       id: 'detailed',
@@ -189,19 +169,16 @@ const chips = computed<Chip[]>(() => {
 })
 
 function clearAll() {
-  query.value = { sort: query.value.sort }
+  query.value = { ...empty(), sort: query.value.sort }
 }
 
 let loadSeq = 0
 async function load() {
+  if (!source.value || !category.value) return
   const seq = ++loadSeq
   loading.value = true
   try {
-    const result = await api.gems({
-      ...query.value,
-      source: source.value,
-      category: category.value,
-    })
+    const result = await api.gems(source.value, category.value, query.value)
     if (seq !== loadSeq) return // a newer filter change won
     page.value = result
     error.value = ''
@@ -215,23 +192,21 @@ async function load() {
 }
 
 let timer: ReturnType<typeof setTimeout> | undefined
-let lastDetailed = -1
+let lastSaved = -1
 async function refreshScan() {
+  if (!source.value || !category.value) return
   const wasRunning = running.value
   try {
-    scan.value = await api.gemScan(source.value)
+    scan.value = await api.gemScan(source.value, category.value)
   } catch {
     // A missed poll is retried on the next tick.
   }
   const s = scan.value
   // Pass 1's results land at once and pass 2 saves every 100 ad pages:
   // reload as they come, and when the fetch ends.
-  if (
-    s?.phase === 'detailing' &&
-    Math.floor(s.detailed / 100) !== lastDetailed
-  ) {
-    if (lastDetailed !== -1) load()
-    lastDetailed = Math.floor(s.detailed / 100)
+  if (s?.phase === 'detailing' && Math.floor(s.detailed / 100) !== lastSaved) {
+    if (lastSaved !== -1) load()
+    lastSaved = Math.floor(s.detailed / 100)
   }
   if (wasRunning && !running.value) load()
   clearTimeout(timer)
@@ -241,7 +216,7 @@ async function refreshScan() {
 
 async function startScan() {
   try {
-    scan.value = await api.requestGemScan(source.value)
+    scan.value = await api.requestGemScan(source.value, category.value)
   } catch (reason) {
     toastError(
       reason instanceof ApiError
@@ -254,43 +229,68 @@ async function startScan() {
   refreshScan()
 }
 
+// The address: the site, the category and the query.
+function remember() {
+  const params = gemParams(query.value)
+  params.set('source', source.value)
+  params.set('category', category.value)
+  history.replaceState(null, '', `/gems?${params}`)
+}
+
 // Any filter change starts again at page 1 and lands in the address.
 watch(
   query,
   (next, prev) => {
     if ((next.page ?? 1) === (prev?.page ?? 1) && (next.page ?? 1) !== 1)
       return void (query.value = { ...next, page: 1 })
-    const params = gemParams(query.value)
-    history.replaceState(null, '', `/gems${params.size ? `?${params}` : ''}`)
+    remember()
     load()
   },
   { deep: true },
 )
 
-// Another site or category: its own cars and fetch.
-watch([source, category], (_, [before]) => {
-  if (!before) return // the first pick, on mount, loads below
-  load()
+// Another site or category: its own filters, gems and fetch.
+function pick(src: string, cat: string) {
+  source.value = src
+  category.value = cat
+  page.value = null
+  lastSaved = -1
+  query.value = empty() // the watch above saves and loads
   refreshScan()
+}
+watch(source, (next, before) => {
+  if (before && next !== before) pick(next, site.value?.categories[0]?.id ?? '')
 })
 
 function goTo(n: number) {
   query.value = { ...query.value, page: n }
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
-function setSort(sort: GemSort) {
+function setSort(sort: string) {
   query.value = { ...query.value, sort }
 }
 
 onMounted(async () => {
   try {
     sources.value = await api.gemSources()
-  } catch {
-    // The list still loads for the one source the server has.
+  } catch (reason) {
+    error.value =
+      reason instanceof ApiError ? reason.message : t('gems.loadFailed')
+    loading.value = false
+    return
   }
-  source.value = sources.value[0]?.id ?? ''
-  category.value = sources.value[0]?.categories[0] ?? 'cars'
-  load()
+  const p = new URLSearchParams(location.search)
+  const s =
+    sources.value.find((x) => x.id === p.get('source')) ?? sources.value[0]
+  const c =
+    s?.categories.find((x) => x.id === p.get('category')) ?? s?.categories[0]
+  if (!s || !c) {
+    loading.value = false
+    return
+  }
+  source.value = s.id
+  category.value = c.id
+  query.value = parseGemParams(p, c.spec) // the watch loads
   refreshScan()
 })
 onUnmounted(() => clearTimeout(timer))
@@ -298,7 +298,7 @@ onUnmounted(() => clearTimeout(timer))
 
 <template>
   <section>
-    <PageHeader :title="t('gems.title')" :description="t('gems.lead')">
+    <PageHeader :title="t('gems.title')" :description="lead">
       <button
         v-if="me.admin"
         class="btn-primary"
@@ -324,7 +324,7 @@ onUnmounted(() => clearTimeout(timer))
         :aria-label="t('gems.category')"
       >
         <button
-          v-for="c in categories"
+          v-for="c in categories.map((x) => x.id)"
           :key="c"
           type="button"
           role="radio"
@@ -335,7 +335,7 @@ onUnmounted(() => clearTimeout(timer))
               ? 'bg-raised font-medium text-gray-900 shadow-card'
               : 'text-gray-600 hover:text-gray-900'
           "
-          @click="category = c"
+          @click="c !== category && pick(source, c)"
         >
           {{ tKey(`gems.categories.${c}`, c) }}
         </button>
@@ -387,6 +387,7 @@ onUnmounted(() => clearTimeout(timer))
           </div>
           <GemFilters
             v-model="query"
+            :spec="spec"
             :facets="page?.facets ?? null"
             :detailed="page?.detailed ?? 0"
             :all="page?.all ?? 0"
@@ -409,15 +410,11 @@ onUnmounted(() => clearTimeout(timer))
             :value="query.sort ?? ''"
             class="field ml-auto w-auto"
             :aria-label="t('gems.sort')"
-            @change="
-              setSort(($event.target as HTMLSelectElement).value as GemSort)
-            "
+            @change="setSort(($event.target as HTMLSelectElement).value)"
           >
-            <option value="">{{ t('gems.sortBest') }}</option>
-            <option value="discount">{{ t('gems.sortDiscount') }}</option>
-            <option value="price">{{ t('gems.sortPrice') }}</option>
-            <option value="year">{{ t('gems.sortYear') }}</option>
-            <option value="mileage">{{ t('gems.sortMileage') }}</option>
+            <option v-for="o in sorts" :key="o.id" :value="o.id">
+              {{ o.label }}
+            </option>
           </select>
         </div>
 
@@ -472,7 +469,13 @@ onUnmounted(() => clearTimeout(timer))
           :class="{ 'opacity-60': loading }"
           :aria-busy="loading"
         >
-          <GemCard v-for="g in page.items" :key="g.externalId" :gem="g" />
+          <GemCard
+            v-for="g in page.items"
+            :key="g.externalId"
+            :gem="g"
+            :spec="spec"
+            :category="category"
+          />
         </ul>
 
         <nav
@@ -508,6 +511,7 @@ onUnmounted(() => clearTimeout(timer))
     >
       <GemFilters
         v-model="query"
+        :spec="spec"
         :facets="page?.facets ?? null"
         :detailed="page?.detailed ?? 0"
         :all="page?.all ?? 0"

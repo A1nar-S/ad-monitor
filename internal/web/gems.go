@@ -9,19 +9,29 @@ import (
 	"strconv"
 
 	"github.com/A1nar-S/advertisiment-monitoring/internal/gems"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/sources"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/subscriptions"
 )
 
-// Gems is the gem finder: every car for sale on a source, rated. Everyone
-// may browse it; only admins start a scan.
+// Gems is the gem finder: every listing of a category for sale on a source,
+// rated. Everyone may browse it; only admins start a scan.
 type Gems interface {
-	RequestScan(ctx context.Context, source string) (gems.Scan, error)
-	LatestScan(ctx context.Context, source string) (gems.Scan, bool, error)
-	List(ctx context.Context, source string, q gems.Query) (gems.Page, error)
+	RequestScan(ctx context.Context, source, category string) (gems.Scan, error)
+	LatestScan(ctx context.Context, source, category string) (gems.Scan, bool, error)
+	List(ctx context.Context, source, category string, q gems.Query) (gems.Page, error)
+	Category(id string) (gems.Category, bool)
+}
+
+// GemSource is a site the finder covers and the categories it can be
+// scanned for.
+type GemSource struct {
+	ID         string
+	Name       string
+	Categories []string
 }
 
 func (s *server) routeGems(mux *http.ServeMux) {
-	if s.Gems == nil || s.GemSource == "" {
+	if s.Gems == nil || len(s.GemSources) == 0 {
 		return
 	}
 	mux.Handle("GET /api/gems/sources", s.auth(s.gemSources))
@@ -30,38 +40,90 @@ func (s *server) routeGems(mux *http.ServeMux) {
 	mux.Handle("POST /api/gems/scan", s.auth(s.admin(s.requestGemScan)))
 }
 
-// gemSource is a site the finder covers and what it can be scanned for.
-type gemSource struct {
-	ID         string   `json:"id"`
-	Name       string   `json:"name"`
-	Categories []string `json:"categories"`
+type gemCategoryJSON struct {
+	ID   string    `json:"id"`
+	Spec gems.Spec `json:"spec"`
 }
 
+type gemSourceJSON struct {
+	ID         string            `json:"id"`
+	Name       string            `json:"name"`
+	Categories []gemCategoryJSON `json:"categories"`
+}
+
+// gemSources lists the sites, each with its categories and what can be
+// filtered on in each.
 func (s *server) gemSources(w http.ResponseWriter, _ *http.Request, _ subscriptions.Owner) {
-	writeJSON(w, http.StatusOK, []gemSource{{ID: s.GemSource, Name: s.GemSource, Categories: gems.Categories}})
+	out := []gemSourceJSON{}
+	for _, src := range s.GemSources {
+		j := gemSourceJSON{ID: src.ID, Name: src.Name, Categories: []gemCategoryJSON{}}
+		for _, id := range src.Categories {
+			if c, ok := s.Gems.Category(id); ok {
+				j.Categories = append(j.Categories, gemCategoryJSON{ID: id, Spec: s.withCatalog(src.ID, id, c.Spec())})
+			}
+		}
+		out = append(out, j)
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
-// gemTarget checks ?source= and ?category= (both optional: the one there
-// is); false after answering 400.
-func (s *server) gemTarget(w http.ResponseWriter, v url.Values) bool {
-	if src := v.Get("source"); src != "" && src != s.GemSource {
-		writeError(w, http.StatusBadRequest, "unknown source "+strconv.Quote(src))
-		return false
+// withCatalog fills the Catalog fields' options from the source's search
+// catalog: the same names the Searches tab offers (ss.com: its codebook).
+func (s *server) withCatalog(source, category string, spec gems.Spec) gems.Spec {
+	catalog, ok := s.Sources[source].(sources.Catalog)
+	if !ok {
+		return spec
 	}
-	if c := v.Get("category"); c != "" && !slices.Contains(gems.Categories, c) {
-		writeError(w, http.StatusBadRequest, "unknown category "+strconv.Quote(c))
-		return false
+	var fields []sources.FieldSpec
+	for _, c := range catalog.Categories() {
+		if c.ID == category {
+			fields = c.Fields
+		}
 	}
-	return true
+	spec.Fields = slices.Clone(spec.Fields)
+	for i, f := range spec.Fields {
+		if !f.Catalog {
+			continue
+		}
+		if j := slices.IndexFunc(fields, func(x sources.FieldSpec) bool { return x.Key == f.Key }); j >= 0 {
+			spec.Fields[i].Options = fields[j].Options
+		}
+	}
+	return spec
+}
+
+// gemTarget reads ?source= and ?category=; each defaults to the first there
+// is. ok is false after answering 400.
+func (s *server) gemTarget(w http.ResponseWriter, v url.Values) (source string, cat gems.Category, ok bool) {
+	i := 0
+	if src := v.Get("source"); src != "" {
+		i = slices.IndexFunc(s.GemSources, func(g GemSource) bool { return g.ID == src })
+		if i < 0 {
+			writeError(w, http.StatusBadRequest, "unknown source "+strconv.Quote(src))
+			return "", nil, false
+		}
+	}
+	src := s.GemSources[i]
+	id := v.Get("category")
+	if id == "" {
+		id = src.Categories[0]
+	}
+	c, found := s.Gems.Category(id)
+	if !found || !slices.Contains(src.Categories, id) {
+		writeError(w, http.StatusBadRequest, "unknown category "+strconv.Quote(id))
+		return "", nil, false
+	}
+	return src.ID, c, true
 }
 
 // gemScan reports the latest scan (null before the first). Why one failed
 // or stopped early is for admins: it can quote the database.
 func (s *server) gemScan(w http.ResponseWriter, r *http.Request, o subscriptions.Owner) {
-	if !s.gemTarget(w, r.URL.Query()) {
+	source, cat, ok := s.gemTarget(w, r.URL.Query())
+	if !ok {
 		return
 	}
-	scan, ok, err := s.Gems.LatestScan(r.Context(), s.GemSource)
+	scan, ok, err := s.Gems.LatestScan(r.Context(), source, cat.ID())
 	if s.fail(w, err) {
 		return
 	}
@@ -76,10 +138,11 @@ func (s *server) gemScan(w http.ResponseWriter, r *http.Request, o subscriptions
 }
 
 func (s *server) requestGemScan(w http.ResponseWriter, r *http.Request, _ subscriptions.Owner) {
-	if !s.gemTarget(w, r.URL.Query()) {
+	source, cat, ok := s.gemTarget(w, r.URL.Query())
+	if !ok {
 		return
 	}
-	scan, err := s.Gems.RequestScan(r.Context(), s.GemSource)
+	scan, err := s.Gems.RequestScan(r.Context(), source, cat.ID())
 	if errors.Is(err, gems.ErrBusy) {
 		writeError(w, http.StatusConflict, err.Error())
 		return
@@ -94,12 +157,13 @@ func (s *server) requestGemScan(w http.ResponseWriter, r *http.Request, _ subscr
 // page is below it, and it keeps the database's int32 offsets in range.
 const maxGemParam = 1e7
 
-// listGems: ?source=&category=&make=&model=&buy=&fuel=&gearbox=&body=&region=
-// (each list one value per param, repeated) &minPrice=&maxPrice=&minYear=
-// &maxYear=&maxMileage=&minEngine=&maxEngine=&detailed=1&inspected=1&sort=&page=
+// listGems: ?source=&category=&buy=&sort=&page=&minPrice=&maxPrice=&detailed=1,
+// and the category's fields: a choice as <key>=value (repeated: any of
+// them), a range as <key>_min= and <key>_max=.
 func (s *server) listGems(w http.ResponseWriter, r *http.Request, _ subscriptions.Owner) {
 	v := r.URL.Query()
-	if !s.gemTarget(w, v) {
+	source, cat, ok := s.gemTarget(w, v)
+	if !ok {
 		return
 	}
 	bad := ""
@@ -114,20 +178,28 @@ func (s *server) listGems(w http.ResponseWriter, r *http.Request, _ subscription
 		return n
 	}
 	q := gems.Query{
-		Make: v.Get("make"), Model: v.Get("model"), Buy: v.Get("buy"), Sort: v.Get("sort"),
-		Fuels: v["fuel"], Gearboxes: v["gearbox"], Bodies: v["body"], Regions: v["region"],
-		MinPrice: num("minPrice"), MaxPrice: num("maxPrice"),
-		MinYear: int(num("minYear")), MaxYear: int(num("maxYear")), MaxMileage: int(num("maxMileage")),
-		MinEngineL: num("minEngine"), MaxEngineL: num("maxEngine"),
-		DetailedOnly:  v.Get("detailed") == "1" || v.Get("detailed") == "true",
-		InspectedOnly: v.Get("inspected") == "1" || v.Get("inspected") == "true",
-		Page:          int(num("page")),
+		Buy: v.Get("buy"), Sort: v.Get("sort"),
+		MinPrice: num("minPrice"), MaxPrice: num("maxPrice"), Page: int(num("page")),
+		DetailedOnly: v.Get("detailed") == "1" || v.Get("detailed") == "true",
+		Choices:      map[string][]string{}, Ranges: map[string][2]float64{},
+	}
+	for _, f := range cat.Spec().Fields {
+		switch f.Kind {
+		case gems.Choice:
+			if vs := v[f.Key]; len(vs) > 0 {
+				q.Choices[f.Key] = vs
+			}
+		case gems.Range:
+			if lo, hi := num(f.Key+"_min"), num(f.Key+"_max"); lo > 0 || hi > 0 {
+				q.Ranges[f.Key] = [2]float64{lo, hi}
+			}
+		}
 	}
 	if bad != "" {
 		writeError(w, http.StatusBadRequest, bad)
 		return
 	}
-	out, err := s.Gems.List(r.Context(), s.GemSource, q)
+	out, err := s.Gems.List(r.Context(), source, cat.ID(), q)
 	if errors.Is(err, gems.ErrBadQuery) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

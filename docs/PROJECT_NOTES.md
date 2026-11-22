@@ -97,7 +97,14 @@ dashboard api ─┴─> subscriptions (users, channels, searches, logins) <─�
   is announced to no one. ss.com's own server search was rejected: it is POST + session, 2 requests per search per cycle.
 - **Reposts:** sources set `Fingerprint` (the item, not the ad; ss.com: `scraping/ss/reposts.go`). A new ad with a known
   fingerprint is still announced, as an orange "♻️ Reposted listing" with its price history.
-- **Gem finder** (`internal/gems`, a tab for everyone; only admins start a fetch): two passes. Pass 1 reads every page
+- **Gem finder** (`internal/gems`, a tab for everyone; only admins start a fetch) is category-generic: a
+  `gems.Category` (cars: `internal/gems/cars`, over `internal/deals`) says which stored ads belong, rates them
+  (score, verdict, breakdown, candidates for an ad-page read) and declares a `Spec` (choice and range fields, sorts)
+  that drives the API's filters and the dashboard's filters and cards; values live in `gems.attrs` (JSONB). A source
+  joins by implementing `sources.Scannable` (`ScanScope(category)`: the feed of everything for sale, the location
+  prefix of stored ones); a field with `Catalog` takes its options from the source's search catalog (cars: region).
+  Adding flats = a `gems/flats` category + ss.com `ScanScope("flats")` (it has no all-flats feed yet). A scraper
+  restart marks its running scans interrupted. Two passes. Pass 1 reads every page
   of `transport/cars/sell`, marks vanished cars sold, rates every car from its list row and saves at once. Pass 2 reads
   the ad page of every potential buy (`deals.Candidate`: price known and < +8% vs similar ads, not suspicious, no risky
   engine, mileage x ≥ −0.5) not read before (`listings.detailed_at` is the cache), saving every 100, then rates
