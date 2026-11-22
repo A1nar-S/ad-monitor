@@ -30,9 +30,12 @@ SELECT user_id, search_name, channel_kind, channel_target FROM digest_queue
 GROUP BY user_id, search_name, channel_kind, channel_target
 HAVING min(queued_at) < now() - make_interval(secs => @window_seconds::float8);
 
--- name: TakeDigest :many
--- Removes one search's queued ads; run inside a transaction that rolls back
--- if the digest cannot be sent.
-DELETE FROM digest_queue
+-- name: ListDigest :many
+-- One search's queued ads, oldest first.
+SELECT key, listing FROM digest_queue
 WHERE user_id = @user_id AND search_name = @search_name AND channel_kind = @channel_kind AND channel_target = @channel_target
-RETURNING listing, queued_at;
+ORDER BY queued_at, key;
+
+-- name: DeleteDigested :exec
+-- Forgets queued ads once the message that carried them was sent.
+DELETE FROM digest_queue WHERE key = ANY(@keys::text[]);

@@ -7,8 +7,6 @@ package notificationsdb
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const claimDelivery = `-- name: ClaimDelivery :execrows
@@ -58,6 +56,16 @@ func (q *Queries) CountRecentSent(ctx context.Context, arg CountRecentSentParams
 	return count, err
 }
 
+const deleteDigested = `-- name: DeleteDigested :exec
+DELETE FROM digest_queue WHERE key = ANY($1::text[])
+`
+
+// Forgets queued ads once the message that carried them was sent.
+func (q *Queries) DeleteDigested(ctx context.Context, keys []string) error {
+	_, err := q.db.Exec(ctx, deleteDigested, keys)
+	return err
+}
+
 const dueDigests = `-- name: DueDigests :many
 SELECT user_id, search_name, channel_kind, channel_target FROM digest_queue
 GROUP BY user_id, search_name, channel_kind, channel_target
@@ -87,6 +95,50 @@ func (q *Queries) DueDigests(ctx context.Context, windowSeconds float64) ([]DueD
 			&i.ChannelKind,
 			&i.ChannelTarget,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDigest = `-- name: ListDigest :many
+SELECT key, listing FROM digest_queue
+WHERE user_id = $1 AND search_name = $2 AND channel_kind = $3 AND channel_target = $4
+ORDER BY queued_at, key
+`
+
+type ListDigestParams struct {
+	UserID        int64
+	SearchName    string
+	ChannelKind   string
+	ChannelTarget string
+}
+
+type ListDigestRow struct {
+	Key     string
+	Listing []byte
+}
+
+// One search's queued ads, oldest first.
+func (q *Queries) ListDigest(ctx context.Context, arg ListDigestParams) ([]ListDigestRow, error) {
+	rows, err := q.db.Query(ctx, listDigest,
+		arg.UserID,
+		arg.SearchName,
+		arg.ChannelKind,
+		arg.ChannelTarget,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDigestRow
+	for rows.Next() {
+		var i ListDigestRow
+		if err := rows.Scan(&i.Key, &i.Listing); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -152,49 +204,4 @@ DELETE FROM deliveries WHERE key = $1
 func (q *Queries) ReleaseDelivery(ctx context.Context, key string) error {
 	_, err := q.db.Exec(ctx, releaseDelivery, key)
 	return err
-}
-
-const takeDigest = `-- name: TakeDigest :many
-DELETE FROM digest_queue
-WHERE user_id = $1 AND search_name = $2 AND channel_kind = $3 AND channel_target = $4
-RETURNING listing, queued_at
-`
-
-type TakeDigestParams struct {
-	UserID        int64
-	SearchName    string
-	ChannelKind   string
-	ChannelTarget string
-}
-
-type TakeDigestRow struct {
-	Listing  []byte
-	QueuedAt pgtype.Timestamptz
-}
-
-// Removes one search's queued ads; run inside a transaction that rolls back
-// if the digest cannot be sent.
-func (q *Queries) TakeDigest(ctx context.Context, arg TakeDigestParams) ([]TakeDigestRow, error) {
-	rows, err := q.db.Query(ctx, takeDigest,
-		arg.UserID,
-		arg.SearchName,
-		arg.ChannelKind,
-		arg.ChannelTarget,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []TakeDigestRow
-	for rows.Next() {
-		var i TakeDigestRow
-		if err := rows.Scan(&i.Listing, &i.QueuedAt); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }

@@ -19,6 +19,8 @@ type fake struct {
 	sent     []string
 	fail     bool
 	failText bool
+	// textsLeft, when set, is how many more texts succeed before failing.
+	textsLeft *int
 }
 
 func (f *fake) Kind() string { return "fake" }
@@ -32,6 +34,12 @@ func (f *fake) NotifyListing(_ context.Context, target string, l events.ListingD
 func (f *fake) NotifyText(_ context.Context, target, msg string) error {
 	if f.failText {
 		return errors.New("boom")
+	}
+	if f.textsLeft != nil {
+		if *f.textsLeft == 0 {
+			return errors.New("boom")
+		}
+		*f.textsLeft--
 	}
 	f.sent = append(f.sent, target+":"+msg)
 	return nil
@@ -187,6 +195,52 @@ func TestBurstGoesToDigest(t *testing.T) {
 	}
 }
 
+// A digest of several messages failing part way sends each ad once: the
+// sent messages' ads leave the queue, the rest wait for the next flush.
+func TestDigestFailingPartWay(t *testing.T) {
+	f := &fake{}
+	svc, pool := newTestService(t, f)
+	ctx := context.Background()
+	for i := range 5 + 25 {
+		req := adRequest("audi", fmt.Sprint(i))
+		req.Listing.Title = strings.Repeat("a very long title ", 10)
+		req.Listing.URL = fmt.Sprintf("https://www.ss.com/msg/lv/transport/cars/audi/a4/%s/ad%03d.html", strings.Repeat("x", 40), i)
+		if err := svc.Handle(ctx, req); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `UPDATE digest_queue SET queued_at = now() - interval '2 hours'`); err != nil {
+		t.Fatal(err)
+	}
+	queued := func() (n int) {
+		t.Helper()
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM digest_queue`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	one := 1
+	f.textsLeft = &one
+	if _, err := svc.FlushDigests(ctx); err == nil {
+		t.Fatal("expected the second message to fail")
+	}
+	left := queued()
+	if left == 0 || left == 25 {
+		t.Fatalf("%d of 25 still queued, want those of the unsent messages only", left)
+	}
+	f.textsLeft = nil
+	if n, err := svc.FlushDigests(ctx); err != nil || n != 1 || queued() != 0 {
+		t.Fatalf("second flush: n=%d err=%v queued=%d", n, err, queued())
+	}
+	ads := 0
+	for _, s := range f.sent {
+		ads += strings.Count(s, "• ")
+	}
+	if ads != 25 {
+		t.Errorf("digest lines = %d, want each of the 25 once", ads)
+	}
+}
+
 func TestDigestMessagesSplit(t *testing.T) {
 	var ls []events.ListingDiscovered
 	for i := range 45 {
@@ -200,14 +254,16 @@ func TestDigestMessagesSplit(t *testing.T) {
 		t.Fatalf("want several messages, got %d", len(msgs))
 	}
 	lines := 0
+	ads := 0
 	for _, m := range msgs {
-		if len(m) > maxMessageLen {
-			t.Errorf("message of %d bytes exceeds the limit", len(m))
+		if len(m.text) > maxMessageLen {
+			t.Errorf("message of %d bytes exceeds the limit", len(m.text))
 		}
-		lines += strings.Count(m, "• ")
+		lines += strings.Count(m.text, "• ")
+		ads += m.ads
 	}
-	if lines != maxDigestAds || !strings.Contains(msgs[len(msgs)-1], "…and 15 more") {
-		t.Errorf("lines=%d, last=%q", lines, msgs[len(msgs)-1])
+	if lines != maxDigestAds || !strings.Contains(msgs[len(msgs)-1].text, "…and 15 more") || ads != 45 {
+		t.Errorf("lines=%d, ads=%d, last=%q", lines, ads, msgs[len(msgs)-1].text)
 	}
 }
 

@@ -201,7 +201,9 @@ func (s *Service) RunDigests(ctx context.Context, every time.Duration) {
 }
 
 // FlushDigests sends one digest for every search whose oldest queued ad has
-// waited a full burst window. A digest that fails to send stays queued.
+// waited a full burst window. The ads of each message leave the queue once
+// it is sent, so a failure part way keeps only the unsent ones queued, and no
+// transaction stays open while a chat platform answers.
 func (s *Service) FlushDigests(ctx context.Context) (int, error) {
 	if s.burst == 0 {
 		return 0, nil
@@ -217,35 +219,7 @@ func (s *Service) FlushDigests(ctx context.Context) (int, error) {
 		if !ok {
 			continue
 		}
-		err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-			rows, err := s.q.WithTx(tx).TakeDigest(ctx, notificationsdb.TakeDigestParams(d))
-			if err != nil {
-				return err
-			}
-			var ls []events.ListingDiscovered
-			for _, r := range rows {
-				var l events.ListingDiscovered
-				if err := json.Unmarshal(r.Listing, &l); err != nil {
-					slog.Error("bad digest payload, dropping", "err", err)
-					continue
-				}
-				ls = append(ls, l)
-			}
-			for _, msg := range digestMessages(d.SearchName, ls, s.burst, s.burstWindow) {
-				if err := n.NotifyText(ctx, d.ChannelTarget, msg); errors.Is(err, ErrUndeliverable) {
-					slog.Warn("digest undeliverable, dropped", "target", d.ChannelTarget, "err", err)
-					deliveries.WithLabelValues(n.Kind(), "dropped").Inc()
-					return nil // commits the delete
-				} else if err != nil {
-					deliveries.WithLabelValues(n.Kind(), "failed").Inc()
-					return fmt.Errorf("%s: %w", n.Kind(), err) // rolls back: stays queued
-				}
-				deliveries.WithLabelValues(n.Kind(), "sent").Inc()
-				s.pause(ctx)
-			}
-			return nil
-		})
-		if err != nil {
+		if err := s.flushDigest(ctx, n, d); err != nil {
 			errs = append(errs, fmt.Errorf("digest %q: %w", d.SearchName, err))
 			continue
 		}
@@ -254,38 +228,90 @@ func (s *Service) FlushDigests(ctx context.Context) (int, error) {
 	return sent, errors.Join(errs...)
 }
 
+// flushDigest sends one search's digest, message by message.
+func (s *Service) flushDigest(ctx context.Context, n Notifier, d notificationsdb.DueDigestsRow) error {
+	rows, err := s.q.ListDigest(ctx, notificationsdb.ListDigestParams(d))
+	if err != nil {
+		return err
+	}
+	var keys, bad []string
+	var ls []events.ListingDiscovered
+	for _, r := range rows {
+		var l events.ListingDiscovered
+		if err := json.Unmarshal(r.Listing, &l); err != nil {
+			slog.Error("bad digest payload, dropping", "key", r.Key, "err", err)
+			bad = append(bad, r.Key)
+			continue
+		}
+		keys, ls = append(keys, r.Key), append(ls, l)
+	}
+	if len(bad) > 0 {
+		if err := s.q.DeleteDigested(ctx, bad); err != nil {
+			return err
+		}
+	}
+	done := 0 // ads carried by the messages sent so far
+	for _, msg := range digestMessages(d.SearchName, ls, s.burst, s.burstWindow) {
+		err := n.NotifyText(ctx, d.ChannelTarget, msg.text)
+		switch {
+		case errors.Is(err, ErrUndeliverable):
+			slog.Warn("digest undeliverable, dropped", "target", d.ChannelTarget, "err", err)
+			deliveries.WithLabelValues(n.Kind(), "dropped").Inc()
+			return s.q.DeleteDigested(ctx, keys[done:])
+		case err != nil:
+			deliveries.WithLabelValues(n.Kind(), "failed").Inc()
+			return fmt.Errorf("%s: %w", n.Kind(), err) // the rest stays queued
+		}
+		deliveries.WithLabelValues(n.Kind(), "sent").Inc()
+		if err := s.q.DeleteDigested(ctx, keys[done:done+msg.ads]); err != nil {
+			return err
+		}
+		done += msg.ads
+		s.pause(ctx)
+	}
+	return nil
+}
+
 const (
 	maxMessageLen = 2000 // Discord rejects longer message content
 	maxDigestAds  = 30
 	maxTitleRunes = 60
 )
 
+// digestMessage is one message of a digest and how many of the queued ads,
+// in order, it carries.
+type digestMessage struct {
+	text string
+	ads  int
+}
+
 // digestMessages renders queued ads as a few compact text messages: one line
 // per ad, at most maxDigestAds lines, each message under maxMessageLen.
-func digestMessages(search string, ls []events.ListingDiscovered, burst int, window time.Duration) []string {
+func digestMessages(search string, ls []events.ListingDiscovered, burst int, window time.Duration) []digestMessage {
 	if len(ls) == 0 {
 		return nil
 	}
 	head := fmt.Sprintf("📦 **%d more %s for “%s”** (over %d in %s, so bundled)",
 		len(ls), plural(len(ls), "match", "matches"), search, burst, window)
-	var lines []string
+	var lines []digestMessage // one line each
 	for i, l := range ls {
 		if i == maxDigestAds {
-			lines = append(lines, fmt.Sprintf("…and %d more", len(ls)-maxDigestAds))
+			lines = append(lines, digestMessage{fmt.Sprintf("…and %d more", len(ls)-maxDigestAds), len(ls) - maxDigestAds})
 			break
 		}
-		lines = append(lines, digestLine(l))
+		lines = append(lines, digestMessage{digestLine(l), 1})
 	}
 
-	var msgs []string
-	cur := head
-	for _, line := range lines {
-		if len(cur)+1+len(line) > maxMessageLen {
+	var msgs []digestMessage
+	cur := digestMessage{text: head}
+	for _, l := range lines {
+		if len(cur.text)+1+len(l.text) > maxMessageLen {
 			msgs = append(msgs, cur)
-			cur = line
+			cur = l
 			continue
 		}
-		cur += "\n" + line
+		cur.text += "\n" + l.text
+		cur.ads += l.ads
 	}
 	return append(msgs, cur)
 }
