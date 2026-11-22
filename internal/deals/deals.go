@@ -14,10 +14,10 @@ import (
 	"math"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/textutil"
 )
 
 // Car is what rating needs from a car ad, in this package's vocabulary.
@@ -320,7 +320,7 @@ func median(xs []float64) float64 {
 
 // Gap is how far the price is from the median, e.g. "1 450 € (14%)".
 func (r PriceRating) Gap() string {
-	return fmt.Sprintf("%s (%d%%)", Euros(math.Abs(r.Diff*r.Median)), int(math.Round(math.Abs(r.Diff)*100)))
+	return fmt.Sprintf("%s (%d%%)", textutil.Euros(math.Abs(r.Diff*r.Median)), int(math.Round(math.Abs(r.Diff)*100)))
 }
 
 // Text is the price line of an alert, e.g. "Steal: 1 450 € (14%) below
@@ -346,7 +346,7 @@ func (r PriceRating) TextIn(l Lang) string {
 	if r.KmMax > 0 {
 		scope += ", " + l.kmRange(r.KmMin, r.KmMax)
 	}
-	s := fmt.Sprintf(p.priceLine, p.verdict[r.Verdict], pos, Euros(r.Median), scope)
+	s := fmt.Sprintf(p.priceLine, p.verdict[r.Verdict], pos, textutil.Euros(r.Median), scope)
 	switch {
 	case r.Verdict == Suspicious:
 		s += p.priceSuspicious
@@ -357,22 +357,6 @@ func (r PriceRating) TextIn(l Lang) string {
 }
 
 func thousands(km float64) string { return strconv.Itoa(int(math.Round(km / 1000))) }
-
-// Euros formats a price the way ss.com does: "10 350 €".
-func Euros(v float64) string { return grouped(int(math.Round(v))) + " €" }
-
-// grouped writes n with its thousands apart: "10 350".
-func grouped(n int) string {
-	digits := strconv.Itoa(n)
-	var b strings.Builder
-	for i, d := range digits {
-		if i > 0 && (len(digits)-i)%3 == 0 {
-			b.WriteByte(' ')
-		}
-		b.WriteRune(d)
-	}
-	return b.String()
-}
 
 // Fields are the alert lines for c, each only when there is something to
 // say: the overall verdict first, then what it rests on.

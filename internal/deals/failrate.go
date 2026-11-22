@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+
+	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/textutil"
 )
 
 // How often a model fails its technical inspection in Latvia at the first
@@ -326,7 +328,7 @@ func (r ReliabilityRating) TextIn(l Lang) string {
 	}
 	source := fmt.Sprintf("%d–%d", r.From, r.To)
 	return fmt.Sprintf(p.reliabilityLine, p.reliability[r.level()], l.percent(r.FailRate), years,
-		l.percent(r.Typical), source, grouped(r.Inspections), p.inspections(r.Inspections))
+		l.percent(r.Typical), source, textutil.Grouped(r.Inspections), p.inspections(r.Inspections))
 }
 
 // percent writes a 0..1 share as a percentage, with one decimal below 10

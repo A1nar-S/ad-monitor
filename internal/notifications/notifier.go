@@ -22,10 +22,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/A1nar-S/advertisiment-monitoring/internal/deals"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/notifications/notificationsdb"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/db"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/textutil"
 )
 
 //go:embed migrations/*.sql
@@ -340,7 +340,7 @@ func RepostText(l events.ListingDiscovered) string {
 		if diff < 0 {
 			diff, change = -diff, "less"
 		}
-		s += fmt.Sprintf(" Last asked %s, now %s (%s %s).", deals.Euros(*r.PriceValue), deals.Euros(*l.PriceValue), deals.Euros(diff), change)
+		s += fmt.Sprintf(" Last asked %s, now %s (%s %s).", textutil.Euros(*r.PriceValue), textutil.Euros(*l.PriceValue), textutil.Euros(diff), change)
 	case r.PriceValue != nil && l.PriceValue != nil:
 		s += " Same price as before."
 	case r.Price != "":
