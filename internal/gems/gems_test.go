@@ -88,7 +88,10 @@ func (r *thingRater) Rate() []Rated {
 		}
 		d := p/10000 - 1
 		x.PriceDiff = &d
-		x.Components = []Component{{Key: "price", X: -d, Weight: 3, Points: -3 * d}}
+		x.Components = []Component{{Key: "price", X: -d, Weight: 3, Points: -3 * d, Why: "priced"}}
+		x.Fields = []events.Field{{Name: "Price", Value: "fine"}}
+		x.Translations = map[string]Text{"lv": {Overall: "labi", Fields: []events.Field{{Name: "Cena", Value: "laba"}},
+			Why: map[string]string{"price": "cena"}}}
 		for _, k := range []string{"colour", "shape"} {
 			if v, ok := l.Str(k); ok {
 				x.Attrs[k] = v
@@ -303,6 +306,20 @@ func TestScan(t *testing.T) {
 	}
 	if last.ExternalID != "huge" {
 		t.Errorf("last = %s, want the one with too little known", last.ExternalID)
+	}
+	if best.Overall != "fine" || best.Fields[0].Value != "fine" || best.Components[0].Why != "priced" {
+		t.Errorf("in English: %q %v %v", best.Overall, best.Fields, best.Components)
+	}
+	for lang, want := range map[string]string{"lv": "labi", "de": "fine"} {
+		p, err := svc.List(ctx, "site", "things", Query{Lang: lang})
+		if err != nil {
+			t.Fatal(err)
+		}
+		g := p.Items[0]
+		if lang == "lv" && (g.Overall != want || g.Fields[0].Value != "laba" || g.Components[0].Why != "cena") ||
+			lang != "lv" && g.Overall != want {
+			t.Errorf("in %s: %q %v %v", lang, g.Overall, g.Fields, g.Components)
+		}
 	}
 	f := page.Facets
 	if len(f["colour"]) != 2 || f["colour"][0] != (Facet{Value: "blue", Count: 2}) || len(f["shape"]) != 2 ||

@@ -98,7 +98,7 @@ func TestGemEndpoints(t *testing.T) {
 	}
 
 	w = do(h, "GET", "/api/gems?source=ss.com&category=cars&make=BMW&maxPrice=9000&year_min=2015&year_max=2019&page=2&sort=year"+
-		"&body=wagon&body=sedan&region=R%C4%ABga&fuel=diesel&gearbox=automatic&engine_l_min=1.6&detailed=1&inspection=valid&nonsense=1", "s-alice", "", false)
+		"&body=wagon&body=sedan&region=R%C4%ABga&fuel=diesel&gearbox=automatic&engine_l_min=1.6&detailed=1&inspection=valid&lang=lv&nonsense=1", "s-alice", "", false)
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"buy":"good"`) {
 		t.Fatalf("list: %d %s", w.Code, w.Body)
 	}
@@ -107,11 +107,11 @@ func TestGemEndpoints(t *testing.T) {
 		q.Ranges["year"] != [2]float64{2015, 2019} || q.Ranges["engine_l"] != [2]float64{1.6, 0} ||
 		strings.Join(q.Choices["body"], ",") != "wagon,sedan" || strings.Join(q.Choices["region"], ",") != "Rīga" ||
 		q.Choices["make"][0] != "BMW" || q.Choices["fuel"][0] != "diesel" || q.Choices["gearbox"][0] != "automatic" ||
-		q.Choices["inspection"][0] != "valid" || len(q.Choices) != 6 || len(q.Ranges) != 2 {
+		q.Choices["inspection"][0] != "valid" || len(q.Choices) != 6 || len(q.Ranges) != 2 || q.Lang != "lv" {
 		t.Errorf("query = %+v", q)
 	}
-	if w := do(h, "GET", "/api/gems", "s-alice", "", false); w.Code != http.StatusOK || g.category != "cars" {
-		t.Errorf("no source or category: the first one; %d %s", w.Code, g.category)
+	if w := do(h, "GET", "/api/gems?lang=Latvian", "s-alice", "", false); w.Code != http.StatusOK || g.category != "cars" || g.query.Lang != "" {
+		t.Errorf("no source or category: the first one; %d %s; a language not a code is ignored: %q", w.Code, g.category, g.query.Lang)
 	}
 	for _, bad := range []string{"/api/gems?maxPrice=cheap", "/api/gems?year_min=-1", "/api/gems?buy=maybe",
 		"/api/gems?source=other", "/api/gems?category=flats", "/api/gems?page=1e12", "/api/gems?year_min=x"} {

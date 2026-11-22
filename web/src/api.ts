@@ -1,4 +1,4 @@
-import { fieldLabel, t } from './i18n'
+import { fieldLabel, locale, t } from './i18n'
 
 // Typed client for the Go API (internal/web). The session is an HttpOnly
 // cookie; every change carries X-Requested-With, which the API requires.
@@ -311,7 +311,8 @@ export const api = {
   gems: (source: string, category: string, q: GemQuery) =>
     call<GemPage>(
       'GET',
-      `/api/gems?${target(source, category)}&${gemParams(q)}`,
+      // lang: the verdicts in the reader's language.
+      `/api/gems?${target(source, category)}&${gemParams(q)}&lang=${locale.value}`,
     ),
 
   watches: (all = false) =>

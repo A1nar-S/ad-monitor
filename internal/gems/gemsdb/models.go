@@ -28,6 +28,7 @@ type Gem struct {
 	Category     string
 	Heading      string
 	Attrs        []byte
+	Translations []byte
 }
 
 type GemScan struct {

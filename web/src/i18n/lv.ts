@@ -244,7 +244,7 @@ const lv: Messages = {
 
   gems: {
     title: 'Pērļu meklētājs',
-    lead: 'Viss pārdodamais, novērtēts: labākie pirkumi vispirms.',
+    lead: 'Viss pārdodamais, novērtēts: labākie piedāvājumi vispirms.',
     sites: 'Vietnes',
     category: 'Kategorija',
     categories: { cars: 'Automašīnas', flats: 'Dzīvokļi' },
@@ -292,14 +292,14 @@ const lv: Messages = {
     detailHint:
       '{fields}: zināms {n} no {all}, potenciālajiem pirkumiem, kuru lapa izlasīta.',
     sort: 'Kārtot',
-    sortBest: 'Labākie pirkumi vispirms',
+    sortBest: 'Labākie piedāvājumi vispirms',
     sortDiscount: 'Lētākie pret tirgu',
     sortPrice: 'Lētākie vispirms',
     sorts: { year: 'Jaunākie vispirms', mileage: 'Mazākais nobraukums' },
     buy: {
-      good: 'Labs pirkums',
-      average: 'Vidējs',
-      bad: 'Slikts pirkums',
+      good: 'Labs piedāvājums',
+      average: 'Vidējs piedāvājums',
+      bad: 'Slikts piedāvājums',
       check: 'Aizdomīgi lēts',
     },
     fields: {

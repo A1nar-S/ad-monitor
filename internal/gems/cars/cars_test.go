@@ -138,6 +138,17 @@ func TestRater(t *testing.T) {
 		t.Errorf("verdicts %v lack the ad page's", names)
 	}
 
+	// In Latvian too: every line, and every reason the English has.
+	lv, ok := best.Translations["lv"]
+	if !ok || !strings.HasPrefix(lv.Overall, "✅ Potenciāli labs piedāvājums") || len(lv.Fields) != len(best.Fields) {
+		t.Errorf("Latvian = %+v", lv)
+	}
+	for _, c := range best.Components {
+		if c.Why != "" && (lv.Why[c.Key] == "" || lv.Why[c.Key] == c.Why) {
+			t.Errorf("%s reason %q has no Latvian (%q)", c.Key, c.Why, lv.Why[c.Key])
+		}
+	}
+
 	// Removed: no longer rated.
 	items[0].Active = false
 	r.Update(0, items[0])

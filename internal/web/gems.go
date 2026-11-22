@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 
@@ -164,12 +165,15 @@ func (s *server) requestGemScan(w http.ResponseWriter, r *http.Request, _ subscr
 	writeJSON(w, http.StatusAccepted, scan)
 }
 
+// langCode is a language as the web app names one: "en", "lv".
+var langCode = regexp.MustCompile(`^[a-z]{2}$`)
+
 // maxGemParam bounds the numbers a list takes: any real price, year, km or
 // page is below it, and it keeps the database's int32 offsets in range.
 const maxGemParam = 1e7
 
-// listGems: ?source=&category=&buy=&sort=&page=&minPrice=&maxPrice=&detailed=1,
-// and the category's fields: a choice as <key>=value (repeated: any of
+// listGems: ?source=&category=&buy=&sort=&page=&minPrice=&maxPrice=&detailed=1
+// &lang= (the reader's language, a two-letter code), and the category's fields: a choice as <key>=value (repeated: any of
 // them), a range as <key>_min= and <key>_max=.
 func (s *server) listGems(w http.ResponseWriter, r *http.Request, _ subscriptions.Owner) {
 	v := r.URL.Query()
@@ -193,6 +197,9 @@ func (s *server) listGems(w http.ResponseWriter, r *http.Request, _ subscription
 		MinPrice: num("minPrice"), MaxPrice: num("maxPrice"), Page: int(num("page")),
 		DetailedOnly: v.Get("detailed") == "1" || v.Get("detailed") == "true",
 		Choices:      map[string][]string{}, Ranges: map[string][2]float64{},
+	}
+	if lang := v.Get("lang"); langCode.MatchString(lang) {
+		q.Lang = lang
 	}
 	for _, f := range cat.Spec().Fields {
 		switch f.Kind {

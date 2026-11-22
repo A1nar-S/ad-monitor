@@ -30,7 +30,7 @@ import {
   type GemSpec,
   type Me,
 } from '../api'
-import { formatNumber, formatRelative, t, tKey } from '../i18n'
+import { formatNumber, formatRelative, locale, t, tKey } from '../i18n'
 import { toastError } from '../toast'
 
 // The gem finder: every listing of a category for sale on a site, rated by
@@ -255,6 +255,9 @@ watch(
   },
   { deep: true },
 )
+
+// The verdicts come in the reader's language: another one loads them again.
+watch(locale, () => load())
 
 // Another site or category: its own filters, gems and fetch.
 function pick(src: string, cat: string) {

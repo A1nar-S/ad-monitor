@@ -232,7 +232,7 @@ const en = {
 
   gems: {
     title: 'Gem finder',
-    lead: 'Everything for sale, rated: best buys first.',
+    lead: 'Everything for sale, rated: best offers first.',
     sites: 'Sites',
     category: 'Category',
     categories: { cars: 'Cars', flats: 'Flats' },
@@ -275,14 +275,14 @@ const en = {
     detailHint:
       '{fields}: known for {n} of {all}, the potential buys whose ad page was read.',
     sort: 'Sort',
-    sortBest: 'Best buy first',
+    sortBest: 'Best offers first',
     sortDiscount: 'Furthest below market',
     sortPrice: 'Cheapest first',
     sorts: { year: 'Newest first', mileage: 'Fewest km first' },
     buy: {
-      good: 'Good buy',
-      average: 'Average',
-      bad: 'Bad buy',
+      good: 'Good offer',
+      average: 'Average offer',
+      bad: 'Bad offer',
       check: 'Too cheap to trust',
     },
     fields: {

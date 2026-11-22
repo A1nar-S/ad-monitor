@@ -167,6 +167,20 @@ func (r *rater) rate(i int) (gems.Rated, bool) {
 		d := ratings.Price.Diff
 		x.PriceDiff = &d
 	}
+	// The same, for readers of the other languages.
+	for _, l := range deals.Langs[1:] {
+		t := gems.Text{Fields: deals.FieldsIn(ratings, l), Why: map[string]string{}}
+		t.Overall, _ = ratings.TextIn(l)
+		for _, p := range ratings.ComponentsIn(l) {
+			if p.Why != "" {
+				t.Why[p.Key] = p.Why
+			}
+		}
+		if x.Translations == nil {
+			x.Translations = map[string]gems.Text{}
+		}
+		x.Translations[string(l)] = t
+	}
 	return x, true
 }
 

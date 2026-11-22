@@ -217,6 +217,9 @@ type Query struct {
 	Ranges map[string][2]float64
 	Sort   string // one of commonSorts or the category's
 	Page   int    // from 1
+	// Lang is the reader's language: the gems' texts in it where they have
+	// them, else in English.
+	Lang string
 }
 
 // PageSize is how many gems a page holds.
@@ -338,6 +341,9 @@ func (s *Service) List(ctx context.Context, source, category string, q Query) (P
 		_ = json.Unmarshal(r.Fields, &g.Fields)
 		_ = json.Unmarshal(r.Components, &g.Components)
 		_ = json.Unmarshal(r.Attrs, &g.Attrs)
+		if q.Lang != "" {
+			g.translate(r.Translations, q.Lang)
+		}
 		p.Items = append(p.Items, g)
 	}
 	return p, nil
@@ -353,6 +359,28 @@ type facetKey struct {
 // facets counts each choice's values among the gems that pass every other
 // filter: a choice ignores itself (so its other values stay offered) and
 // the choices it narrows' children (picking a make again clears the model).
+// translate puts g's texts in lang, from the stored translations, where
+// they have it.
+func (g *Gem) translate(stored []byte, lang string) {
+	var tr map[string]Text
+	if json.Unmarshal(stored, &tr) != nil {
+		return
+	}
+	t, ok := tr[lang]
+	if !ok {
+		return
+	}
+	g.Overall = t.Overall
+	if t.Fields != nil {
+		g.Fields = t.Fields
+	}
+	for i, c := range g.Components {
+		if why, ok := t.Why[c.Key]; ok {
+			g.Components[i].Why = why
+		}
+	}
+}
+
 func (s *Service) facets(ctx context.Context, spec Spec, p gemsdb.GemFacetsParams) (map[string][]Facet, error) {
 	keys := map[string]facetKey{}
 	out := map[string][]Facet{}

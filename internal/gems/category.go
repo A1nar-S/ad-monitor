@@ -54,6 +54,16 @@ type Rated struct {
 	// Attrs are the values the filters and cards show, keyed as the
 	// category's Spec: numbers float64, the rest strings; unknown left out.
 	Attrs map[string]any
+	// Translations are Overall, Fields and the components' Why in other
+	// languages than English, by language code ("lv").
+	Translations map[string]Text
+}
+
+// Text is what a rated listing says, in one language.
+type Text struct {
+	Overall string            `json:"overall"`
+	Fields  []events.Field    `json:"fields"`
+	Why     map[string]string `json:"why,omitempty"` // by component key
 }
 
 // Component is one part of a score: x from -1 to +1, weighted.

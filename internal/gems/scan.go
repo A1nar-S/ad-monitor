@@ -458,6 +458,11 @@ func row(scan Scan, it Item, x Rated) gemsdb.InsertGemParams {
 	fields, _ := json.Marshal(nonNil(x.Fields))
 	components, _ := json.Marshal(nonNil(x.Components))
 	attrs, _ := json.Marshal(x.Attrs)
+	tr := x.Translations
+	if tr == nil {
+		tr = map[string]Text{}
+	}
+	translations, _ := json.Marshal(tr)
 	score := x.Score
 	if math.IsInf(score, -1) || math.IsNaN(score) {
 		score = -1e9 // Postgres takes -Infinity, but JSON and sorting are simpler without
@@ -467,7 +472,7 @@ func row(scan Scan, it Item, x Rated) gemsdb.InsertGemParams {
 		Title: l.Title, Url: l.URL, ImageUrl: l.ImageURL, Price: l.Price, PriceValue: *l.PriceValue,
 		Buy: x.Buy, Score: score, DisplayScore: int32(x.Display), PriceDiff: x.PriceDiff,
 		Heading: x.Heading, Overall: x.Overall, Fields: fields, Components: components,
-		Detailed: it.Detailed, Attrs: attrs,
+		Detailed: it.Detailed, Attrs: attrs, Translations: translations,
 	}
 }
 
