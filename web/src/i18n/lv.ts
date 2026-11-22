@@ -338,6 +338,7 @@ const lv: Messages = {
     count: plural('{n} rezultāts', '{n} rezultāti', '{n} rezultātu'),
     emptyTitle: 'Nekas neatbilst',
     emptyBody: 'Mīkstiniet filtrus vai gaidiet nākamo ielādi.',
+    pagination: 'Lapas',
     prev: 'Iepriekšējā',
     next: 'Nākamā',
     page: 'Lapa {page} no {pages}',

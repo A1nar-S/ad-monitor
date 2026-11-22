@@ -326,6 +326,7 @@ const en = {
     count: plural('{n} result', '{n} results'),
     emptyTitle: 'Nothing matches',
     emptyBody: 'Loosen the filters, or wait for the next fetch.',
+    pagination: 'Pages',
     prev: 'Previous',
     next: 'Next',
     page: 'Page {page} of {pages}',
