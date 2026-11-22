@@ -78,8 +78,6 @@ type Scraper struct {
 	FeedCollapseAt int
 	// AdminChannel receives start/stop/error messages; empty target disables them.
 	AdminChannel AdminChannel
-	// PublicURL is the dashboard, for links in price-watch alerts.
-	PublicURL string
 	// GemDetailGap is the extra pause before each ad page a gem scan reads
 	// (its second pass), on top of RequestGap, jittered by half.
 	GemDetailGap time.Duration
@@ -97,7 +95,6 @@ func ScraperFromEnv() (Scraper, error) {
 		MaxPages:       envInt("MAX_PAGES", 5),
 		FeedCollapseAt: envInt("FEED_COLLAPSE_AT", 3),
 		AdminChannel:   AdminChannel{Kind: env("ADMIN_CHANNEL_KIND", "discord"), Target: os.Getenv("ADMIN_CHANNEL_ID")},
-		PublicURL:      selfServiceFromEnv().PublicURL,
 		GemDetailGap:   time.Duration(envInt("GEM_DETAIL_GAP_SECONDS", 1)) * time.Second,
 	}
 	var errs []error
@@ -235,36 +232,12 @@ func selfServiceFromEnv() SelfService {
 	}
 }
 
-// errNoChatToken: the bot and the notifier need at least one chat platform.
+// errNoChatToken: the notifier needs at least one chat platform.
 var errNoChatToken = errors.New("set DISCORD_BOT_TOKEN or TELEGRAM_BOT_TOKEN (or both)")
 
-// Bot is the chat bot users talk to (/watch, /searches, /dashboard). Each
-// platform with a token is served.
-type Bot struct {
-	Common
-	SelfService
-	DiscordBotToken  string
-	TelegramBotToken string
-	// GuildID registers the commands on one server only: they update
-	// instantly there, while global commands can take a while.
-	GuildID        string
-	FeedCollapseAt int
-}
-
-func BotFromEnv() (Bot, error) {
-	c := Bot{
-		Common: commonFromEnv(), SelfService: selfServiceFromEnv(),
-		DiscordBotToken: os.Getenv("DISCORD_BOT_TOKEN"), GuildID: os.Getenv("DISCORD_GUILD_ID"),
-		TelegramBotToken: os.Getenv("TELEGRAM_BOT_TOKEN"),
-		FeedCollapseAt:   envInt("FEED_COLLAPSE_AT", 3),
-	}
-	if c.DiscordBotToken == "" && c.TelegramBotToken == "" {
-		return c, errNoChatToken
-	}
-	return c, nil
-}
-
-// API serves the dashboard and its JSON API.
+// API is the service that owns users and what they want: the dashboard and
+// its JSON API, the chat bot on every platform with a token (/watch,
+// /searches, /dashboard), and the price-watch checks.
 type API struct {
 	Common
 	SelfService
@@ -273,15 +246,31 @@ type API struct {
 	FeedCollapseAt int
 	// RequestGap spaces out the ad pages an admin asks the dashboard to read.
 	RequestGap time.Duration
+	// RequestTimeout bounds one price-watch page read.
+	RequestTimeout time.Duration
+	// Chat platforms the bot serves; none = dashboard only.
+	DiscordBotToken  string
+	TelegramBotToken string
+	// GuildID registers the commands on one server only: they update
+	// instantly there, while global commands can take a while.
+	GuildID string
 }
 
 func APIFromEnv() (API, error) {
-	return API{
+	c := API{
 		Common: commonFromEnv(), SelfService: selfServiceFromEnv(),
 		Addr: env("API_ADDR", "127.0.0.1:8080"), WebDir: env("WEB_DIR", "web/dist"),
-		FeedCollapseAt: envInt("FEED_COLLAPSE_AT", 3),
-		RequestGap:     time.Duration(envInt("REQUEST_GAP_SECONDS", 2)) * time.Second,
-	}, nil
+		FeedCollapseAt:   envInt("FEED_COLLAPSE_AT", 3),
+		RequestGap:       time.Duration(envInt("REQUEST_GAP_SECONDS", 2)) * time.Second,
+		RequestTimeout:   time.Duration(envInt("REQUEST_TIMEOUT", 30)) * time.Second,
+		DiscordBotToken:  os.Getenv("DISCORD_BOT_TOKEN"),
+		TelegramBotToken: os.Getenv("TELEGRAM_BOT_TOKEN"),
+		GuildID:          os.Getenv("DISCORD_GUILD_ID"),
+	}
+	if c.RequestTimeout <= 0 {
+		return c, errors.New("REQUEST_TIMEOUT must be positive")
+	}
+	return c, nil
 }
 
 func env(key, def string) string {

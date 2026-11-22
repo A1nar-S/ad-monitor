@@ -125,6 +125,25 @@ func (q *Queries) ClaimOutbox(ctx context.Context, batch int32) ([]ClaimOutboxRo
 	return items, nil
 }
 
+const countSeenSince = `-- name: CountSeenSince :one
+SELECT count(*) FROM listings WHERE source = $1 AND external_id = ANY($2::text[]) AND last_seen_at >= $3
+`
+
+type CountSeenSinceParams struct {
+	Source string
+	Ids    []string
+	Since  pgtype.Timestamptz
+}
+
+// How many of these ads were stored or seen at or after since: a gem scan
+// waits until ingest has kept everything it crawled.
+func (q *Queries) CountSeenSince(ctx context.Context, arg CountSeenSinceParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countSeenSince, arg.Source, arg.Ids, arg.Since)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const earlierListing = `-- name: EarlierListing :one
 SELECT l.external_id, l.price, l.price_value,
        (SELECT count(*) FROM listings o
@@ -341,23 +360,6 @@ type LockFingerprintParams struct {
 func (q *Queries) LockFingerprint(ctx context.Context, arg LockFingerprintParams) error {
 	_, err := q.db.Exec(ctx, lockFingerprint, arg.Source, arg.Fingerprint)
 	return err
-}
-
-const markGoneIDs = `-- name: MarkGoneIDs :execrows
-UPDATE listings SET is_active = FALSE WHERE source = $1 AND external_id = ANY($2::text[]) AND is_active
-`
-
-type MarkGoneIDsParams struct {
-	Source string
-	Ids    []string
-}
-
-func (q *Queries) MarkGoneIDs(ctx context.Context, arg MarkGoneIDsParams) (int64, error) {
-	result, err := q.db.Exec(ctx, markGoneIDs, arg.Source, arg.Ids)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }
 
 const markListingGone = `-- name: MarkListingGone :exec

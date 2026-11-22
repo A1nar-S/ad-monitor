@@ -165,8 +165,7 @@ func (q *Queries) GetSearchOwner(ctx context.Context, id int64) (int64, error) {
 
 const getSearchView = `-- name: GetSearchView :one
 SELECT s.id, s.user_id, u.display_name AS user_name, s.name, s.enabled, s.source, s.feeds, s.spec,
-       s.channel_id, c.kind AS channel_kind, c.target AS channel_target, c.label AS channel_label, s.created_at, s.updated_at,
-       (SELECT count(*) FROM matches m WHERE m.search_id = s.id) AS matches
+       s.channel_id, c.kind AS channel_kind, c.target AS channel_target, c.label AS channel_label, s.created_at, s.updated_at
 FROM searches s
 JOIN users u ON u.id = s.user_id
 JOIN channels c ON c.id = s.channel_id
@@ -188,7 +187,6 @@ type GetSearchViewRow struct {
 	ChannelLabel  string
 	CreatedAt     pgtype.Timestamptz
 	UpdatedAt     pgtype.Timestamptz
-	Matches       int64
 }
 
 func (q *Queries) GetSearchView(ctx context.Context, id int64) (GetSearchViewRow, error) {
@@ -209,7 +207,6 @@ func (q *Queries) GetSearchView(ctx context.Context, id int64) (GetSearchViewRow
 		&i.ChannelLabel,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Matches,
 	)
 	return i, err
 }
@@ -471,39 +468,9 @@ func (q *Queries) ListEnabledSearches(ctx context.Context, source string) ([]Lis
 	return items, nil
 }
 
-const listMatchedSearchIDs = `-- name: ListMatchedSearchIDs :many
-SELECT search_id FROM matches WHERE source = $1 AND external_id = $2
-`
-
-type ListMatchedSearchIDsParams struct {
-	Source     string
-	ExternalID string
-}
-
-func (q *Queries) ListMatchedSearchIDs(ctx context.Context, arg ListMatchedSearchIDsParams) ([]int64, error) {
-	rows, err := q.db.Query(ctx, listMatchedSearchIDs, arg.Source, arg.ExternalID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []int64
-	for rows.Next() {
-		var search_id int64
-		if err := rows.Scan(&search_id); err != nil {
-			return nil, err
-		}
-		items = append(items, search_id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listSearchViews = `-- name: ListSearchViews :many
 SELECT s.id, s.user_id, u.display_name AS user_name, s.name, s.enabled, s.source, s.feeds, s.spec,
-       s.channel_id, c.kind AS channel_kind, c.target AS channel_target, c.label AS channel_label, s.created_at, s.updated_at,
-       (SELECT count(*) FROM matches m WHERE m.search_id = s.id) AS matches
+       s.channel_id, c.kind AS channel_kind, c.target AS channel_target, c.label AS channel_label, s.created_at, s.updated_at
 FROM searches s
 JOIN users u ON u.id = s.user_id
 JOIN channels c ON c.id = s.channel_id
@@ -531,7 +498,6 @@ type ListSearchViewsRow struct {
 	ChannelLabel  string
 	CreatedAt     pgtype.Timestamptz
 	UpdatedAt     pgtype.Timestamptz
-	Matches       int64
 }
 
 // A user's searches, or everyone's for admins.
@@ -559,7 +525,6 @@ func (q *Queries) ListSearchViews(ctx context.Context, arg ListSearchViewsParams
 			&i.ChannelLabel,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.Matches,
 		); err != nil {
 			return nil, err
 		}
@@ -607,45 +572,25 @@ func (q *Queries) ListUserChannels(ctx context.Context, userID int64) ([]ListUse
 	return items, nil
 }
 
-const listUserMatches = `-- name: ListUserMatches :many
-SELECT m.search_id, s.name AS search_name, m.source, m.external_id, m.created_at
-FROM matches m JOIN searches s ON s.id = m.search_id
-WHERE s.user_id = $1
-  AND ($2::bigint IS NULL OR m.search_id = $2)
-ORDER BY m.created_at DESC
-LIMIT $3
+const listUserSearchNames = `-- name: ListUserSearchNames :many
+SELECT id, name FROM searches WHERE user_id = $1
 `
 
-type ListUserMatchesParams struct {
-	UserID   int64
-	SearchID *int64
-	MaxRows  int32
+type ListUserSearchNamesRow struct {
+	ID   int64
+	Name string
 }
 
-type ListUserMatchesRow struct {
-	SearchID   int64
-	SearchName string
-	Source     string
-	ExternalID string
-	CreatedAt  pgtype.Timestamptz
-}
-
-func (q *Queries) ListUserMatches(ctx context.Context, arg ListUserMatchesParams) ([]ListUserMatchesRow, error) {
-	rows, err := q.db.Query(ctx, listUserMatches, arg.UserID, arg.SearchID, arg.MaxRows)
+func (q *Queries) ListUserSearchNames(ctx context.Context, userID int64) ([]ListUserSearchNamesRow, error) {
+	rows, err := q.db.Query(ctx, listUserSearchNames, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListUserMatchesRow
+	var items []ListUserSearchNamesRow
 	for rows.Next() {
-		var i ListUserMatchesRow
-		if err := rows.Scan(
-			&i.SearchID,
-			&i.SearchName,
-			&i.Source,
-			&i.ExternalID,
-			&i.CreatedAt,
-		); err != nil {
+		var i ListUserSearchNamesRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -753,34 +698,6 @@ DELETE FROM sessions WHERE expires_at < now()
 
 func (q *Queries) PurgeExpiredAuth(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, purgeExpiredAuth)
-	return err
-}
-
-const purgeMatches = `-- name: PurgeMatches :execrows
-DELETE FROM matches WHERE created_at < now() - make_interval(secs => $1::float8)
-`
-
-func (q *Queries) PurgeMatches(ctx context.Context, olderThanSeconds float64) (int64, error) {
-	result, err := q.db.Exec(ctx, purgeMatches, olderThanSeconds)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const recordMatch = `-- name: RecordMatch :exec
-INSERT INTO matches (search_id, source, external_id) VALUES ($1, $2, $3)
-ON CONFLICT DO NOTHING
-`
-
-type RecordMatchParams struct {
-	SearchID   int64
-	Source     string
-	ExternalID string
-}
-
-func (q *Queries) RecordMatch(ctx context.Context, arg RecordMatchParams) error {
-	_, err := q.db.Exec(ctx, recordMatch, arg.SearchID, arg.Source, arg.ExternalID)
 	return err
 }
 

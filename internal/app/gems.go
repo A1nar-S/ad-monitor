@@ -26,7 +26,8 @@ const (
 // is added.
 func gemCategories() []gems.Category { return []gems.Category{cars.Category{}} }
 
-// gemStore lets the gems slice use the listings slice through its own types.
+// gemStore lets the gems slice read the listings slice through its own
+// types; what a scan sees goes to ingest as events.
 type gemStore struct{ *listings.Service }
 
 func (s gemStore) Stored(ctx context.Context, source, location string) ([]gems.Item, error) {
@@ -43,9 +44,10 @@ func (s gemStore) Stored(ctx context.Context, source, location string) ([]gems.I
 
 // runGemScans runs the scans admins request, spacing feed and ad-page
 // requests with the regular scraping's throttles.
-func runGemScans(ctx context.Context, svc *gems.Service, store *listings.Service, reg sources.Registry, throttles map[string]*scraping.Throttle, detailGap time.Duration, wg *sync.WaitGroup) {
+func runGemScans(ctx context.Context, svc *gems.Service, store *listings.Service, pub publisher, reg sources.Registry,
+	throttles map[string]*scraping.Throttle, detailGap time.Duration, wg *sync.WaitGroup) {
 	scanner := &gems.Scanner{
-		Service: svc, Store: gemStore{store}, Sources: reg,
+		Service: svc, Store: gemStore{store}, Keep: pub.listing, KeepAdPage: pub.adPage, Sources: reg,
 		Wait: func(ctx context.Context, source string) bool {
 			if t, ok := throttles[source]; ok {
 				return t.Wait(ctx)
@@ -66,7 +68,7 @@ func runGemScans(ctx context.Context, svc *gems.Service, store *listings.Service
 func gemSources(reg sources.Registry, svc *gems.Service) []web.GemSource {
 	var out []web.GemSource
 	for _, n := range reg.Names() {
-		sc, ok := reg[n].(sources.Scannable)
+		sc, ok := reg.Lookup(n).(sources.Scannable)
 		if !ok {
 			continue
 		}

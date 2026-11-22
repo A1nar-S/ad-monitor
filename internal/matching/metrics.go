@@ -1,4 +1,4 @@
-package app
+package matching
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
@@ -8,6 +8,11 @@ import (
 )
 
 var (
+	// Counted per read attempt: a Kafka retry of the same listing reads again.
+	adPageReads = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "admon_matcher_adpage_reads_total",
+		Help: "Ad page reads (enrichment attempts) by source and result (ok, gone, failed).",
+	}, []string{"source", "result"})
 	matcherListings = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "admon_matcher_listings_total",
 		Help: "New listings run through the searches, by source and result (matched: at least one notification, unmatched).",
@@ -21,7 +26,7 @@ var (
 // observeMatch counts one fully handled listing. A source nobody registered
 // is "unknown", so a bad record cannot create series.
 func observeMatch(reg sources.Registry, source string, notifications int) {
-	if _, err := reg.Get(source); err != nil {
+	if reg.Lookup(source) == nil {
 		source = "unknown"
 	}
 	result := "unmatched"

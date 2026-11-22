@@ -587,6 +587,28 @@ func (q *Queries) RequestScan(ctx context.Context, arg RequestScanParams) (GemSc
 	return i, err
 }
 
+const scanPending = `-- name: ScanPending :one
+SELECT EXISTS (
+    SELECT 1 FROM gem_scans
+    WHERE source = $1::text AND category = $2::text AND (
+        status = 'requested' AND requested_at > now() - interval '3 hours'
+        OR status = 'running' AND COALESCE(progress_at, started_at) > now() - interval '30 minutes')
+)::boolean
+`
+
+type ScanPendingParams struct {
+	Source   string
+	Category string
+}
+
+// Whether a scan is waiting or running, as RequestScan judges it.
+func (q *Queries) ScanPending(ctx context.Context, arg ScanPendingParams) (bool, error) {
+	row := q.db.QueryRow(ctx, scanPending, arg.Source, arg.Category)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const scanProgress = `-- name: ScanProgress :exec
 UPDATE gem_scans SET phase = 'listing', pages = $1, ads = $2, progress_at = now() WHERE id = $3
 `

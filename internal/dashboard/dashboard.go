@@ -10,11 +10,14 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/A1nar-S/advertisiment-monitoring/internal/sources"
 )
 
 // PageSize is how many rows one overview page holds.
@@ -26,21 +29,21 @@ type Query struct {
 	View     string // "listings" (default) or "searches"
 	Text     string // matched case-insensitively against title, location, source / name, owner, source
 	Source   string
-	Category string // listings only: "cars", "flats" or "parts"
+	Category string // listings only: one of a source catalog's categories
 	Status   string // "active" or "inactive" (searches: enabled or paused)
 	Sort     string // listings only: "newest" (default), "oldest" or "title"
 	Page     int    // 1-based; clamped to the last page
 }
 
 var (
-	views      = []string{"listings", "searches"}
-	categories = []string{"", "cars", "flats", "parts"}
-	statuses   = []string{"", "active", "inactive"}
-	sorts      = []string{"newest", "oldest", "title"}
+	views    = []string{"listings", "searches"}
+	statuses = []string{"", "active", "inactive"}
+	sorts    = []string{"newest", "oldest", "title"}
 )
 
-// ParseQuery reads a Query from the URL, rejecting values it does not know.
-func ParseQuery(v url.Values) (Query, error) {
+// ParseQuery reads a Query from the URL, rejecting values it does not know;
+// categories are those a listing can be in.
+func ParseQuery(v url.Values, categories []string) (Query, error) {
 	q := Query{
 		View:     v.Get("view"),
 		Text:     strings.TrimSpace(v.Get("q")),
@@ -61,7 +64,7 @@ func ParseQuery(v url.Values) (Query, error) {
 		allowed     []string
 	}{
 		{"view", q.View, views},
-		{"category", q.Category, categories},
+		{"category", q.Category, append([]string{""}, categories...)},
 		{"status", q.Status, statuses},
 		{"sort", q.Sort, sorts},
 	} {
@@ -82,22 +85,29 @@ func ParseQuery(v url.Values) (Query, error) {
 	return q, nil
 }
 
-func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
-}
+func contains(list []string, s string) bool { return slices.Contains(list, s) }
 
 type Loader func(context.Context, Query) (json.RawMessage, error)
 
-func NewHandler(load Loader) http.Handler {
+// New serves the overview of what is stored for the sources in reg.
+func New(pool *pgxpool.Pool, reg sources.Registry) http.Handler {
+	secs := sectionsOf(reg)
+	var cats []string
+	for _, s := range secs {
+		if !slices.Contains(cats, s.category) {
+			cats = append(cats, s.category)
+		}
+	}
+	return NewHandler(Load(pool, secs), cats)
+}
+
+// NewHandler serves the overview load reads; categories are those a
+// listing can be filtered by.
+func NewHandler(load Loader, categories []string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/overview", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
-		q, err := ParseQuery(r.URL.Query())
+		q, err := ParseQuery(r.URL.Query(), categories)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -131,7 +141,30 @@ type overview struct {
 	Items     json.RawMessage `json:"items"`
 }
 
-func Load(pool *pgxpool.Pool) Loader {
+// Section is where one category of a source's listings are stored (see
+// sources.Category.Location).
+type Section struct {
+	source, category, location string
+	adPage                     bool
+}
+
+// sectionsOf lists the categories of every source with a catalog.
+func sectionsOf(reg sources.Registry) []Section {
+	var out []Section
+	for _, name := range reg.Names() {
+		cat, ok := reg.Lookup(name).(sources.Catalog)
+		if !ok {
+			continue
+		}
+		for _, c := range cat.Categories() {
+			out = append(out, Section{source: name, category: c.ID, location: c.Location, adPage: c.AdPage})
+		}
+	}
+	return out
+}
+
+func Load(pool *pgxpool.Pool, secs []Section) Loader {
+	listingsView := newListingsView(secs)
 	return func(ctx context.Context, q Query) (json.RawMessage, error) {
 		out := overview{View: q.View, PageSize: PageSize}
 		if err := pool.QueryRow(ctx, statsQuery).Scan(&out.UpdatedAt, &out.Stats); err != nil {
@@ -168,33 +201,69 @@ SELECT COALESCE(jsonb_agg(to_jsonb(p) - 'rn' ORDER BY p.rn), '[]'::jsonb) FROM (
 // A view is one table of the overview. Only fixed SQL goes into the query
 // text; everything the user typed is a parameter.
 type view struct {
-	table   string // for the source list
-	from    string
-	columns string
-	text    string // the expression the search box matches
-	status  string // the boolean column "active" means
-	order   func(sort string) string
+	table    string // for the source list
+	from     string
+	columns  string
+	text     string // the expression the search box matches
+	status   string // the boolean column "active" means
+	category string // the expression naming a row's category; "" = none
+	order    func(sort string) string
 }
 
-var listingsView = view{
-	table: "listings",
-	from:  "listings",
-	columns: `id, source, title, url, location, price, image_url AS "imageUrl",
+// newListingsView is the listings table; secs say which category each row
+// is in, and whether its ad page can be read.
+func newListingsView(secs []Section) view {
+	category, adPage := sectionExprs(secs)
+	return view{
+		table: "listings",
+		from:  "listings",
+		columns: `id, source, title, url, location, price, image_url AS "imageUrl",
     is_active AS active, first_seen_at AS "firstSeenAt",
     attrs || COALESCE(details, '{}'::jsonb) AS attrs, detailed_at AS "detailedAt",
-    ` + categoryExpr + ` AS category,
-    (source = 'ss.com' AND (location LIKE 'transport/cars%' OR location LIKE 'real-estate/%')) AS "hasAdPage"`,
-	text:   `title || ' ' || location || ' ' || source`,
-	status: "is_active",
-	order: func(sort string) string {
-		switch sort {
-		case "oldest":
-			return "first_seen_at ASC, id ASC"
-		case "title":
-			return "lower(title) ASC, id DESC"
+    ` + category + ` AS category, ` + adPage + ` AS "hasAdPage"`,
+		text:     `title || ' ' || location || ' ' || source`,
+		status:   "is_active",
+		category: category,
+		order:    listingsOrder,
+	}
+}
+
+// sectionExprs are the SQL naming a listing's category and saying whether
+// its ad page can be read. The sources' own names and paths are quoted in:
+// they are constants of the adapters, never input.
+func sectionExprs(secs []Section) (category, adPage string) {
+	var cats, pages []string
+	for _, s := range secs {
+		cond := "source = " + quote(s.source)
+		if s.location != "" {
+			cond += " AND (location = " + quote(s.location) + " OR starts_with(location, " + quote(s.location+"/") + "))"
 		}
-		return "first_seen_at DESC, id DESC"
-	},
+		cats = append(cats, "WHEN "+cond+" THEN "+quote(s.category))
+		if s.adPage {
+			pages = append(pages, "("+cond+")")
+		}
+	}
+	category, adPage = "NULL::text", "FALSE"
+	if len(cats) > 0 {
+		category = "CASE " + strings.Join(cats, " ") + " END"
+	}
+	if len(pages) > 0 {
+		adPage = "(" + strings.Join(pages, " OR ") + ")"
+	}
+	return category, adPage
+}
+
+// quote is s as an SQL string literal.
+func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+
+func listingsOrder(sort string) string {
+	switch sort {
+	case "oldest":
+		return "first_seen_at ASC, id ASC"
+	case "title":
+		return "lower(title) ASC, id DESC"
+	}
+	return "first_seen_at DESC, id DESC"
 }
 
 var searchesView = view{
@@ -208,15 +277,6 @@ var searchesView = view{
 	status: "searches.enabled",
 	order:  func(string) string { return "searches.created_at DESC, searches.id DESC" },
 }
-
-// categoryExpr names a listing's category: from its ss.com path; every
-// rrr.lt listing is a car part.
-const categoryExpr = `CASE
-      WHEN source = 'rrr.lt' THEN 'parts'
-      WHEN source <> 'ss.com' THEN NULL
-      WHEN location = 'transport/cars' OR location LIKE 'transport/cars/%' THEN 'cars'
-      WHEN location = 'real-estate/flats' OR location LIKE 'real-estate/flats/%' THEN 'flats'
-    END`
 
 // where turns the query into SQL conditions and their parameters.
 func (v view) where(q Query) (string, []any) {
@@ -240,8 +300,8 @@ func (v view) where(q Query) (string, []any) {
 	if q.Status != "" {
 		conds = append(conds, v.status+" = "+arg(q.Status == "active"))
 	}
-	if q.Category != "" && v.table == "listings" {
-		conds = append(conds, "("+categoryExpr+") = "+arg(q.Category))
+	if q.Category != "" && v.category != "" {
+		conds = append(conds, "("+v.category+") = "+arg(q.Category))
 	}
 	return strings.Join(conds, " AND "), args
 }

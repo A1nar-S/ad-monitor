@@ -17,6 +17,15 @@ WHERE NOT EXISTS (
 )
 RETURNING *;
 
+-- name: ScanPending :one
+-- Whether a scan is waiting or running, as RequestScan judges it.
+SELECT EXISTS (
+    SELECT 1 FROM gem_scans
+    WHERE source = @source::text AND category = @category::text AND (
+        status = 'requested' AND requested_at > now() - interval '3 hours'
+        OR status = 'running' AND COALESCE(progress_at, started_at) > now() - interval '30 minutes')
+)::boolean;
+
 -- name: InterruptScans :execrows
 -- A scraper starting up: the scans of its sources still running were its
 -- own, cut short when it stopped.

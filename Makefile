@@ -5,7 +5,7 @@ COMPOSE := docker compose --env-file .env -f infra/docker-compose.yml
 
 help:
 	@echo "make env     create .env with random DB, Grafana and monitoring passwords (then add the Discord values)"
-	@echo "make up      build and start everything: Postgres, Kafka, scraper, ingest, matcher, notifier, bot, dashboard"
+	@echo "make up      build and start everything: Postgres, Kafka, scraper, ingest, matcher, notifier, api (dashboard and bot)"
 	@echo "make infra   start only Postgres and Kafka (for go run on the host)"
 	@echo "make logs    follow the service logs"
 	@echo "make ps      show container status"
@@ -34,7 +34,7 @@ down:
 	$(COMPOSE) --profile app down
 
 logs:
-	$(COMPOSE) --profile app logs -f --tail=100 scraper ingest matcher notifier bot api
+	$(COMPOSE) --profile app logs -f --tail=100 scraper ingest matcher notifier api
 
 ps:
 	$(COMPOSE) --profile app ps
@@ -43,11 +43,11 @@ purge:
 	$(COMPOSE) --profile tools run --rm --build admin purge
 
 dlq:
-	@test -n "$(TOPIC)" || { echo "usage: make dlq TOPIC=listings.discovered|listings.new|notifications.requested"; exit 1; }
+	@test -n "$(TOPIC)" || { echo "usage: make dlq TOPIC=listings.discovered|listings.new|listings.details|notifications.requested|gems.scan_requested"; exit 1; }
 	$(COMPOSE) --profile tools run --rm --build admin dlq list $(TOPIC)
 
 dlq-replay:
-	@test -n "$(TOPIC)" || { echo "usage: make dlq-replay TOPIC=listings.discovered|listings.new|notifications.requested"; exit 1; }
+	@test -n "$(TOPIC)" || { echo "usage: make dlq-replay TOPIC=listings.discovered|listings.new|listings.details|notifications.requested|gems.scan_requested"; exit 1; }
 	$(COMPOSE) --profile tools run --rm --build admin dlq replay $(TOPIC)
 
 test:

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/gems"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/gems/cars"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/sources"
@@ -18,12 +19,17 @@ type fakeGems struct {
 	query    gems.Query
 }
 
-func (f *fakeGems) RequestScan(_ context.Context, source, category string, mode gems.Mode) (gems.Scan, error) {
+func (f *fakeGems) CheckRequest(context.Context, string, string, gems.Mode) error {
 	if f.busy {
-		return gems.Scan{}, gems.ErrBusy
+		return gems.ErrBusy
 	}
-	f.busy, f.mode = true, mode
-	return gems.Scan{ID: 1, Source: source, Category: category, Mode: mode, Status: "requested"}, nil
+	return nil
+}
+
+// request stands in for the scraper recording a requested scan.
+func (f *fakeGems) request(_ context.Context, r events.GemScanRequested) error {
+	f.busy, f.mode = true, gems.Mode(r.Mode)
+	return nil
 }
 func (f *fakeGems) LatestScan(context.Context, string, string) (gems.Scan, bool, error) {
 	return gems.Scan{ID: 1, Status: "running", Pages: 12, Error: "pq: relation gems", Note: "stopped"}, f.busy, nil
@@ -55,7 +61,7 @@ func (catalogSite) CompileSearch(string, map[string]any) (sources.Compiled, erro
 
 func TestGemEndpoints(t *testing.T) {
 	g := &fakeGems{}
-	h := New(Config{Searches: &fakeSearches{}, Gems: g, Sources: sources.NewRegistry(catalogSite{&fakeSite{}}),
+	h := New(Config{Searches: &fakeSearches{}, Gems: g, RequestGemScan: g.request, Sources: sources.NewRegistry(catalogSite{&fakeSite{}}),
 		GemSources: []GemSource{{ID: "ss.com", Name: "ss.com", Categories: []string{"cars"}}}})
 
 	// Everyone browses; only admins start a scan.

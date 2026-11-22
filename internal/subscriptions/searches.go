@@ -18,9 +18,6 @@ import (
 	"github.com/A1nar-S/advertisiment-monitoring/internal/subscriptions/subscriptionsdb"
 )
 
-// DefaultSource is the source a search watches unless it says otherwise.
-const DefaultSource = "ss.com"
-
 // ErrNotFound: no such search, or not yours. The two look the same so ids
 // of other users' searches leak nothing.
 var ErrNotFound = errors.New("search not found")
@@ -41,7 +38,7 @@ func (o Owner) can(userID int64) bool { return o.Admin || o.UserID == userID }
 // filters in the source's own names ({"make": ["Skoda"], "price": {"max": 7000}}).
 type SearchInput struct {
 	Name      string
-	Source    string // default DefaultSource
+	Source    string // default: the registry's default source
 	Category  string // e.g. "cars", "flats"
 	Filters   map[string]any
 	ChannelID int64  // where alerts go; 0 on update keeps the current one
@@ -222,7 +219,34 @@ func (s *Service) GetSearch(ctx context.Context, o Owner, id int64) (SearchView,
 	if err != nil {
 		return SearchView{}, err
 	}
-	return viewOf(subscriptionsdb.ListSearchViewsRow(r))
+	v, err := viewOf(subscriptionsdb.ListSearchViewsRow(r))
+	if err != nil {
+		return SearchView{}, err
+	}
+	vs := []SearchView{v}
+	if err := s.countMatches(ctx, vs); err != nil {
+		return SearchView{}, err
+	}
+	return vs[0], nil
+}
+
+// countMatches fills in how many matches each view had.
+func (s *Service) countMatches(ctx context.Context, vs []SearchView) error {
+	if s.matches == nil || len(vs) == 0 {
+		return nil
+	}
+	ids := make([]int64, len(vs))
+	for i, v := range vs {
+		ids[i] = v.ID
+	}
+	counts, err := s.matches.Counts(ctx, ids)
+	if err != nil {
+		return fmt.Errorf("match counts: %w", err)
+	}
+	for i := range vs {
+		vs[i].Matches = counts[vs[i].ID]
+	}
+	return nil
 }
 
 // ListSearches returns the owner's searches; everyone's for an admin who
@@ -240,6 +264,9 @@ func (s *Service) ListSearches(ctx context.Context, o Owner, all bool) ([]Search
 		}
 		out = append(out, v)
 	}
+	if err := s.countMatches(ctx, out); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
@@ -252,7 +279,7 @@ func (s *Service) SetEnabled(ctx context.Context, o Owner, id int64, enabled boo
 	return err
 }
 
-// DeleteSearch removes a search and its match history.
+// DeleteSearch removes a search. Its matches stay until the purge.
 func (s *Service) DeleteSearch(ctx context.Context, o Owner, id int64) error {
 	if _, err := s.GetSearch(ctx, o, id); err != nil {
 		return err
@@ -270,36 +297,45 @@ type MatchRef struct {
 	At         time.Time `json:"at"`
 }
 
-// maxRecentMatches caps one RecentMatches call.
-const maxRecentMatches = 1000
-
 // RecentMatches lists the owner's latest matches, newest first: of one
 // search, or of all of them when searchID is 0.
 func (s *Service) RecentMatches(ctx context.Context, o Owner, searchID int64, limit int) ([]MatchRef, error) {
-	maxRows := int32(maxRecentMatches)
-	if limit >= 0 && limit < maxRecentMatches {
-		maxRows = int32(limit) // bounded on this line, so the conversion cannot overflow
+	if s.matches == nil {
+		return nil, nil
 	}
-	p := subscriptionsdb.ListUserMatchesParams{UserID: o.UserID, MaxRows: maxRows}
-	if searchID != 0 {
-		p.SearchID = &searchID
-	}
-	rows, err := s.q.ListUserMatches(ctx, p)
+	searches, err := s.q.ListUserSearchNames(ctx, o.UserID)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]MatchRef, len(rows))
-	for i, r := range rows {
-		out[i] = MatchRef{SearchID: r.SearchID, SearchName: r.SearchName, Source: r.Source, ExternalID: r.ExternalID, At: r.CreatedAt.Time}
+	names := map[int64]string{}
+	var ids []int64
+	for _, r := range searches {
+		if searchID == 0 || r.ID == searchID {
+			names[r.ID] = r.Name
+			ids = append(ids, r.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	out, err := s.matches.Recent(ctx, ids, limit)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].SearchName = names[out[i].SearchID]
 	}
 	return out, nil
 }
+
+// DefaultSource is the site a search watches unless it names another.
+func (s *Service) DefaultSource() string { return s.sources.Default() }
 
 // Categories lists what the registered sources can search, per source.
 func (s *Service) Categories() map[string][]sources.Category {
 	out := map[string][]sources.Category{}
 	for _, name := range s.sources.Names() {
-		if c, ok := s.sources[name].(sources.Catalog); ok {
+		if c, ok := s.sources.Lookup(name).(sources.Catalog); ok {
 			out[name] = c.Categories()
 		}
 	}
@@ -345,7 +381,7 @@ func (s *Service) compile(ctx context.Context, o Owner, in SearchInput) (compile
 func (s *Service) compileFilters(in SearchInput) (string, sources.Source, sources.Compiled, Filters, error) {
 	source := in.Source
 	if source == "" {
-		source = DefaultSource
+		source = s.sources.Default()
 	}
 	src, err := s.sources.Get(source)
 	if err != nil {
@@ -451,8 +487,8 @@ func viewOf(r subscriptionsdb.ListSearchViewsRow) (SearchView, error) {
 	return SearchView{
 		ID: r.ID, UserID: r.UserID, UserName: r.UserName, Name: r.Name, Enabled: r.Enabled, Source: r.Source,
 		Category: sp.Category, Filters: sp.Filters, Feeds: r.Feeds,
-		Channel: ChannelView{ID: r.ChannelID, Kind: r.ChannelKind, Target: r.ChannelTarget, Label: r.ChannelLabel},
-		Matches: r.Matches, CreatedAt: r.CreatedAt.Time, UpdatedAt: r.UpdatedAt.Time,
+		Channel:   ChannelView{ID: r.ChannelID, Kind: r.ChannelKind, Target: r.ChannelTarget, Label: r.ChannelLabel},
+		CreatedAt: r.CreatedAt.Time, UpdatedAt: r.UpdatedAt.Time,
 	}, nil
 }
 

@@ -76,7 +76,7 @@ services:
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
-        for t in listings.discovered listings.new notifications.requested; do
+        for t in listings.discovered listings.new listings.details gems.scan_requested notifications.requested; do
           kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic $$t --partitions 3 --replication-factor 1
           kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic $$t.dlq --partitions 1 --replication-factor 1 --config retention.ms=2592000000
         done
@@ -113,12 +113,9 @@ services:
   notifier:
     <<: *service
     build: {context: .., args: {CMD: notifier}}
-  # The chat bot people manage their searches with (/watch, /searches, /dashboard).
-  bot:
-    <<: *service
-    build: {context: .., args: {CMD: bot}}
-  # The dashboard. Bound to this machine only; publish it with a tunnel
-  # (PUBLIC_URL in .env) if others should reach it.
+  # The dashboard, the chat bot people manage their searches with (/watch,
+  # /searches, /dashboard) and the price watches. Bound to this machine only;
+  # publish it with a tunnel (PUBLIC_URL in .env) if others should reach it.
   api:
     <<: *service
     build: {context: .., args: {CMD: api}}

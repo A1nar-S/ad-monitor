@@ -26,6 +26,5 @@ images:
   - {name: admon/ingest, newName: ghcr.io/a1nar-s/advertisiment-monitoring/ingest, digest: 'sha256:62f7c3c245c427c7bee05f59a0ffbeb6154f4b1cb61dba69f0e19b9f5dd45666'}
   - {name: admon/matcher, newName: ghcr.io/a1nar-s/advertisiment-monitoring/matcher, digest: 'sha256:b76e34a17728c752c767cb02b11f86519f130f8f91eb0bb089202c5254827be8'}
   - {name: admon/notifier, newName: ghcr.io/a1nar-s/advertisiment-monitoring/notifier, digest: 'sha256:4aa5db12d26df7c718be75026f2d9f2b928064d86acf8c63288cbd633d7599c5'}
-  - {name: admon/bot, newName: ghcr.io/a1nar-s/advertisiment-monitoring/bot, digest: 'sha256:7a0dfa9ef54e3d0808d6151fc60181a488fe3d910dc0cf2a10006c5342846797'}
   - {name: admon/api, newName: ghcr.io/a1nar-s/advertisiment-monitoring/api, digest: 'sha256:693603c665bd5cbab36ec01d24b47ccfd9e8c192f1d2416faa9805dd6ccb60ca'}
   - {name: admon/admin, newName: ghcr.io/a1nar-s/advertisiment-monitoring/admin, digest: 'sha256:5b5d4b49551b0ae22f395d2a4f5c7784e743b0d878acafe226156bbc2df5793d'}

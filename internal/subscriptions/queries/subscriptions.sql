@@ -67,8 +67,7 @@ DELETE FROM searches WHERE id = @id;
 -- name: ListSearchViews :many
 -- A user's searches, or everyone's for admins.
 SELECT s.id, s.user_id, u.display_name AS user_name, s.name, s.enabled, s.source, s.feeds, s.spec,
-       s.channel_id, c.kind AS channel_kind, c.target AS channel_target, c.label AS channel_label, s.created_at, s.updated_at,
-       (SELECT count(*) FROM matches m WHERE m.search_id = s.id) AS matches
+       s.channel_id, c.kind AS channel_kind, c.target AS channel_target, c.label AS channel_label, s.created_at, s.updated_at
 FROM searches s
 JOIN users u ON u.id = s.user_id
 JOIN channels c ON c.id = s.channel_id
@@ -77,20 +76,14 @@ ORDER BY s.created_at DESC, s.id DESC;
 
 -- name: GetSearchView :one
 SELECT s.id, s.user_id, u.display_name AS user_name, s.name, s.enabled, s.source, s.feeds, s.spec,
-       s.channel_id, c.kind AS channel_kind, c.target AS channel_target, c.label AS channel_label, s.created_at, s.updated_at,
-       (SELECT count(*) FROM matches m WHERE m.search_id = s.id) AS matches
+       s.channel_id, c.kind AS channel_kind, c.target AS channel_target, c.label AS channel_label, s.created_at, s.updated_at
 FROM searches s
 JOIN users u ON u.id = s.user_id
 JOIN channels c ON c.id = s.channel_id
 WHERE s.id = @id;
 
--- name: ListUserMatches :many
-SELECT m.search_id, s.name AS search_name, m.source, m.external_id, m.created_at
-FROM matches m JOIN searches s ON s.id = m.search_id
-WHERE s.user_id = @user_id
-  AND (sqlc.narg('search_id')::bigint IS NULL OR m.search_id = sqlc.narg('search_id'))
-ORDER BY m.created_at DESC
-LIMIT @max_rows;
+-- name: ListUserSearchNames :many
+SELECT id, name FROM searches WHERE user_id = @user_id;
 
 -- name: ListEnabledSearches :many
 SELECT s.id, s.user_id, s.name, s.source, s.feeds, s.filters,
@@ -101,16 +94,6 @@ WHERE s.enabled AND s.source = @source;
 
 -- name: ListEnabledFeeds :many
 SELECT DISTINCT unnest(feeds)::text AS feed FROM searches WHERE enabled AND source = @source;
-
--- name: ListMatchedSearchIDs :many
-SELECT search_id FROM matches WHERE source = @source AND external_id = @external_id;
-
--- name: RecordMatch :exec
-INSERT INTO matches (search_id, source, external_id) VALUES (@search_id, @source, @external_id)
-ON CONFLICT DO NOTHING;
-
--- name: PurgeMatches :execrows
-DELETE FROM matches WHERE created_at < now() - make_interval(secs => @older_than_seconds::float8);
 
 -- name: InsertLoginToken :exec
 INSERT INTO login_tokens (token_hash, user_id, expires_at) VALUES (@token_hash, @user_id, @expires_at);

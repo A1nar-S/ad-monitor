@@ -186,8 +186,8 @@ dashboard api ─┴─> subscriptions (users, channels, searches, logins) <─�
 - **Lifecycle:** `make purge` / `go run ./cmd/admin purge` deletes listings not *seen* for `RETENTION_HOURS` (default 60
   days). The listings table doubles as the "already announced" memory: a shorter retention re-announces old ads when they
   are bumped. Matches/deliveries are kept 2x longer. Cron it weekly.
-- **Services:** `cmd/{scraper,ingest,matcher,notifier,bot,api,admin}` are thin; wiring lives in `internal/app` so tests
-  run the real thing.
+- **Services:** `cmd/{scraper,ingest,matcher,notifier,api,admin}` are thin; wiring lives in `internal/app` so tests
+  run the real thing. One writing service per table (see `docs/architecture.md`); the chat bot runs inside `api`.
 - **Dashboard:** `web/` is a Vue 3 + TypeScript SPA (Bun, Vite), built into every image and served by `cmd/api`
   (`internal/web`: API + SPA). Tabs: your searches (editor generated from `/api/categories`), your alerts, and for
   admins the old read-only overview (`internal/dashboard`'s cross-slice queries). Compose binds it to `127.0.0.1:8080`;
@@ -211,7 +211,7 @@ dashboard api ─┴─> subscriptions (users, channels, searches, logins) <─�
 - **Storage** (subscriptions slice, migration 0004): `watch_targets` (url + extractor, shared, last valid price,
   failure count, lease via `next_check_at`), `watches` (user, channel, rule, fixed reference, `below` flag),
   `watch_prices` (history, a row per change), `watch_alerts` (history and outbox).
-- **Checking** runs inside the scraper service (`app.watchLoop`): every 30 s it leases due targets, reads each
+- **Checking** runs inside the api service (`app.watchLoop`), the subscriptions slice's only writer: every 30 s it leases due targets, reads each
   once for all its watches, and commits the reading, watch states and alerts in one transaction. The relay
   publishes alerts to `notifications.requested` with key `watch-alert:<id>`. "Check now" in the dashboard
   runs the same code in the API process (at most once per 30 s per page).
@@ -220,7 +220,7 @@ dashboard api ─┴─> subscriptions (users, channels, searches, logins) <─�
   picker was designed on.
 
 ## Metrics
-Every long-running service (`scraper`, `ingest`, `matcher`, `notifier`, `bot`, `api`) serves Prometheus metrics on
+Every long-running service (`scraper`, `ingest`, `matcher`, `notifier`, `api`) serves Prometheus metrics on
 `METRICS_ADDR` (`internal/platform/metrics`; default `127.0.0.1:9100` so a host `go run` is not exposed, empty disables; a busy port only logs a warning). Go
 runtime and process metrics come with it. Compose sets `METRICS_ADDR=:9100` (all interfaces of the container) for each service without publishing it, and
 a `prometheus` service (profile `app`, `infra/prometheus/prometheus.yml`, volume `prometheus-data`, 15 days of
@@ -253,7 +253,7 @@ The same code runs in several processes (e.g. `admon_kafka_*` in every service),
 | `admon_matcher_notifications_total` | counter | `source` | Notification requests produced, counted once per listing after they are recorded (not per retry) |
 | `admon_matcher_adpage_reads_total` | counter | `source`, `result` (ok, gone, failed) | Ad page reads (attempts: a Kafka retry reads again) |
 | `admon_notifier_deliveries_total` | counter | `kind` (notifier kind, or `unknown`), `result` (sent, failed, dropped, digested) | Deliveries per notifier kind (digest messages count as sent); `failed` counts attempts, so one message retried 5 times adds 5 (unlike `admon_kafka_consumed_total`, which counts records) |
-| `admon_watch_checks_total` | counter | `result` (ok, failed, blocked, gone, no_price) | Price watch page checks (scraper, and the API's "Check now") |
+| `admon_watch_checks_total` | counter | `result` (ok, failed, blocked, gone, no_price) | Price watch page checks (the api's loop and its "Check now") |
 | `admon_watch_check_duration_seconds` | histogram | none | One check: page read plus recording |
 | `admon_watch_alerts_total` | counter | `kind` (drop, failing, recovered) | Price alerts queued for delivery (counted after the transaction commits) |
 | `admon_bot_commands_total` | counter | `command` (watch, edit, searches, matches, unwatch, dashboard, setup, link, menu_toggle, menu_delete, menu_link, other), `result` (ok, rejected, error) | Bot commands and menu actions; `rejected` is the user's mistake |
@@ -380,7 +380,7 @@ recreate it for a changed provisioning file):
 
 | Rule (group) | Severity | Condition | for | noData / execErr |
 |---|---|---|---|---|
-| App service down (availability) | critical | `up{job=~"scraper\|ingest\|matcher\|notifier\|bot\|api"} < 1` | 2m | Alerting / Error |
+| App service down (availability) | critical | `up{job=~"scraper\|ingest\|matcher\|notifier\|api"} < 1` | 2m | Alerting / Error |
 | Kafka broker or exporter down | critical | `min(kafka_brokers or up*0) < 1` | 3m | Alerting / Error |
 | Postgres down | critical | `min(pg_up or up*0) < 1` (also: missing `MONITOR_DB_PASSWORD`) | 5m | Alerting / Error |
 | Monitoring component down | warning | `up{job=~"cadvisor\|postgres\|prometheus\|grafana"} < 1` | 5m | Alerting / Error |

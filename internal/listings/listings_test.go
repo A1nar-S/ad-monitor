@@ -396,9 +396,13 @@ func TestStoreScanned(t *testing.T) {
 	}
 	start := time.Now()
 	for _, l := range []events.ListingDiscovered{listing("scanned", ""), known} {
-		if err := svc.StoreScanned(ctx, l); err != nil {
-			t.Fatal(err)
+		l.Scanned = true
+		if isNew, err := svc.Ingest(ctx, l); err != nil || isNew {
+			t.Fatalf("scanned %s: new=%v err=%v, want stored silently", l.ExternalID, isNew, err)
 		}
+	}
+	if n, err := svc.CountSeenSince(ctx, "ss.com", []string{"known", "scanned", "other"}, start); err != nil || n != 2 {
+		t.Errorf("seen since the scan began = %d (err %v), want 2", n, err)
 	}
 	if n := outbox(); n != 1 {
 		t.Fatalf("outbox has %d, want only the regular ingest's 1", n)
@@ -430,8 +434,11 @@ func TestStoreScanned(t *testing.T) {
 	if err != nil || len(unseen) != 1 || unseen[0].ExternalID != "known" {
 		t.Fatalf("unseen = %+v (err %v), want the known ad", unseen, err)
 	}
-	if n, err := svc.MarkGoneIDs(ctx, "ss.com", []string{"known"}); err != nil || n != 1 {
-		t.Errorf("marked %d gone (err %v), want 1", n, err)
+	if err := svc.KeepAdPage(ctx, events.AdPageRead{Listing: unseen[0], Gone: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.KeepAdPage(ctx, events.AdPageRead{Listing: unseen[0]}); !errors.Is(err, ErrNoRead) {
+		t.Errorf("an ad page read with no result: err = %v, want ErrNoRead", err)
 	}
 	if cars, err := svc.StoredIn(ctx, "ss.com", "transport/cars/"); err != nil || len(cars) != 0 {
 		t.Errorf("stored cars = %d (err %v), want 0: the test ads are not under transport/cars/", len(cars), err)

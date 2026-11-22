@@ -1,0 +1,11 @@
+version: "2"
+sql:
+  - engine: postgresql
+    schema: migrations # goose files; sqlc ignores the Down sections
+    queries: queries
+    gen:
+      go:
+        package: matchingdb
+        out: matchingdb
+        sql_package: pgx/v5
+        emit_pointers_for_null_types: true

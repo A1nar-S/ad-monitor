@@ -60,8 +60,10 @@ ON CONFLICT (source, external_id) DO UPDATE SET
 SELECT external_id, feed, location FROM listings
 WHERE source = @source AND is_active AND last_seen_at < @since;
 
--- name: MarkGoneIDs :execrows
-UPDATE listings SET is_active = FALSE WHERE source = @source AND external_id = ANY(@ids::text[]) AND is_active;
+-- name: CountSeenSince :one
+-- How many of these ads were stored or seen at or after since: a gem scan
+-- waits until ingest has kept everything it crawled.
+SELECT count(*) FROM listings WHERE source = @source AND external_id = ANY(@ids::text[]) AND last_seen_at >= @since;
 
 -- name: StoredIn :many
 -- Every stored ad of a source with a price under a location prefix (cars:

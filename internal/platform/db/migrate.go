@@ -3,9 +3,16 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
+	"path"
+	"strconv"
+	"strings"
+	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
@@ -65,4 +72,73 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, scope string, fsys fs.FS) 
 		return fmt.Errorf("migrations %s: %w", scope, err)
 	}
 	return nil
+}
+
+// awaitEvery is how often AwaitMigrated looks again.
+const awaitEvery = 2 * time.Second
+
+// AwaitMigrated blocks until the schema of scope is at least at the newest
+// migration in fsys. A service that only reads another slice's tables calls
+// it instead of Migrate: the slice's owner migrates them, and this build
+// waits for the schema it was written against.
+func AwaitMigrated(ctx context.Context, pool *pgxpool.Pool, scope string, fsys fs.FS) error {
+	want, err := latestVersion(fsys)
+	if err != nil {
+		return fmt.Errorf("migrations %s: %w", scope, err)
+	}
+	logged := false
+	for {
+		have, err := appliedVersion(ctx, pool, scope)
+		switch {
+		case err == nil && have >= want:
+			return nil
+		case err != nil && !Transient(err):
+			return fmt.Errorf("schema %s: %w", scope, err)
+		case !logged:
+			slog.Info("waiting for another service to migrate", "scope", scope, "have", have, "want", want)
+			logged = true
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(awaitEvery):
+		}
+	}
+}
+
+// appliedVersion is the newest migration of scope applied; 0 before any.
+func appliedVersion(ctx context.Context, pool *pgxpool.Pool, scope string) (int64, error) {
+	var v int64
+	// scope is one of the slices' fixed names, never input.
+	err := pool.QueryRow(ctx, "SELECT COALESCE(max(version_id), 0) FROM "+scope+"_migrations WHERE is_applied").Scan(&v)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "42P01" {
+		return 0, nil // no migration yet
+	}
+	return v, err
+}
+
+// latestVersion is the number of the newest migration file in fsys
+// ("0007_seen_by_feed.sql" is 7).
+func latestVersion(fsys fs.FS) (int64, error) {
+	files, err := fs.Glob(fsys, "*.sql")
+	if err != nil {
+		return 0, err
+	}
+	var latest int64
+	for _, f := range files {
+		num, _, ok := strings.Cut(path.Base(f), "_")
+		if !ok {
+			continue
+		}
+		v, err := strconv.ParseInt(num, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("migration %s: %w", f, err)
+		}
+		latest = max(latest, v)
+	}
+	if latest == 0 {
+		return 0, errors.New("no migrations")
+	}
+	return latest, nil
 }

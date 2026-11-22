@@ -2,8 +2,9 @@
 // listing of one category for sale on a source, each one rated, best buys
 // first. It is generic: a Category (cars: internal/gems/cars) rates and
 // says what can be filtered; this package scans, stores, filters and lists.
-// It owns the scan requests and the latest scan's ratings; the scraper runs
-// scans (Scanner), the API requests (admins) and lists them (everyone).
+// It owns the scan requests and the latest scan's ratings. The scraper is
+// its only writer: it runs scans (Scanner) and records the requests admins
+// make in the API (events.GemScanRequested); the API lists them.
 //
 // Schema lives in migrations/ (goose), queries in queries/ and the typed code
 // in gemsdb/ is generated from both by sqlc: run `go generate ./...`.
@@ -57,13 +58,23 @@ func (s *Service) Category(id string) (Category, bool) {
 	return s.cats[i], true
 }
 
-// Migrate brings this slice's schema up to date.
+// Migrate brings this slice's schema up to date (the scraper, its owner).
 func (s *Service) Migrate(ctx context.Context) error {
 	sub, err := fs.Sub(migrationFiles, "migrations")
 	if err != nil {
 		return err
 	}
 	return db.Migrate(ctx, s.pool, "gems", sub)
+}
+
+// AwaitSchema waits until the scraper has migrated the schema this build
+// reads.
+func (s *Service) AwaitSchema(ctx context.Context) error {
+	sub, err := fs.Sub(migrationFiles, "migrations")
+	if err != nil {
+		return err
+	}
+	return db.AwaitMigrated(ctx, s.pool, "gems", sub)
 }
 
 // ErrBusy: a scan of the source is already waiting or running.
@@ -137,8 +148,9 @@ func (s *Service) known(category string) error {
 	return nil
 }
 
-// RequestScan asks the scraper to scan source's category; ErrBusy if a
-// scan of it (of either mode) is pending.
+// RequestScan queues a scan of source's category; ErrBusy if a scan of it
+// (of either mode) is pending. The scraper calls it for each
+// events.GemScanRequested.
 func (s *Service) RequestScan(ctx context.Context, source, category string, mode Mode) (Scan, error) {
 	if err := s.known(category); err != nil {
 		return Scan{}, err
@@ -160,6 +172,25 @@ func (s *Service) RequestScan(ctx context.Context, source, category string, mode
 		return err
 	})
 	return scan, err
+}
+
+// CheckRequest validates a scan request before it is sent to the scraper:
+// ErrBadQuery for an unknown category or mode, ErrBusy if one is pending.
+func (s *Service) CheckRequest(ctx context.Context, source, category string, mode Mode) error {
+	if err := s.known(category); err != nil {
+		return err
+	}
+	if !slices.Contains(Modes, mode) {
+		return fmt.Errorf("%w: unknown scan mode %q", ErrBadQuery, mode)
+	}
+	pending, err := s.q.ScanPending(ctx, gemsdb.ScanPendingParams{Source: source, Category: category})
+	if err != nil {
+		return err
+	}
+	if pending {
+		return ErrBusy
+	}
+	return nil
 }
 
 // LatestScan returns the newest scan of source's category; ok is false if

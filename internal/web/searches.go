@@ -26,7 +26,7 @@ type sourceView struct {
 // listSources lists the searchable sites, the default one first: the editor's
 // tabs.
 func (s *server) listSources(w http.ResponseWriter, _ *http.Request, _ subscriptions.Owner) {
-	cats := s.Searches.Categories()
+	cats, def := s.Searches.Categories(), s.Searches.DefaultSource()
 	out := make([]sourceView, 0, len(cats))
 	for name, cs := range cats {
 		if len(cs) > 0 {
@@ -34,7 +34,7 @@ func (s *server) listSources(w http.ResponseWriter, _ *http.Request, _ subscript
 		}
 	}
 	slices.SortFunc(out, func(a, b sourceView) int {
-		if da, db := a.ID == subscriptions.DefaultSource, b.ID == subscriptions.DefaultSource; da != db {
+		if da, db := a.ID == def, b.ID == def; da != db {
 			if da {
 				return -1
 			}
@@ -63,7 +63,7 @@ func (s *server) listSearches(w http.ResponseWriter, r *http.Request, o subscrip
 
 type searchBody struct {
 	Name string `json:"name"`
-	// Source is the site; empty means subscriptions.DefaultSource (and, on an
+	// Source is the site; empty means the default source (and, on an
 	// update, the site the search already watches).
 	Source    string         `json:"source"`
 	Category  string         `json:"category"`
@@ -212,7 +212,7 @@ func (s *server) previewSearch(w http.ResponseWriter, r *http.Request, _ subscri
 	}
 	source := b.Source
 	if source == "" {
-		source = subscriptions.DefaultSource
+		source = s.Searches.DefaultSource()
 	}
 	stored, err := s.Listings.Recent(r.Context(), source, previewLimit)
 	if s.fail(w, err) {

@@ -65,12 +65,17 @@ func (a *Adapter) ChannelName(ctx context.Context, target string) string {
 
 // Serve registers the bot's commands (on guildID only when set, which
 // updates instantly; globally otherwise) and answers interactions until ctx
-// is done.
+// is done. It may be called again after an error: its handlers leave with it.
 func (a *Adapter) Serve(ctx context.Context, core *bot.Bot, guildID string) error {
 	a.core = core
 	ready := make(chan string, 1)
-	a.s.AddHandlerOnce(func(_ *discordgo.Session, r *discordgo.Ready) { ready <- r.User.ID })
-	a.s.AddHandler(func(_ *discordgo.Session, ic *discordgo.InteractionCreate) { a.handle(ctx, ic.Interaction) })
+	defer a.s.AddHandlerOnce(func(_ *discordgo.Session, r *discordgo.Ready) {
+		select {
+		case ready <- r.User.ID:
+		default:
+		}
+	})()
+	defer a.s.AddHandler(func(_ *discordgo.Session, ic *discordgo.InteractionCreate) { a.handle(ctx, ic.Interaction) })()
 	if err := a.s.Open(); err != nil {
 		return fmt.Errorf("discord gateway: %w", err)
 	}

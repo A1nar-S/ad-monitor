@@ -551,6 +551,13 @@ func TestCarsPipeline(t *testing.T) {
 		verdicts["Equipment verdict"] == "" || verdicts["Overall"] == "" || verdicts["Price verdict"] != "" {
 		t.Errorf("peugeot verdicts = %q, want engine, equipment and overall, no price", verdicts)
 	}
+	// What the matcher read on the ad page reaches ingest, the listings'
+	// only writer, as an event.
+	eventually(t, 30*time.Second, "ad page details kept by ingest", func() bool {
+		var detailed bool
+		err := pool.QueryRow(ctx, `SELECT detailed_at IS NOT NULL FROM listings WHERE external_id = '99100001'`).Scan(&detailed)
+		return err == nil && detailed
+	})
 	// 3. A new cheap Opel: no search needs its ad page (the Peugeot search
 	// already fails on make), but its alert rates it, so it is read once.
 	site.addAd(allCarsFeed, "58269130", "99100002")

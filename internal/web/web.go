@@ -30,24 +30,26 @@ type Searches interface {
 	Channels(ctx context.Context, o subscriptions.Owner) ([]subscriptions.ChannelView, error)
 	RecentMatches(ctx context.Context, o subscriptions.Owner, searchID int64, limit int) ([]subscriptions.MatchRef, error)
 	Categories() map[string][]sources.Category
+	DefaultSource() string
 	Preview(in subscriptions.SearchInput, candidates []events.ListingDiscovered) (subscriptions.Preview, error)
 	CompileFeeds(in subscriptions.SearchInput) (source string, feeds []string, err error)
 }
 
-// Listings looks up stored ads: to show matches, to preview a search
-// against, and to keep what an ad page adds.
+// Listings looks up stored ads: to show matches and to preview a search
+// against. Ingest owns them; what an ad page adds goes to it as an event
+// (Config.KeepAdPage).
 type Listings interface {
 	Summaries(ctx context.Context, source string, ids []string) (map[string]listings.Summary, error)
 	Recent(ctx context.Context, source string, limit int32) ([]listings.Stored, error)
 	Get(ctx context.Context, id int64) (listings.Stored, error)
-	SaveDetails(ctx context.Context, before, enriched events.ListingDiscovered) error
-	MarkGone(ctx context.Context, source, externalID string) error
 }
 
 type Config struct {
 	Searches Searches
 	Listings Listings
-	Overview http.Handler // the admin overview (GET /api/overview)
+	// KeepAdPage hands ingest what an ad page an admin had read showed.
+	KeepAdPage func(context.Context, events.AdPageRead) error
+	Overview   http.Handler // the admin overview (GET /api/overview)
 	// Sources read an ad's own page for an admin (its region, gearbox, ...).
 	Sources     sources.Registry
 	WebDir      string // the built app; empty = API only
@@ -57,9 +59,11 @@ type Config struct {
 	Watches    Watches
 	Pages      Pages
 	MaxWatches int
-	// The gem finder; nil or no source turns it off.
-	Gems       Gems
-	GemSources []GemSource
+	// The gem finder; nil or no source turns it off. RequestGemScan asks the
+	// scraper, which owns the scans, for one.
+	Gems           Gems
+	GemSources     []GemSource
+	RequestGemScan func(context.Context, events.GemScanRequested) error
 }
 
 const (
@@ -95,7 +99,9 @@ func New(cfg Config) http.Handler {
 	mux.Handle("GET /api/matches", s.auth(s.matches))
 	mux.Handle("POST /api/searches/preview", s.auth(s.previewSearch))
 	mux.Handle("POST /api/searches/preview/live", s.auth(s.previewLive))
-	mux.Handle("POST /api/listings/{id}/details", s.auth(s.admin(s.listingDetails)))
+	if cfg.KeepAdPage != nil {
+		mux.Handle("POST /api/listings/{id}/details", s.auth(s.admin(s.listingDetails)))
+	}
 	s.routeWatches(mux)
 	s.routeGems(mux)
 	if cfg.Overview != nil {

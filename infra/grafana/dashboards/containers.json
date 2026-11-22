@@ -82,15 +82,15 @@
           "uid": "prometheus"
         },
         "query": {
-          "query": "label_values(go_goroutines{job=~\"scraper|ingest|matcher|notifier|bot|api\"}, job)",
+          "query": "label_values(go_goroutines{job=~\"scraper|ingest|matcher|notifier|api\"}, job)",
           "refId": "var"
         },
-        "definition": "label_values(go_goroutines{job=~\"scraper|ingest|matcher|notifier|bot|api\"}, job)",
+        "definition": "label_values(go_goroutines{job=~\"scraper|ingest|matcher|notifier|api\"}, job)",
         "refresh": 2,
         "sort": 1,
         "multi": true,
         "includeAll": true,
-        "allValue": "scraper|ingest|matcher|notifier|bot|api",
+        "allValue": "scraper|ingest|matcher|notifier|api",
         "current": {
           "selected": true,
           "text": [

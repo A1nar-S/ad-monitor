@@ -1,6 +1,9 @@
 // Package subscriptions is the slice that owns who wants what: users, their
-// delivery channels and saved searches. It decides which scrape feeds are
-// worth fetching and which new listings concern which user.
+// chat accounts and logins, delivery channels, saved searches, settings and
+// price watches. It decides which scrape feeds are worth fetching. The api
+// service is its only writer (the dashboard, the chat bot, the price-watch
+// loop); the scraper and the matcher only read it. Which listing matched
+// which search belongs to the matcher (internal/matching).
 //
 // Schema lives in migrations/ (goose), queries in queries/ and the typed code
 // in subscriptionsdb/ is generated from both by sqlc: run `go generate ./...`.
@@ -12,13 +15,8 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io/fs"
 	"log/slog"
-	"slices"
-	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -39,9 +37,7 @@ type Service struct {
 
 	maxSearches int             // per user; 0 = unlimited
 	admins      map[string]bool // "platform:id" of chat accounts
-
-	adPage   AdPageHook                          // optional; see WithAdPageHook
-	adPageOf func(events.ListingDiscovered) bool // optional; see WithAdPageFor
+	matches     MatchLog        // optional; see WithMatchLog
 
 	// Price watches (see watches.go).
 	maxWatches       int // per user; 0 = unlimited
@@ -49,24 +45,19 @@ type Service struct {
 	publicURL        string
 }
 
-// AdPageHook hears about every ad page the matcher reads: enriched is the
-// listing with the page's facts added, or gone is set when the ad was removed.
-type AdPageHook func(ctx context.Context, before, enriched events.ListingDiscovered, gone bool)
-
-// WithAdPageHook lets the caller keep what the matcher reads from ad pages
-// (it reads them anyway for searches that filter on ad-page facts), so those
-// facts are not thrown away after the alert.
-func (s *Service) WithAdPageHook(h AdPageHook) *Service {
-	s.adPage = h
-	return s
+// MatchLog is what the searches' views show of their matches. The matcher
+// records them (internal/matching); this slice only reads them.
+type MatchLog interface {
+	// Counts returns how many matches each search had.
+	Counts(ctx context.Context, searchIDs []int64) (map[int64]int64, error)
+	// Recent lists the searches' latest matches, newest first, without
+	// SearchName.
+	Recent(ctx context.Context, searchIDs []int64, limit int) ([]MatchRef, error)
 }
 
-// WithAdPageFor makes the matcher read the ad page of every matched listing
-// that want accepts, not only of those a search filter needs it for (car
-// alerts rate the equipment only the page lists). It is still read once per
-// listing, and only when someone is told about it.
-func (s *Service) WithAdPageFor(want func(events.ListingDiscovered) bool) *Service {
-	s.adPageOf = want
+// WithMatchLog shows each search's matches (counts, the recent ones).
+func (s *Service) WithMatchLog(m MatchLog) *Service {
+	s.matches = m
 	return s
 }
 
@@ -76,12 +67,22 @@ func NewService(pool *pgxpool.Pool, reg sources.Registry, collapseAt int) *Servi
 	return &Service{pool: pool, q: subscriptionsdb.New(pool), sources: reg, collapseAt: collapseAt}
 }
 
+// Migrate brings this slice's schema up to date (the api, its owner).
 func (s *Service) Migrate(ctx context.Context) error {
 	sub, err := fs.Sub(migrationFiles, "migrations")
 	if err != nil {
 		return err
 	}
 	return db.Migrate(ctx, s.pool, "subscriptions", sub)
+}
+
+// AwaitSchema waits until the api has migrated the schema this build reads.
+func (s *Service) AwaitSchema(ctx context.Context) error {
+	sub, err := fs.Sub(migrationFiles, "migrations")
+	if err != nil {
+		return err
+	}
+	return db.AwaitMigrated(ctx, s.pool, "subscriptions", sub)
 }
 
 // ActiveFeeds returns the feeds of source worth scraping right now. The
@@ -98,172 +99,24 @@ func (s *Service) ActiveFeeds(ctx context.Context, source string) ([]string, err
 	return src.PlanFeeds(wanted, s.collapseAt), nil
 }
 
-// Notification is a request to tell one search's user about a listing.
-type Notification struct {
-	SearchID int64
-	events.NotificationRequested
-}
-
-// Notifications returns a request for every search that matches l and was not
-// told about it yet. It records nothing: the caller publishes first and then
-// calls Record, so a crash in between re-publishes (the notifier dedups by
-// Key) instead of silently losing the match.
-func (s *Service) Notifications(ctx context.Context, l events.ListingDiscovered) ([]Notification, error) {
-	src, err := s.sources.Get(l.Source)
-	if err != nil {
-		// Retrying cannot fix an unregistered source; drop it loudly.
-		slog.Error("listing from unknown source", "source", l.Source, "id", l.ExternalID)
-		return nil, nil
-	}
-	rows, err := s.q.ListEnabledSearches(ctx, l.Source)
+// EnabledSearches lists the searches watching source that are not paused:
+// what the matcher checks every new listing against. A search whose stored
+// filters no longer parse is skipped, loudly.
+func (s *Service) EnabledSearches(ctx context.Context, source string) ([]Search, error) {
+	rows, err := s.q.ListEnabledSearches(ctx, source)
 	if err != nil {
 		return nil, err
 	}
-	done, err := s.q.ListMatchedSearchIDs(ctx, subscriptionsdb.ListMatchedSearchIDsParams{Source: l.Source, ExternalID: l.ExternalID})
-	if err != nil {
-		return nil, err
-	}
-
-	var enricher sources.Enricher
-	enrichable := map[string]bool{}
-	if e, ok := src.(sources.Enricher); ok {
-		enricher = e
-		for _, k := range e.EnrichableKeys() {
-			enrichable[k] = true
-		}
-	}
-
-	// Pass 1 on what the feed page showed. Searches that pass every filter
-	// they can check, but filter on something only the ad page has, wait for
-	// pass 2.
-	var matched, pending []Search
+	out := make([]Search, 0, len(rows))
 	for _, r := range rows {
 		search, err := searchFromRow(r)
 		if err != nil {
 			slog.Error("skipping search with bad filters", "search", r.ID, "err", err)
 			continue
 		}
-		if slices.Contains(done, search.ID) {
-			continue
-		}
-		switch search.Evaluate(src, l, enrichable) {
-		case Matched:
-			matched = append(matched, search)
-		case NeedsDetail:
-			pending = append(pending, search)
-		}
-	}
-
-	// Pass 2: one ad-page read for this listing, shared by every waiting
-	// search of every user.
-	if len(pending) > 0 {
-		switch enriched, err := s.readAdPage(ctx, enricher, l); {
-		case errors.Is(err, sources.ErrGone):
-			matched = nil // removed: announced to no one
-		case err != nil:
-			// Better an unconfirmed alert than a missed deal: tell the
-			// candidates, flagged, rather than failing (and so dropping) the
-			// listing for everyone.
-			l.Fields = append(l.Fields, events.Field{Name: "⚠️ Unconfirmed", Value: "Could not read the ad page to check: " + strings.Join(pendingKeys(pending, l, enrichable), ", ")})
-			matched = append(matched, pending...)
-		default:
-			l = enriched
-			for _, search := range pending {
-				if search.Evaluate(src, l, nil) == Matched {
-					matched = append(matched, search)
-				}
-			}
-		}
-	} else if len(matched) > 0 && enricher != nil && s.adPageOf != nil && s.adPageOf(l) {
-		// Pass 3: someone is told about it and the caller wants its page
-		// anyway. Failing to read it only costs what the page would add, but
-		// an ad that turns out removed is announced to no one.
-		switch enriched, err := s.readAdPage(ctx, enricher, l); {
-		case errors.Is(err, sources.ErrGone):
-			matched = nil
-		case err == nil:
-			l = enriched
-		}
-	}
-
-	out := make([]Notification, 0, len(matched))
-	for _, search := range matched {
-		listing := l
-		out = append(out, Notification{SearchID: search.ID, NotificationRequested: events.NotificationRequested{
-			Key:        fmt.Sprintf("%d:%s:%s", search.ID, l.Source, l.ExternalID),
-			UserID:     search.UserID,
-			SearchName: search.Name,
-			Channel:    search.Channel,
-			Listing:    &listing,
-		}})
+		out = append(out, search)
 	}
 	return out, nil
-}
-
-// readAdPage reads l's ad page through enricher, counting and logging the
-// outcome and telling the ad-page hook.
-func (s *Service) readAdPage(ctx context.Context, enricher sources.Enricher, l events.ListingDiscovered) (events.ListingDiscovered, error) {
-	enriched, err := enricher.Enrich(ctx, l)
-	switch {
-	case errors.Is(err, sources.ErrGone):
-		slog.Info("ad removed before its page was read", "id", l.ExternalID)
-		adPageReads.WithLabelValues(l.Source, "gone").Inc()
-		if s.adPage != nil {
-			s.adPage(ctx, l, l, true)
-		}
-	case err != nil:
-		slog.Warn("ad page unavailable", "id", l.ExternalID, "err", err)
-		adPageReads.WithLabelValues(l.Source, "failed").Inc()
-	default:
-		adPageReads.WithLabelValues(l.Source, "ok").Inc()
-		if s.adPage != nil {
-			s.adPage(ctx, l, enriched, false)
-		}
-	}
-	return enriched, err
-}
-
-// pendingKeys lists the filters that could not be checked, for the warning.
-func pendingKeys(searches []Search, l events.ListingDiscovered, enrichable map[string]bool) []string {
-	var keys []string
-	for _, s := range searches {
-		for _, m := range []map[string]bool{keysOf(s.Filters.Ranges), keysOf(s.Filters.OneOf), keysOf(s.Filters.AllOf)} {
-			for k := range m {
-				if _, has := l.Attrs[k]; enrichable[k] && !has {
-					keys = append(keys, k)
-				}
-			}
-		}
-	}
-	slices.Sort(keys)
-	return slices.Compact(keys)
-}
-
-func keysOf[V any](m map[string]V) map[string]bool {
-	out := make(map[string]bool, len(m))
-	for k := range m {
-		out[k] = true
-	}
-	return out
-}
-
-// Record marks the notifications as handed off.
-func (s *Service) Record(ctx context.Context, ns []Notification) error {
-	for _, n := range ns {
-		err := s.q.RecordMatch(ctx, subscriptionsdb.RecordMatchParams{
-			SearchID: n.SearchID, Source: n.Listing.Source, ExternalID: n.Listing.ExternalID,
-		})
-		if err != nil {
-			return fmt.Errorf("record match: %w", err)
-		}
-	}
-	return nil
-}
-
-// PurgeMatches forgets matches older than olderThan. Keep this longer than
-// the listings retention, or a re-scraped old ad could be announced twice.
-func (s *Service) PurgeMatches(ctx context.Context, olderThan time.Duration) (int64, error) {
-	return s.q.PurgeMatches(ctx, olderThan.Seconds())
 }
 
 func searchFromRow(r subscriptionsdb.ListEnabledSearchesRow) (Search, error) {

@@ -1,7 +1,7 @@
 // Package sources defines what a listing site must provide to plug into the
 // platform. The services only know this interface: adding city24, vinted, ...
 // means writing one implementation under internal/scraping/<site> and
-// registering it in the scraper and matcher commands.
+// registering it in app.KnownSources.
 package sources
 
 import (
@@ -66,6 +66,12 @@ type Category struct {
 	ID     string      `json:"id"` // "cars", "flats"
 	Label  string      `json:"label"`
 	Fields []FieldSpec `json:"fields"`
+	// Location is where the category's ads are: their
+	// events.ListingDiscovered.Location is it or starts with it and "/";
+	// "" = every ad of the source. AdPage: their ad pages add facts (see
+	// Enricher). The admin overview sorts stored ads by these.
+	Location string `json:"-"`
+	AdPage   bool   `json:"-"`
 }
 
 // FieldSpec describes one filter of a category.
@@ -137,28 +143,42 @@ type ScanScope struct {
 // ErrGone is returned by Enrich for an ad that was removed meanwhile.
 var ErrGone = errors.New("listing no longer exists")
 
-// Registry holds the sources a process knows about.
-type Registry map[string]Source
+// Registry holds the sources a process knows about. The first one given
+// to NewRegistry is the default: the site a search watches unless it names
+// another (the bot's searches, the dashboard's first tab).
+type Registry struct {
+	byName map[string]Source
+	first  string
+}
 
 func NewRegistry(srcs ...Source) Registry {
-	r := make(Registry, len(srcs))
+	r := Registry{byName: make(map[string]Source, len(srcs))}
 	for _, s := range srcs {
-		r[s.Name()] = s
+		r.byName[s.Name()] = s
+	}
+	if len(srcs) > 0 {
+		r.first = srcs[0].Name()
 	}
 	return r
 }
 
 func (r Registry) Get(name string) (Source, error) {
-	if s, ok := r[name]; ok {
+	if s, ok := r.byName[name]; ok {
 		return s, nil
 	}
 	return nil, fmt.Errorf("unknown source %q", name)
 }
 
+// Lookup returns the source called name, or nil.
+func (r Registry) Lookup(name string) Source { return r.byName[name] }
+
+// Default names the default source; "" in an empty registry.
+func (r Registry) Default() string { return r.first }
+
 // Names lists the registered sources, sorted.
 func (r Registry) Names() []string {
-	names := make([]string, 0, len(r))
-	for n := range r {
+	names := make([]string, 0, len(r.byName))
+	for n := range r.byName {
 		names = append(names, n)
 	}
 	sort.Strings(names)

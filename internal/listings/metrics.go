@@ -11,7 +11,7 @@ import (
 var (
 	ingested = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "admon_ingest_listings_total",
-		Help: "Listings handled by ingest, by result: new (announced), seeded (new but stored silently), known.",
+		Help: "Listings handled by ingest, by result: new (announced), seeded (new but stored silently), known, scanned (from a gem scan).",
 	}, []string{"result"})
 	reposts = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "admon_ingest_reposts_total",
@@ -19,7 +19,7 @@ var (
 	})
 	relayed = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "admon_outbox_relayed_total",
-		Help: "Outbox entries handled by the relay, by result (published, failed).",
+		Help: "Outbox entries handled by the relay, by result (published, dropped as unreadable, failed).",
 	}, []string{"result"})
 )
 

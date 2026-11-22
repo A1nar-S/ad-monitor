@@ -9,7 +9,7 @@ spec:
   namespaceSelector: {matchNames: [admon]}
   selector:
     matchExpressions:
-      - {key: app, operator: In, values: [scraper, ingest, matcher, notifier, bot, api]}
+      - {key: app, operator: In, values: [scraper, ingest, matcher, notifier, api]}
   jobLabel: app # job="scraper" etc.
   podMetricsEndpoints:
     - port: metrics

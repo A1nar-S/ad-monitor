@@ -11,6 +11,16 @@ import (
 	"testing"
 )
 
+// testSections are where ss.com keeps its cars and flats.
+var (
+	testSections = []Section{
+		{source: "ss.com", category: "cars", location: "transport/cars", adPage: true},
+		{source: "ss.com", category: "flats", location: "real-estate/flats", adPage: true},
+		{source: "rrr.lt", category: "parts"},
+	}
+	testCategories = []string{"cars", "flats", "parts"}
+)
+
 func TestOverview(t *testing.T) {
 	for _, test := range []struct {
 		name   string
@@ -31,7 +41,7 @@ func TestOverview(t *testing.T) {
 					t.Error("database request must have a deadline")
 				}
 				return json.RawMessage(`{"items":[]}`), test.err
-			})
+			}, testCategories)
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, httptest.NewRequest(test.method, test.target, nil))
 			if response.Code != test.status {
@@ -53,11 +63,11 @@ func TestOverview(t *testing.T) {
 }
 
 func TestParseQuery(t *testing.T) {
-	q, err := ParseQuery(url.Values{})
+	q, err := ParseQuery(url.Values{}, testCategories)
 	if err != nil || q != (Query{View: "listings", Sort: "newest", Page: 1}) {
 		t.Fatalf("defaults = %+v, %v", q, err)
 	}
-	q, err = ParseQuery(url.Values{"view": {"searches"}, "q": {"  alice "}, "status": {"inactive"}, "page": {"4"}})
+	q, err = ParseQuery(url.Values{"view": {"searches"}, "q": {"  alice "}, "status": {"inactive"}, "page": {"4"}}, testCategories)
 	if err != nil || q.View != "searches" || q.Text != "alice" || q.Status != "inactive" || q.Page != 4 {
 		t.Fatalf("query = %+v, %v", q, err)
 	}
@@ -69,14 +79,14 @@ func TestParseQuery(t *testing.T) {
 		{"page": {"0"}},
 		{"page": {"two"}},
 	} {
-		if _, err := ParseQuery(bad); err == nil {
+		if _, err := ParseQuery(bad, testCategories); err == nil {
 			t.Errorf("%v: accepted", bad)
 		}
 	}
 }
 
 func TestWhereKeepsInputOutOfSQL(t *testing.T) {
-	where, args := listingsView.where(Query{Text: "50%_off'; DROP TABLE listings", Source: "evil.example", Status: "inactive", Category: "cars"})
+	where, args := newListingsView(testSections).where(Query{Text: "50%_off'; DROP TABLE listings", Source: "evil.example", Status: "inactive", Category: "cars"})
 	if strings.Contains(where, "DROP") || strings.Contains(where, "evil.example") {
 		t.Fatalf("user input in SQL: %s", where)
 	}

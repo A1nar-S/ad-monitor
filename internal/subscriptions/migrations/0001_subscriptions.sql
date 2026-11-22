@@ -28,20 +28,8 @@ CREATE TABLE searches (
     UNIQUE (user_id, name)
 );
 
--- Which listing was already matched to which search. No FK to listings: that
--- table belongs to another slice and gets purged on its own schedule.
-CREATE TABLE matches (
-    search_id   BIGINT      NOT NULL REFERENCES searches (id) ON DELETE CASCADE,
-    source      TEXT        NOT NULL,
-    external_id TEXT        NOT NULL,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (search_id, source, external_id)
-);
-
-CREATE INDEX idx_matches_created ON matches (created_at);
 
 -- +goose Down
-DROP TABLE matches;
 DROP TABLE searches;
 DROP TABLE channels;
 DROP TABLE users;

@@ -19,10 +19,10 @@ import (
 )
 
 // dlqTopics are the topics services consume, so the ones that have dead letters.
-var dlqTopics = []string{events.TopicListingsDiscovered, events.TopicListingsNew, events.TopicNotificationsRequested}
+var dlqTopics = []string{events.TopicListingsDiscovered, events.TopicListingsNew, events.TopicListingDetails,
+	events.TopicNotificationsRequested, events.TopicGemScansRequested}
 
-const dlqUsage = "usage: admin dlq list [-limit 50] <topic> | dlq replay <topic>   (topic: " +
-	events.TopicListingsDiscovered + ", " + events.TopicListingsNew + ", " + events.TopicNotificationsRequested + ")"
+var dlqUsage = "usage: admin dlq list [-limit 50] <topic> | dlq replay <topic>   (topic: " + strings.Join(dlqTopics, ", ") + ")"
 
 // dlq inspects and replays dead-lettered records: those a consumer could not
 // handle or decode. It needs only Kafka.

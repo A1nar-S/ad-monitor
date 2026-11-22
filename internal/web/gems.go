@@ -8,7 +8,9 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"time"
 
+	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/gems"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/sources"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/subscriptions"
@@ -17,7 +19,7 @@ import (
 // Gems is the gem finder: every listing of a category for sale on a source,
 // rated. Everyone may browse it; only admins start a scan.
 type Gems interface {
-	RequestScan(ctx context.Context, source, category string, mode gems.Mode) (gems.Scan, error)
+	CheckRequest(ctx context.Context, source, category string, mode gems.Mode) error
 	LatestScan(ctx context.Context, source, category string) (gems.Scan, bool, error)
 	List(ctx context.Context, source, category string, q gems.Query) (gems.Page, error)
 	Category(id string) (gems.Category, bool)
@@ -32,7 +34,7 @@ type GemSource struct {
 }
 
 func (s *server) routeGems(mux *http.ServeMux) {
-	if s.Gems == nil || len(s.GemSources) == 0 {
+	if s.Gems == nil || len(s.GemSources) == 0 || s.RequestGemScan == nil {
 		return
 	}
 	mux.Handle("GET /api/gems/sources", s.auth(s.gemSources))
@@ -71,7 +73,7 @@ func (s *server) gemSources(w http.ResponseWriter, _ *http.Request, _ subscripti
 // withCatalog fills the Catalog fields' options from the source's search
 // catalog: the same names the Searches tab offers (ss.com: its codebook).
 func (s *server) withCatalog(source, category string, spec gems.Spec) gems.Spec {
-	catalog, ok := s.Sources[source].(sources.Catalog)
+	catalog, ok := s.Sources.Lookup(source).(sources.Catalog)
 	if !ok {
 		return spec
 	}
@@ -154,7 +156,7 @@ func (s *server) requestGemScan(w http.ResponseWriter, r *http.Request, _ subscr
 		writeError(w, http.StatusBadRequest, "unknown mode "+strconv.Quote(string(mode)))
 		return
 	}
-	scan, err := s.Gems.RequestScan(r.Context(), source, cat.ID(), mode)
+	err := s.Gems.CheckRequest(r.Context(), source, cat.ID(), mode)
 	if errors.Is(err, gems.ErrBusy) {
 		writeError(w, http.StatusConflict, err.Error())
 		return
@@ -162,7 +164,34 @@ func (s *server) requestGemScan(w http.ResponseWriter, r *http.Request, _ subscr
 	if s.fail(w, err) {
 		return
 	}
-	writeJSON(w, http.StatusAccepted, scan)
+	var before int64
+	if last, ok, err := s.Gems.LatestScan(r.Context(), source, cat.ID()); s.fail(w, err) {
+		return
+	} else if ok {
+		before = last.ID
+	}
+	pctx, cancel := context.WithTimeout(r.Context(), publishTimeout)
+	err = s.RequestGemScan(pctx, events.GemScanRequested{Source: source, Category: cat.ID(), Mode: string(mode)})
+	cancel()
+	if s.fail(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusAccepted, s.awaitScan(r.Context(), source, cat.ID(), mode, before))
+}
+
+// awaitScan waits briefly for the scraper to record the scan just
+// requested, so the page shows it at once; failing that, it is described as
+// requested.
+func (s *server) awaitScan(ctx context.Context, source, category string, mode gems.Mode, before int64) gems.Scan {
+	for range 20 {
+		if scan, ok, err := s.Gems.LatestScan(ctx, source, category); err == nil && ok && scan.ID > before {
+			return scan
+		}
+		if !sleep(ctx, 150*time.Millisecond) {
+			break
+		}
+	}
+	return gems.Scan{Source: source, Category: category, Mode: mode, Status: "requested", RequestedAt: time.Now().UTC()}
 }
 
 // langCode is a language as the web app names one: "en", "lv".

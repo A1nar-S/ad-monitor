@@ -162,8 +162,9 @@ func (f *fakeSearches) DeleteSearch(_ context.Context, _ subscriptions.Owner, id
 func (*fakeSearches) NewLoginToken(context.Context, subscriptions.Owner) (string, error) {
 	return "tok", nil
 }
+func (*fakeSearches) DefaultSource() string { return "ss.com" }
 func (*fakeSearches) Categories() map[string][]sources.Category {
-	return map[string][]sources.Category{subscriptions.DefaultSource: ss.NewClient(time.Second).Categories()}
+	return map[string][]sources.Category{"ss.com": ss.NewClient(time.Second).Categories()}
 }
 
 func (*fakeSearches) NewLinkCode(context.Context, subscriptions.Owner) (string, error) {

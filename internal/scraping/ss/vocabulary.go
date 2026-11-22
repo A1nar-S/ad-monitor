@@ -17,18 +17,19 @@ var (
 func (*Client) Categories() []sources.Category {
 	categoriesOnce.Do(func() {
 		for _, c := range []struct {
-			id, label string
-			load      func() (*Codebook, error)
+			id, label, location string
+			load                func() (*Codebook, error)
 		}{
-			{CategoryCars, "Cars", CarsCodebook},
-			{CategoryFlats, "Flats", FlatsCodebook},
+			{CategoryCars, "Cars", CarsCategory, CarsCodebook},
+			{CategoryFlats, "Flats", FlatsCategory, FlatsCodebook},
 		} {
 			cb, err := c.load()
 			if err != nil {
 				slog.Error("codebook", "category", c.id, "err", err)
 				continue
 			}
-			categories = append(categories, sources.Category{ID: c.id, Label: c.label, Fields: cb.fieldSpecs()})
+			// Both codebooks read ad pages (Enrich).
+			categories = append(categories, sources.Category{ID: c.id, Label: c.label, Fields: cb.fieldSpecs(), Location: c.location, AdPage: true})
 		}
 	})
 	return categories

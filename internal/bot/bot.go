@@ -54,6 +54,7 @@ type Searches interface {
 	StatusChannel(ctx context.Context) (events.Channel, bool, error)
 	SetStatusChannel(ctx context.Context, o subscriptions.Owner, ch events.Channel) error
 	Categories() map[string][]sources.Category
+	DefaultSource() string
 	NewLinkCode(ctx context.Context, o subscriptions.Owner) (string, error)
 	LinkTarget(ctx context.Context, o subscriptions.Owner, code string) ([]subscriptions.Account, error)
 	Link(ctx context.Context, o subscriptions.Owner, code string) (subscriptions.LinkResult, error)
@@ -113,14 +114,15 @@ type Bot struct {
 	now        func() time.Time
 	publicURL  string
 	maxPerUser int
+	source     string // the site the bot's searches watch: the default one
 	// fields of each category by key, from the source's catalog.
 	fields map[string]map[string]sources.FieldSpec
 }
 
 func New(m Messenger, s Searches, ads Ads, publicURL string, maxPerUser int) *Bot {
 	b := &Bot{m: m, searches: s, ads: ads, now: time.Now, publicURL: strings.TrimRight(publicURL, "/"), maxPerUser: maxPerUser,
-		fields: map[string]map[string]sources.FieldSpec{}}
-	for _, c := range s.Categories()[subscriptions.DefaultSource] {
+		fields: map[string]map[string]sources.FieldSpec{}, source: s.DefaultSource()}
+	for _, c := range s.Categories()[b.source] {
 		b.fields[c.ID] = map[string]sources.FieldSpec{}
 		for _, f := range c.Fields {
 			b.fields[c.ID][f.Key] = f
@@ -243,7 +245,7 @@ func (b *Bot) watch(ctx context.Context, o subscriptions.Owner, c Call) (string,
 		return "", err
 	}
 	v, created, err := b.searches.SaveSearchByName(ctx, o, subscriptions.SearchInput{
-		Name: argString(c.Args, "name"), Source: subscriptions.DefaultSource, Category: c.Sub,
+		Name: argString(c.Args, "name"), Source: b.source, Category: c.Sub,
 		Filters: FiltersFromArgs(c.Args), ChannelID: ch.ID, Origin: b.m.Platform(),
 	})
 	if err != nil {

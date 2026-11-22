@@ -23,7 +23,7 @@ groups:
             model:
               refId: A
               datasource: {type: prometheus, uid: prometheus}
-              expr: 'up{job=~"scraper|ingest|matcher|notifier|bot|api"}'
+              expr: 'up{job=~"scraper|ingest|matcher|notifier|api"}'
               instant: true
               range: false
               editorMode: code

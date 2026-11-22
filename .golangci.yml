@@ -20,12 +20,16 @@ linters:
             - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/listings, desc: "sources only produce events"}
             - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/subscriptions, desc: "sources only produce events"}
             - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/notifications, desc: "sources only produce events"}
+            - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/matching, desc: "sources only produce events"}
+            - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/gems, desc: "sources only produce events"}
         listings-is-standalone:
           files: ["**/internal/listings/**"]
           deny:
             - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/subscriptions, desc: "slices do not import each other"}
             - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/notifications, desc: "slices do not import each other"}
             - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/scraping, desc: "slices do not import each other"}
+            - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/matching, desc: "slices do not import each other"}
+            - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/gems, desc: "slices do not import each other"}
         subscriptions-is-standalone:
           # Tests may check searches against a real source's catalog.
           files: ["**/internal/subscriptions/**", "!$test"]
@@ -33,6 +37,25 @@ linters:
             - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/listings, desc: "slices do not import each other"}
             - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/notifications, desc: "slices do not import each other"}
             - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/scraping, desc: "slices do not import each other"}
+            - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/matching, desc: "slices do not import each other"}
+            - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/gems, desc: "slices do not import each other"}
+        # Matching reads the searches (subscriptions); stored ads only through
+        # its CarPeers port, wired in internal/app.
+        matching-is-standalone:
+          files: ["**/internal/matching/**"]
+          deny:
+            - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/listings, desc: "slices do not import each other"}
+            - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/notifications, desc: "slices do not import each other"}
+            - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/scraping, desc: "slices do not import each other"}
+            - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/gems, desc: "slices do not import each other"}
+        gems-is-standalone:
+          files: ["**/internal/gems/**"]
+          deny:
+            - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/listings, desc: "slices do not import each other"}
+            - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/subscriptions, desc: "slices do not import each other"}
+            - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/notifications, desc: "slices do not import each other"}
+            - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/scraping, desc: "slices do not import each other"}
+            - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/matching, desc: "slices do not import each other"}
         # The bot core knows no chat platform: adapters (bot/discordbot,
         # bot/telegrambot) do. It reaches data through the subscriptions Service, and
         # stored ads through its own Ads interface (wired in internal/app).
@@ -50,6 +73,9 @@ linters:
             - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/listings, desc: "slices do not import each other"}
             - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/subscriptions, desc: "slices do not import each other"}
             - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/scraping, desc: "slices do not import each other"}
+            - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/matching, desc: "slices do not import each other"}
+            - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/gems, desc: "slices do not import each other"}
+            - {pkg: github.com/A1nar-S/advertisiment-monitoring/internal/deals, desc: "slices do not import each other"}
   exclusions:
     paths:
       - internal/.*/.*db # sqlc output

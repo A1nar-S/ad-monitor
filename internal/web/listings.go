@@ -10,13 +10,25 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/listings"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/sources"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/subscriptions"
 )
 
+// publishTimeout bounds what a request waits for Kafka.
+const publishTimeout = 5 * time.Second
+
+// keepAdPage hands an ad page's facts to ingest, waiting at most
+// publishTimeout.
+func (s *server) keepAdPage(ctx context.Context, p events.AdPageRead) error {
+	ctx, cancel := context.WithTimeout(ctx, publishTimeout)
+	defer cancel()
+	return s.KeepAdPage(ctx, p)
+}
+
 // listingDetails reads one stored ad's own page now (for an admin, from the
-// overview), saves what it adds and returns the listing's attrs.
+// overview), hands what it adds to ingest and returns the listing's attrs.
 func (s *server) listingDetails(w http.ResponseWriter, r *http.Request, _ subscriptions.Owner) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -31,7 +43,7 @@ func (s *server) listingDetails(w http.ResponseWriter, r *http.Request, _ subscr
 	if s.fail(w, err) {
 		return
 	}
-	src, _ := s.Sources[st.Listing.Source].(sources.Enricher)
+	src, _ := s.Sources.Lookup(st.Listing.Source).(sources.Enricher)
 	if src == nil {
 		writeError(w, http.StatusUnprocessableEntity, st.Listing.Source+" ads have no more details to read")
 		return
@@ -41,7 +53,7 @@ func (s *server) listingDetails(w http.ResponseWriter, r *http.Request, _ subscr
 	enriched, err := src.Enrich(ctx, st.Listing)
 	switch {
 	case errors.Is(err, sources.ErrGone):
-		if s.fail(w, s.Listings.MarkGone(r.Context(), st.Listing.Source, st.Listing.ExternalID)) {
+		if s.fail(w, s.keepAdPage(r.Context(), events.AdPageRead{Listing: st.Listing, Gone: true})) {
 			return
 		}
 		writeError(w, http.StatusGone, "This ad has been removed from "+st.Listing.Source+".")
@@ -51,7 +63,7 @@ func (s *server) listingDetails(w http.ResponseWriter, r *http.Request, _ subscr
 		writeError(w, http.StatusBadGateway, "Couldn't read the ad page on "+st.Listing.Source+". Try again in a moment.")
 		return
 	}
-	if s.fail(w, s.Listings.SaveDetails(r.Context(), st.Listing, enriched)) {
+	if s.fail(w, s.keepAdPage(r.Context(), events.AdPageRead{Listing: st.Listing, Read: &enriched})) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

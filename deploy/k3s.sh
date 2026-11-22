@@ -15,7 +15,7 @@ set -euo pipefail
 
 NS=admon
 MON=monitoring
-SERVICES=(scraper ingest matcher notifier bot api admin)
+SERVICES=(scraper ingest matcher notifier api admin)
 KUBECTL=${KUBECTL:-kubectl}
 CTR=${CTR:-sudo k3s ctr}
 cd "$(dirname "$0")/.."

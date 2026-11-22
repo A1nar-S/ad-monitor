@@ -36,13 +36,6 @@ type LoginToken struct {
 	ExpiresAt pgtype.Timestamptz
 }
 
-type Match struct {
-	SearchID   int64
-	Source     string
-	ExternalID string
-	CreatedAt  pgtype.Timestamptz
-}
-
 type Search struct {
 	ID        int64
 	UserID    int64

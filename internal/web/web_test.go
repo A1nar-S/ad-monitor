@@ -101,6 +101,7 @@ func (*fakeSearches) Channels(context.Context, subscriptions.Owner) ([]subscript
 func (*fakeSearches) RecentMatches(context.Context, subscriptions.Owner, int64, int) ([]subscriptions.MatchRef, error) {
 	return []subscriptions.MatchRef{{SearchID: 7, Source: "ss.com", ExternalID: "42"}, {SearchID: 7, Source: "ss.com", ExternalID: "gone"}}, nil
 }
+func (*fakeSearches) DefaultSource() string { return "ss.com" }
 func (*fakeSearches) Categories() map[string][]sources.Category {
 	return map[string][]sources.Category{
 		"rrr.lt": {{ID: "parts", Label: "Car parts"}},
@@ -117,10 +118,6 @@ func (fakeListings) Recent(context.Context, string, int32) ([]listings.Stored, e
 func (fakeListings) Get(context.Context, int64) (listings.Stored, error) {
 	return listings.Stored{}, listings.ErrNotFound
 }
-func (fakeListings) SaveDetails(context.Context, events.ListingDiscovered, events.ListingDiscovered) error {
-	return nil
-}
-func (fakeListings) MarkGone(context.Context, string, string) error { return nil }
 
 func (fakeListings) Summaries(_ context.Context, _ string, ids []string) (map[string]listings.Summary, error) {
 	out := map[string]listings.Summary{}
@@ -140,7 +137,8 @@ func newServer(t *testing.T) (http.Handler, *fakeSearches) {
 	}
 	f := &fakeSearches{enabled: map[int64]bool{}}
 	overview := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, `{"stats":{}}`) })
-	return New(Config{Searches: f, Listings: fakeListings{}, Overview: overview, WebDir: dir, PublicURL: "https://ads.example", MaxSearches: 10}), f
+	keep := func(context.Context, events.AdPageRead) error { return nil }
+	return New(Config{Searches: f, Listings: fakeListings{}, KeepAdPage: keep, Overview: overview, WebDir: dir, PublicURL: "https://ads.example", MaxSearches: 10}), f
 }
 
 func do(h http.Handler, method, path, session, body string, csrf bool) *httptest.ResponseRecorder {
@@ -230,7 +228,7 @@ func TestSearchEndpoints(t *testing.T) {
 	}
 	for body, want := range map[string]string{
 		`{"source":"rrr.lt","category":"parts","filters":{}}`: "rrr.lt",
-		`{"category":"cars","filters":{}}`:                    subscriptions.DefaultSource,
+		`{"category":"cars","filters":{}}`:                    "ss.com",
 	} {
 		w = do(h, "POST", "/api/searches/preview", "s-alice", body, true)
 		if w.Code != http.StatusOK || f.previewed[len(f.previewed)-1].Source != want {

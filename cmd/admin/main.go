@@ -24,7 +24,9 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/A1nar-S/advertisiment-monitoring/internal/app"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/gems"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/listings"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/matching"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/notifications"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/config"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/db"
@@ -73,11 +75,16 @@ func run() error {
 	}
 	defer pool.Close()
 
+	// Maintenance acts for every slice's owner: it migrates them all, and
+	// each slice purges its own tables.
+	reg := app.KnownSources(0, 0)
 	store := listings.NewService(pool, listings.DefaultSeedWindow)
-	subs := subscriptions.NewService(pool, app.KnownSources(0, 0), cfg.FeedCollapseAt)
+	subs := subscriptions.NewService(pool, reg, cfg.FeedCollapseAt)
+	match := matching.NewService(pool, subs, reg)
 	// No Notifier is needed for maintenance, only the deliveries table.
 	notify := notifications.NewService(pool, 0)
-	for _, m := range []func(context.Context) error{store.Migrate, subs.Migrate, notify.Migrate} {
+	gemScans := gems.NewService(pool)
+	for _, m := range []func(context.Context) error{store.Migrate, subs.Migrate, match.Migrate, notify.Migrate, gemScans.Migrate} {
 		if err := m(ctx); err != nil {
 			return err
 		}
@@ -99,7 +106,7 @@ func run() error {
 		}
 		// Matches and deliveries outlive listings so a re-scraped old ad is not
 		// announced twice; hence the 2x.
-		m, err := subs.PurgeMatches(ctx, 2**olderThan)
+		m, err := match.Purge(ctx, 2**olderThan)
 		if err != nil {
 			return fmt.Errorf("purge matches: %w", err)
 		}

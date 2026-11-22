@@ -28,7 +28,7 @@ func newTestService(t *testing.T, src sources.Source) (*Service, *pgxpool.Pool) 
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	if _, err := pool.Exec(ctx, `DROP TABLE IF EXISTS link_codes, accounts, watch_alerts, watch_prices, watches, watch_targets, settings, sessions, login_tokens, matches, searches, channels, users, subscriptions_migrations`); err != nil {
+	if _, err := pool.Exec(ctx, `DROP TABLE IF EXISTS link_codes, accounts, watch_alerts, watch_prices, watches, watch_targets, settings, sessions, login_tokens, searches, channels, users, subscriptions_migrations`); err != nil {
 		t.Fatal(err)
 	}
 	svc := NewService(pool, sources.NewRegistry(src), 3).WithLimits(3, []string{"discord:admin-1"})
@@ -84,25 +84,25 @@ func TestSearchLifecycle(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(feeds, []string{"flats/centre"}) {
 		t.Fatalf("feeds = %v, err = %v", feeds, err)
 	}
-	l := events.ListingDiscovered{Source: "ss.com", ExternalID: "1", Location: "flats/centre", PriceValue: ptr(400.0)}
-	ns, err := svc.Notifications(ctx, l)
-	if err != nil || len(ns) != 1 || ns[0].Channel.Target != "dm-111" || ns[0].SearchName != "cheap centre" {
-		t.Fatalf("notifications = %+v, err = %v", ns, err)
+	enabled, err := svc.EnabledSearches(ctx, "ss.com")
+	if err != nil || len(enabled) != 1 || enabled[0].Channel.Target != "dm-111" || enabled[0].Name != "cheap centre" {
+		t.Fatalf("enabled searches = %+v, err = %v", enabled, err)
 	}
-	if err := svc.Record(ctx, ns); err != nil {
-		t.Fatal(err)
-	}
-	if again, _ := svc.Notifications(ctx, l); len(again) != 0 {
-		t.Errorf("after Record, redelivery produced %d notifications, want 0", len(again))
-	}
-	if ms, err := svc.RecentMatches(ctx, alice, 0, 10); err != nil || len(ms) != 1 || ms[0].ExternalID != "1" {
+
+	// Matches come from the matcher's log, named after the owner's searches.
+	log := &fakeMatchLog{refs: []MatchRef{{SearchID: v.ID, Source: "ss.com", ExternalID: "1"}}}
+	svc.WithMatchLog(log)
+	if ms, err := svc.RecentMatches(ctx, alice, 0, 10); err != nil || len(ms) != 1 || ms[0].SearchName != "cheap centre" {
 		t.Errorf("matches = %+v, %v", ms, err)
-	}
-	if ms, err := svc.RecentMatches(ctx, alice, v.ID, 10); err != nil || len(ms) != 1 {
-		t.Errorf("matches of the search = %+v, %v", ms, err)
 	}
 	if ms, err := svc.RecentMatches(ctx, alice, v.ID+1000, 10); err != nil || len(ms) != 0 {
 		t.Errorf("matches of another search = %+v, %v", ms, err)
+	}
+	if ms, _ := svc.RecentMatches(ctx, bob, 0, 10); len(ms) != 0 {
+		t.Errorf("bob sees alice's matches: %+v", ms)
+	}
+	if got, _ := svc.GetSearch(ctx, alice, v.ID); got.Matches != 1 {
+		t.Errorf("search shows %d matches, want 1", got.Matches)
 	}
 
 	// Invalid input is an InvalidSearch with a message for the user.
@@ -144,9 +144,8 @@ func TestSearchLifecycle(t *testing.T) {
 	if feeds, _ := svc.ActiveFeeds(ctx, "ss.com"); len(feeds) != 0 {
 		t.Errorf("paused search still scraped: %v", feeds)
 	}
-	l.ExternalID = "2"
-	if ns, _ := svc.Notifications(ctx, l); len(ns) != 0 {
-		t.Errorf("paused search notified: %+v", ns)
+	if enabled, _ := svc.EnabledSearches(ctx, "ss.com"); len(enabled) != 0 {
+		t.Errorf("paused search still matched: %+v", enabled)
 	}
 
 	// The per-user limit (3 here); admins are exempt and see everyone's.
@@ -180,113 +179,27 @@ func TestSearchLifecycle(t *testing.T) {
 	}
 }
 
-// enrichingSource reads "ad pages" by counting calls.
-type enrichingSource struct {
-	fakeSource
-	calls int
-	err   error
-}
+// fakeMatchLog is the matcher's log of matches, in memory.
+type fakeMatchLog struct{ refs []MatchRef }
 
-func (*enrichingSource) EnrichableKeys() []string { return []string{"gearbox"} }
-func (e *enrichingSource) Enrich(_ context.Context, l events.ListingDiscovered) (events.ListingDiscovered, error) {
-	e.calls++
-	if e.err != nil {
-		return l, e.err
+func (f *fakeMatchLog) Counts(_ context.Context, ids []int64) (map[int64]int64, error) {
+	out := map[int64]int64{}
+	for _, r := range f.refs {
+		if slices.Contains(ids, r.SearchID) {
+			out[r.SearchID]++
+		}
 	}
-	out := l
-	out.Attrs = maps(l.Attrs)
-	out.Attrs["gearbox"] = "Automāts"
 	return out, nil
 }
 
-func TestNotificationsEnrichOnce(t *testing.T) {
-	src := &enrichingSource{}
-	svc, _ := newTestService(t, src)
-	ctx := context.Background()
-	alice, aliceDM := user(t, svc, "111")
-	bob, bobDM := user(t, svc, "222")
-	add := func(o Owner, ch ChannelView, name string, filters map[string]any) {
-		t.Helper()
-		if _, err := svc.CreateSearch(ctx, o, SearchInput{Name: name, Category: "cars", ChannelID: ch.ID, Filters: filters}); err != nil {
-			t.Fatal(err)
+func (f *fakeMatchLog) Recent(_ context.Context, ids []int64, _ int) ([]MatchRef, error) {
+	var out []MatchRef
+	for _, r := range f.refs {
+		if slices.Contains(ids, r.SearchID) {
+			out = append(out, r)
 		}
 	}
-	// Two users, four searches; three need the gearbox, one wants manual.
-	add(alice, aliceDM, "auto", map[string]any{"gearbox": []any{"Automāts"}})
-	add(alice, aliceDM, "cheap", map[string]any{"price": map[string]any{"max": 6000.0}})
-	add(bob, bobDM, "auto-or-manual", map[string]any{"gearbox": []any{"Automāts", "Manuāla"}, "year": map[string]any{"min": 2010.0}})
-	add(bob, bobDM, "manual", map[string]any{"gearbox": []any{"Manuāla"}})
-
-	l := events.ListingDiscovered{Source: "ss.com", ExternalID: "7", Location: "cars", PriceValue: ptr(5000.0), Attrs: map[string]any{"year": 2015.0}}
-	got, err := svc.Notifications(ctx, l)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var names []string
-	for _, n := range got {
-		names = append(names, n.SearchName)
-		if v, _ := n.Listing.Str("gearbox"); v != "Automāts" {
-			t.Errorf("%s: notification lacks the enriched gearbox", n.SearchName)
-		}
-	}
-	slices.Sort(names)
-	if !reflect.DeepEqual(names, []string{"auto", "auto-or-manual", "cheap"}) || src.calls != 1 {
-		t.Errorf("matched %v with %d ad-page reads, want 3 searches and 1 read", names, src.calls)
-	}
-
-	// The ad page failing: candidates still hear about it, flagged.
-	src.err = errors.New("403")
-	l.ExternalID = "8"
-	got, err = svc.Notifications(ctx, l)
-	if err != nil || len(got) != 4 {
-		t.Fatalf("unconfirmed: %d notifications, err %v; want all 4", len(got), err)
-	}
-	if f := got[len(got)-1].Listing.Fields; len(f) == 0 || !strings.Contains(f[len(f)-1].Value, "gearbox") {
-		t.Errorf("unconfirmed listing not flagged: %+v", f)
-	}
-
-	// A removed ad is announced to no one, also not to the search that
-	// matched without its page.
-	src.err = sources.ErrGone
-	l.ExternalID = "9"
-	if got, _ = svc.Notifications(ctx, l); len(got) != 0 {
-		t.Errorf("gone: %+v, want none", got)
-	}
-}
-
-// WithAdPageFor reads the page of a matched ad no filter needed it for,
-// and an ad that turns out removed is announced to no one.
-func TestNotificationsAdPageFor(t *testing.T) {
-	src := &enrichingSource{}
-	svc, _ := newTestService(t, src)
-	svc.WithAdPageFor(func(l events.ListingDiscovered) bool { return l.Location == "cars" })
-	ctx := context.Background()
-	alice, aliceDM := user(t, svc, "111")
-	if _, err := svc.CreateSearch(ctx, alice, SearchInput{Name: "cheap", Category: "cars", ChannelID: aliceDM.ID,
-		Filters: map[string]any{"price": map[string]any{"max": 6000.0}}}); err != nil {
-		t.Fatal(err)
-	}
-	l := events.ListingDiscovered{Source: "ss.com", ExternalID: "1", Location: "cars", PriceValue: ptr(5000.0)}
-
-	got, err := svc.Notifications(ctx, l)
-	if err != nil || len(got) != 1 || src.calls != 1 {
-		t.Fatalf("%d notifications, %d reads, err %v; want 1 and 1", len(got), src.calls, err)
-	}
-	if v, _ := got[0].Listing.Str("gearbox"); v != "Automāts" {
-		t.Error("notification lacks what the page added")
-	}
-
-	src.err = errors.New("403")
-	l.ExternalID = "2"
-	if got, _ := svc.Notifications(ctx, l); len(got) != 1 || len(got[0].Listing.Fields) != 0 {
-		t.Errorf("page failed: %+v, want the alert as it was, unflagged", got)
-	}
-
-	src.err = sources.ErrGone
-	l.ExternalID = "3"
-	if got, _ := svc.Notifications(ctx, l); len(got) != 0 {
-		t.Errorf("removed ad announced: %+v", got)
-	}
+	return out, nil
 }
 
 func TestLogin(t *testing.T) {

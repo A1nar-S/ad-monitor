@@ -1,6 +1,8 @@
 // Package listings is the slice that owns stored advertisements: persistence,
 // new-listing detection and lifecycle. Other slices reach it only through
-// Service and the events package.
+// Service and the events package. Only ingest writes its tables; the other
+// services read them and send what to write as events (ad pages read, ads a
+// gem scan saw).
 //
 // Schema lives in migrations/ (goose), queries in queries/ and the typed code
 // in listingsdb/ is generated from both by sqlc: run `go generate ./...`.
@@ -42,13 +44,23 @@ func NewService(pool *pgxpool.Pool, seedWindow time.Duration) *Service {
 	return &Service{pool: pool, q: listingsdb.New(pool), seedWindow: seedWindow}
 }
 
-// Migrate brings this slice's schema up to date.
+// Migrate brings this slice's schema up to date. Only ingest, its owner,
+// calls it; readers call AwaitSchema.
 func (s *Service) Migrate(ctx context.Context) error {
 	sub, err := fs.Sub(migrationFiles, "migrations")
 	if err != nil {
 		return err
 	}
 	return db.Migrate(ctx, s.pool, "listings", sub)
+}
+
+// AwaitSchema waits until ingest has migrated the schema this build reads.
+func (s *Service) AwaitSchema(ctx context.Context) error {
+	sub, err := fs.Sub(migrationFiles, "migrations")
+	if err != nil {
+		return err
+	}
+	return db.AwaitMigrated(ctx, s.pool, "listings", sub)
 }
 
 // DefaultSeedWindow is how long after a feed is first seen its listings are
@@ -60,8 +72,15 @@ const DefaultSeedWindow = 2 * time.Minute
 // Ingest stores one discovered listing. If it was never seen before and its
 // feed is past the seed window, it also queues the listing in the outbox, in
 // the same transaction, for the relay to publish. It reports whether the
-// listing was new.
+// listing was new. A listing a gem scan saw (Scanned) is only stored.
 func (s *Service) Ingest(ctx context.Context, l events.ListingDiscovered) (bool, error) {
+	if l.Scanned {
+		err := s.storeScanned(ctx, l)
+		if err == nil {
+			ingested.WithLabelValues("scanned").Inc()
+		}
+		return false, err
+	}
 	var isNew, repost bool
 	var result string
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
@@ -143,9 +162,10 @@ func repostOf(ctx context.Context, q *listingsdb.Queries, l events.ListingDiscov
 // RelayOutbox publishes up to batch unpublished outbox entries through
 // publish and marks them done, all in one transaction: if publish fails for
 // an entry, the earlier ones in the batch are still marked and the rest are
-// retried on the next call. Returns how many were published.
+// retried on the next call. Returns how many it took off the outbox
+// (published, or dropped as unreadable).
 func (s *Service) RelayOutbox(ctx context.Context, batch int32, publish func(context.Context, events.ListingDiscovered) error) (int, error) {
-	var published int
+	var published, dropped int
 	var pubErr error
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
@@ -158,28 +178,30 @@ func (s *Service) RelayOutbox(ctx context.Context, batch int32, publish func(con
 			var l events.ListingDiscovered
 			if err := json.Unmarshal(r.Payload, &l); err != nil {
 				slog.Error("bad outbox payload, dropping", "id", r.ID, "err", err)
+				dropped++
 			} else if pubErr = publish(ctx, l); pubErr != nil {
 				break
 			}
 			ids = append(ids, r.ID)
 		}
-		published = len(ids)
+		published = len(ids) - dropped
 		if len(ids) > 0 {
 			if err := q.MarkOutboxPublished(ctx, ids); err != nil {
-				published = 0
+				published, dropped = 0, 0
 				return err
 			}
 		}
 		return nil // commit what was published; pubErr is reported below
 	})
 	relayed.WithLabelValues("published").Add(float64(published))
+	relayed.WithLabelValues("dropped").Add(float64(dropped))
 	if pubErr != nil {
 		relayed.WithLabelValues("failed").Inc()
 	}
 	if err == nil {
 		err = pubErr
 	}
-	return published, err
+	return published + dropped, err
 }
 
 // KnownIDs reports which of ids are already stored for source.
@@ -342,9 +364,9 @@ func (s *Service) CarPeers(ctx context.Context, q PeerQuery) ([]Peer, error) {
 	return out, nil
 }
 
-// StoreScanned keeps what a full scan saw, announcing nothing: a new row
+// storeScanned keeps what a full scan saw, announcing nothing: a new row
 // stays unseen for the feeds, so its first regular sight is still new.
-func (s *Service) StoreScanned(ctx context.Context, l events.ListingDiscovered) error {
+func (s *Service) storeScanned(ctx context.Context, l events.ListingDiscovered) error {
 	params, err := upsertParams(l)
 	if err != nil {
 		return err
@@ -366,10 +388,12 @@ func (s *Service) UnseenSince(ctx context.Context, source string, since time.Tim
 	return out, nil
 }
 
-// MarkGoneIDs records that these ads left the site; returns how many were
-// still active.
-func (s *Service) MarkGoneIDs(ctx context.Context, source string, ids []string) (int64, error) {
-	return s.q.MarkGoneIDs(ctx, listingsdb.MarkGoneIDsParams{Source: source, Ids: ids})
+// CountSeenSince counts the ads among ids stored or seen at or after since.
+func (s *Service) CountSeenSince(ctx context.Context, source string, ids []string, since time.Time) (int, error) {
+	n, err := s.q.CountSeenSince(ctx, listingsdb.CountSeenSinceParams{
+		Source: source, Ids: ids, Since: pgtype.Timestamptz{Time: since, Valid: true},
+	})
+	return int(n), err
 }
 
 // StoredAd is a stored ad with a price, ad-page details merged.
@@ -399,6 +423,23 @@ func (s *Service) StoredIn(ctx context.Context, source, location string) ([]Stor
 // MarkGone records that a listing's ad page is gone.
 func (s *Service) MarkGone(ctx context.Context, source, externalID string) error {
 	return s.q.MarkListingGone(ctx, listingsdb.MarkListingGoneParams{Source: source, ExternalID: externalID})
+}
+
+// ErrNoRead: an AdPageRead neither gone nor with what was read. Retrying
+// cannot fix it.
+var ErrNoRead = errors.New("ad page read without a result")
+
+// KeepAdPage stores what another service read on an ad page: the facts it
+// added, or that the ad is gone. Ingest consumes these from
+// events.TopicListingDetails.
+func (s *Service) KeepAdPage(ctx context.Context, p events.AdPageRead) error {
+	switch {
+	case p.Gone:
+		return s.MarkGone(ctx, p.Listing.Source, p.Listing.ExternalID)
+	case p.Read == nil:
+		return ErrNoRead
+	}
+	return s.SaveDetails(ctx, p.Listing, *p.Read)
 }
 
 func fromRow(source, externalID, feed, title, url, location, price string, priceValue *float64,

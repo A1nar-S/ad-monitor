@@ -5,11 +5,14 @@ package events
 
 import "time"
 
-// Kafka topics connecting the services.
+// Kafka topics connecting the services. Each table has one writing service;
+// the others ask it to write through these.
 const (
 	TopicListingsDiscovered     = "listings.discovered"     // scraper -> ingest
 	TopicListingsNew            = "listings.new"            // ingest -> matcher
-	TopicNotificationsRequested = "notifications.requested" // matcher/scraper -> notifier
+	TopicListingDetails         = "listings.details"        // matcher/api/scraper -> ingest
+	TopicNotificationsRequested = "notifications.requested" // matcher/api/scraper -> notifier
+	TopicGemScansRequested      = "gems.scan_requested"     // api -> scraper
 )
 
 // ListingDiscovered is emitted by a source for every ad found on a feed page,
@@ -50,6 +53,25 @@ type ListingDiscovered struct {
 	Fingerprint string `json:"fingerprint,omitempty"`
 	// RepostOf is set by ingest on a new ad whose item was seen before.
 	RepostOf *Repost `json:"repost_of,omitempty"`
+	// Scanned is set by a gem scan: store the ad, announce nothing, and
+	// leave a new one unseen for the feeds.
+	Scanned bool `json:"scanned,omitempty"`
+}
+
+// AdPageRead is what reading a stored ad's own page found, for ingest to
+// keep: the listing with the page's facts added, or that the ad is gone.
+type AdPageRead struct {
+	Listing ListingDiscovered  `json:"listing"`        // what the page was read for
+	Read    *ListingDiscovered `json:"read,omitempty"` // with the page's facts; nil when Gone
+	Gone    bool               `json:"gone,omitempty"` // removed from the site
+}
+
+// GemScanRequested asks the scraper to scan one category of a source for
+// the gem finder. Mode is "full" or "rate".
+type GemScanRequested struct {
+	Source   string `json:"source"`
+	Category string `json:"category"`
+	Mode     string `json:"mode"`
 }
 
 // Repost is what was known about a reposted ad's item before.

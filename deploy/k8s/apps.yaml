@@ -66,31 +66,16 @@ spec:
       containers:
         - {name: app, image: admon/notifier:local}
 ---
-# Recreate here and for scraper and notifier: two copies side by side during
-# an update would answer, scrape or send twice.
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: bot
-  labels: {tier: app}
-spec:
-  strategy: {type: Recreate}
-  selector:
-    matchLabels: {app: bot}
-  template:
-    metadata:
-      labels: {app: bot}
-    spec:
-      containers:
-        - {name: app, image: admon/bot:local}
----
-# The dashboard: the only thing cloudflared forwards to.
+# The dashboard, the chat bot and the price watches: the only thing
+# cloudflared forwards to. Recreate here and for scraper and notifier: two
+# copies side by side during an update would answer, scrape or send twice.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: api
   labels: {tier: app}
 spec:
+  strategy: {type: Recreate}
   selector:
     matchLabels: {app: api}
   template:

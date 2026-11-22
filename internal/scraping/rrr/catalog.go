@@ -113,6 +113,7 @@ func (*Client) Categories() []sources.Category {
 				models[m.Name] = m.labels
 			}
 		}
+		// Every rrr.lt ad is a part (Location ""), its feed shows it all.
 		categories = []sources.Category{{ID: CategoryParts, Label: "Car parts", Fields: []sources.FieldSpec{
 			{Key: "part", Label: "Part", Kind: "multi", Options: cb.PartOptions()},
 			{Key: "make", Label: "Make", Kind: "multi", Options: cb.makeNames()},

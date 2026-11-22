@@ -66,8 +66,8 @@ func (s *server) previewLive(w http.ResponseWriter, r *http.Request, o subscript
 	if s.fail(w, err) {
 		return
 	}
-	src, ok := s.Sources[source]
-	if !ok {
+	src := s.Sources.Lookup(source)
+	if src == nil {
 		writeError(w, http.StatusUnprocessableEntity, source+" can't be read live")
 		return
 	}

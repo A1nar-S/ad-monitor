@@ -11,7 +11,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/A1nar-S/advertisiment-monitoring/internal/listings"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/matching"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/notifications"
+	"github.com/A1nar-S/advertisiment-monitoring/internal/sources"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/subscriptions"
 )
 
@@ -30,7 +32,8 @@ func TestLoadPagesInSQL(t *testing.T) {
 	t.Cleanup(pool.Close)
 	for _, m := range []func(context.Context) error{
 		listings.NewService(pool, time.Hour).Migrate,
-		subscriptions.NewService(pool, nil, 0).Migrate,
+		subscriptions.NewService(pool, sources.Registry{}, 0).Migrate,
+		matching.NewService(pool, nil, sources.Registry{}).Migrate,
 		notifications.NewService(pool, 0).Migrate,
 	} {
 		if err := m(ctx); err != nil {
@@ -59,7 +62,7 @@ func TestLoadPagesInSQL(t *testing.T) {
 	}
 	insert("other", "x1", "Zebra", "", start.Add(2*time.Hour), true)
 
-	load := Load(pool)
+	load := Load(pool, testSections)
 	get := func(q Query) (out struct {
 		Sources []string `json:"sources"`
 		Total   int      `json:"total"`

@@ -138,7 +138,8 @@ func (f *fakeSite) Enrich(_ context.Context, l events.ListingDiscovered) (events
 	return out, nil
 }
 
-// fakeStore keeps stored ads in memory.
+// fakeStore keeps stored ads in memory, and stands in for ingest: what a
+// scan hands it (keep, keepAdPage) is stored at once.
 type fakeStore struct {
 	ads     map[string]*Item
 	scanned map[string]bool
@@ -146,7 +147,10 @@ type fakeStore struct {
 
 func newStore() *fakeStore { return &fakeStore{ads: map[string]*Item{}, scanned: map[string]bool{}} }
 
-func (s *fakeStore) StoreScanned(_ context.Context, l events.ListingDiscovered) error {
+func (s *fakeStore) keep(_ context.Context, l events.ListingDiscovered) error {
+	if !l.Scanned {
+		return errors.New("a scan kept an ad not marked Scanned")
+	}
 	if c, ok := s.ads[l.ExternalID]; ok {
 		c.Listing, c.Active = l, true
 	} else {
@@ -164,11 +168,23 @@ func (s *fakeStore) UnseenSince(context.Context, string, time.Time) ([]events.Li
 	}
 	return out, nil
 }
-func (s *fakeStore) MarkGoneIDs(_ context.Context, _ string, ids []string) (int64, error) {
-	for _, id := range ids {
-		s.ads[id].Active = false
+func (s *fakeStore) keepAdPage(_ context.Context, p events.AdPageRead) error {
+	c := s.ads[p.Listing.ExternalID]
+	if p.Gone {
+		c.Active = false
+	} else {
+		c.Listing, c.Detailed = *p.Read, true
 	}
-	return int64(len(ids)), nil
+	return nil
+}
+func (s *fakeStore) CountSeenSince(_ context.Context, _ string, ids []string, _ time.Time) (int, error) {
+	n := 0
+	for _, id := range ids {
+		if s.scanned[id] {
+			n++
+		}
+	}
+	return n, nil
 }
 func (s *fakeStore) Stored(_ context.Context, _, location string) ([]Item, error) {
 	var out []Item
@@ -178,10 +194,6 @@ func (s *fakeStore) Stored(_ context.Context, _, location string) ([]Item, error
 		}
 	}
 	return out, nil
-}
-func (s *fakeStore) SaveDetails(_ context.Context, _, enriched events.ListingDiscovered) error {
-	s.ads[enriched.ExternalID].Listing, s.ads[enriched.ExternalID].Detailed = enriched, true
-	return nil
 }
 
 func thing(id string, price float64, colour string, year float64) events.ListingDiscovered {
@@ -205,7 +217,7 @@ func (p *pacing) sleep(ctx context.Context, d time.Duration) bool {
 
 func newScanner(svc *Service, site *fakeSite, store *fakeStore, pace *pacing, maxPages int) *Scanner {
 	return &Scanner{
-		Service: svc, Store: store, Sources: sources.NewRegistry(site),
+		Service: svc, Store: store, Keep: store.keep, KeepAdPage: store.keepAdPage, Sources: sources.NewRegistry(site),
 		Wait: pace.wait, Sleep: pace.sleep, DetailGap: time.Second, MaxPages: maxPages, PollEvery: time.Millisecond,
 	}
 }
@@ -589,3 +601,4 @@ func TestRunInterruptsLeftovers(t *testing.T) {
 		t.Errorf("request after the restart: %v", err)
 	}
 }
+

@@ -13,8 +13,6 @@ scrape_configs:
     static_configs: [{targets: ["matcher:9100"]}]
   - job_name: notifier
     static_configs: [{targets: ["notifier:9100"]}]
-  - job_name: bot
-    static_configs: [{targets: ["bot:9100"]}]
   - job_name: api
     static_configs: [{targets: ["api:9100"]}]
   - job_name: prometheus

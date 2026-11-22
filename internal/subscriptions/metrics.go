@@ -11,12 +11,6 @@ import (
 )
 
 var (
-	// Counted per read attempt: a Kafka retry of the same listing reads again.
-	adPageReads = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "admon_matcher_adpage_reads_total",
-		Help: "Ad page reads (enrichment attempts) by source and result (ok, gone, failed).",
-	}, []string{"source", "result"})
-
 	watchChecks = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "admon_watch_checks_total",
 		Help: "Price watch page checks by result (ok, failed, blocked, gone, no_price).",

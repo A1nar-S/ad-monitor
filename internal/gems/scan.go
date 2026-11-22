@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math"
 	"math/rand/v2"
 	"slices"
@@ -20,18 +21,18 @@ import (
 	"github.com/A1nar-S/advertisiment-monitoring/internal/sources"
 )
 
-// Store is what a scan needs from the stored listings.
+// Store is what a scan reads of the stored listings. Ingest owns them: a
+// scan sends what it saw through Scanner.Keep and Scanner.KeepAdPage.
 type Store interface {
-	// StoreScanned keeps an ad without announcing it.
-	StoreScanned(ctx context.Context, l events.ListingDiscovered) error
 	// UnseenSince lists active ads not seen since since (Source, ExternalID,
 	// Feed and Location only).
 	UnseenSince(ctx context.Context, source string, since time.Time) ([]events.ListingDiscovered, error)
-	MarkGoneIDs(ctx context.Context, source string, ids []string) (int64, error)
 	// Stored lists every stored ad of source with a price whose Location
 	// starts with location, ad-page details merged.
 	Stored(ctx context.Context, source, location string) ([]Item, error)
-	SaveDetails(ctx context.Context, before, enriched events.ListingDiscovered) error
+	// CountSeenSince counts the ads among ids stored or seen at or after
+	// since: how far ingest has kept up with a crawl.
+	CountSeenSince(ctx context.Context, source string, ids []string, since time.Time) (int, error)
 }
 
 // Scanner runs the scans admins request, one at a time. A full scan has
@@ -43,7 +44,14 @@ type Store interface {
 type Scanner struct {
 	Service *Service
 	Store   Store
-	Sources sources.Registry
+	// Keep hands ingest an ad the crawl saw (Scanned set: stored, not
+	// announced); KeepAdPage what an ad page showed, or that the ad is gone.
+	Keep       func(context.Context, events.ListingDiscovered) error
+	KeepAdPage func(context.Context, events.AdPageRead) error
+	// AwaitStored bounds the wait for ingest to store a crawl before rating
+	// it; 0 = 5 minutes.
+	AwaitStored time.Duration
+	Sources     sources.Registry
 	// Wait spaces a source's requests; shared with its regular scraping,
 	// so a scan does not double the load on the site.
 	Wait func(ctx context.Context, source string) bool
@@ -75,7 +83,7 @@ const (
 func (s *Scanner) scannable() []string {
 	var names []string
 	for _, n := range s.Sources.Names() {
-		sc, ok := s.Sources[n].(sources.Scannable)
+		sc, ok := s.Sources.Lookup(n).(sources.Scannable)
 		if !ok {
 			continue
 		}
@@ -122,6 +130,9 @@ type outcome struct {
 	gone, rated int
 	complete    bool
 	notes       []string // why it was not complete, or what it skipped
+	// goneIDs are the ads relist found sold: ingest may not have marked
+	// them yet when the scan reads the stored ones back.
+	goneIDs map[string]bool
 }
 
 func (s *Scanner) run(ctx context.Context, scan Scan) {
@@ -176,6 +187,11 @@ func (s *Scanner) scan(ctx context.Context, scan Scan) (outcome, error) {
 	if err != nil {
 		return out, fmt.Errorf("stored listings: %w", err)
 	}
+	for i := range items {
+		if out.goneIDs[items[i].Listing.ExternalID] {
+			items[i].Active = false
+		}
+	}
 	r, ok := cat.Rater(src, items)
 	if !ok {
 		return out, fmt.Errorf("%s cannot be rated for %s", scan.Source, cat.ID())
@@ -208,22 +224,26 @@ func (s *Scanner) scan(ctx context.Context, scan Scan) (outcome, error) {
 	return out, err
 }
 
-// relist reads every list page of the category again and marks sold the
-// listings it no longer has.
+// relist reads every list page of the category again, waits for ingest to
+// store them and marks sold the listings it no longer has.
 func (s *Scanner) relist(ctx context.Context, scan Scan, src sources.Source, cat Category, scope sources.ScanScope, out *outcome) error {
-	ads, complete, err := s.crawl(ctx, scan, src, scope.Feed)
+	seen, complete, err := s.crawl(ctx, scan, src, scope.Feed)
 	if err != nil {
 		return err
+	}
+	if scan.StartedAt == nil {
+		return nil
+	}
+	if note := s.awaitStored(ctx, src.Name(), seen, *scan.StartedAt); note != "" {
+		out.notes = append(out.notes, note)
 	}
 	if !complete {
 		out.notes = append(out.notes, fmt.Sprintf("stopped after %d pages before the end; sold ones not updated", s.MaxPages))
 		return nil
 	}
-	if scan.StartedAt == nil {
-		return nil
-	}
 	var note string
-	out.gone, note, err = s.markGone(ctx, src, cat, *scan.StartedAt, ads)
+	out.goneIDs, note, err = s.markGone(ctx, src, cat, *scan.StartedAt, seen)
+	out.gone = len(out.goneIDs)
 	if err != nil {
 		return err
 	}
@@ -238,22 +258,22 @@ func (s *Scanner) relist(ctx context.Context, scan Scan, src sources.Source, cat
 // change looks like that; it is never a real end.
 var errEmptyStart = errors.New("the first page listed nothing; the site may be blocking us or have changed")
 
-// crawl reads every page of feed, storing what it finds, and returns how
-// many ads it saw. complete is false when it stopped at MaxPages rather than
-// at the end of the feed: past the last page a site shows nothing, or the
-// last page again.
-func (s *Scanner) crawl(ctx context.Context, scan Scan, src sources.Source, feed string) (ads int, complete bool, err error) {
-	seen := map[string]bool{}
+// crawl reads every page of feed, handing what it finds to ingest, and
+// returns the IDs it saw. complete is false when it stopped at MaxPages
+// rather than at the end of the feed: past the last page a site shows
+// nothing, or the last page again.
+func (s *Scanner) crawl(ctx context.Context, scan Scan, src sources.Source, feed string) (seen map[string]bool, complete bool, err error) {
+	seen = map[string]bool{}
 	for page := 1; page <= s.MaxPages; page++ {
 		if !s.Wait(ctx, scan.Source) {
-			return ads, false, ctx.Err()
+			return seen, false, ctx.Err()
 		}
 		ls, err := src.FetchFeed(ctx, feed, page)
 		if err != nil {
-			return ads, false, fmt.Errorf("page %d: %w", page, err)
+			return seen, false, fmt.Errorf("page %d: %w", page, err)
 		}
 		if len(ls) == 0 && page == 1 {
-			return 0, false, errEmptyStart
+			return seen, false, errEmptyStart
 		}
 		fresh := 0
 		for _, l := range ls {
@@ -262,20 +282,52 @@ func (s *Scanner) crawl(ctx context.Context, scan Scan, src sources.Source, feed
 			}
 			seen[l.ExternalID] = true
 			fresh++
-			l.Feed = feed
-			if err := s.Store.StoreScanned(ctx, l); err != nil {
-				return ads, false, fmt.Errorf("store %s: %w", l.ExternalID, err)
+			l.Feed, l.Scanned = feed, true
+			if err := s.Keep(ctx, l); err != nil {
+				return seen, false, fmt.Errorf("keep %s: %w", l.ExternalID, err)
 			}
 		}
-		ads += fresh
-		if err := s.Service.q.ScanProgress(ctx, gemsdb.ScanProgressParams{ID: scan.ID, Pages: int32(page), Ads: int32(ads)}); err != nil {
-			return ads, false, err
+		if err := s.Service.q.ScanProgress(ctx, gemsdb.ScanProgressParams{ID: scan.ID, Pages: int32(page), Ads: int32(len(seen))}); err != nil {
+			return seen, false, err
 		}
 		if fresh == 0 {
-			return ads, true, nil
+			return seen, true, nil
 		}
 	}
-	return ads, false, nil
+	return seen, false, nil
+}
+
+// Waiting for ingest: every awaitEvery, up to Scanner.AwaitStored,
+// counting awaitChunk IDs per query.
+const (
+	awaitEvery = 2 * time.Second
+	awaitChunk = 5000
+)
+
+// awaitStored waits until ingest has stored every ad the crawl saw (since
+// the scan began), so they are rated with the rest; note says when it gave
+// up waiting.
+func (s *Scanner) awaitStored(ctx context.Context, source string, seen map[string]bool, since time.Time) (note string) {
+	ids := slices.Sorted(maps.Keys(seen))
+	limit := cmp.Or(s.AwaitStored, 5*time.Minute)
+	deadline := time.Now().Add(limit)
+	for {
+		stored := 0
+		for chunk := range slices.Chunk(ids, awaitChunk) {
+			n, err := s.Store.CountSeenSince(ctx, source, chunk, since)
+			if err != nil {
+				slog.Warn("gem scan: count stored", "err", err)
+				break
+			}
+			stored += n
+		}
+		if stored >= len(ids) {
+			return ""
+		}
+		if time.Now().After(deadline) || !s.sleep(ctx, awaitEvery) {
+			return fmt.Sprintf("ingest had stored %d of %d listings after %s; the rest are rated next scan", stored, len(ids), limit)
+		}
+	}
 }
 
 // maxGoneShare: if more of the stored listings than this went missing in
@@ -283,27 +335,34 @@ func (s *Scanner) crawl(ctx context.Context, scan Scan, src sources.Source, feed
 // half the market sold, so nothing is marked.
 const maxGoneShare = 0.5
 
-// markGone marks sold the category's listings the scan did not see; note
-// says so when it refused to.
-func (s *Scanner) markGone(ctx context.Context, src sources.Source, cat Category, since time.Time, ads int) (int, string, error) {
+// markGone marks sold the category's listings the scan did not see, and
+// returns them; note says so when it refused to.
+func (s *Scanner) markGone(ctx context.Context, src sources.Source, cat Category, since time.Time, seen map[string]bool) (map[string]bool, string, error) {
 	unseen, err := s.Store.UnseenSince(ctx, src.Name(), since)
 	if err != nil {
-		return 0, "", fmt.Errorf("unseen: %w", err)
+		return nil, "", fmt.Errorf("unseen: %w", err)
 	}
-	var ids []string
+	var gone []events.ListingDiscovered
 	for _, l := range unseen {
-		if cat.Belongs(src, l) {
-			ids = append(ids, l.ExternalID)
+		if cat.Belongs(src, l) && !seen[l.ExternalID] {
+			gone = append(gone, l)
 		}
 	}
-	if len(ids) == 0 {
-		return 0, "", nil
+	if len(gone) == 0 {
+		return nil, "", nil
 	}
-	if share := float64(len(ids)) / float64(len(ids)+ads); share > maxGoneShare {
-		return 0, fmt.Sprintf("%d of %d stored listings were missing, too many to be sold; sold ones not updated", len(ids), len(ids)+ads), nil
+	if share := float64(len(gone)) / float64(len(gone)+len(seen)); share > maxGoneShare {
+		return nil, fmt.Sprintf("%d of %d stored listings were missing, too many to be sold; sold ones not updated", len(gone), len(gone)+len(seen)), nil
 	}
-	n, err := s.Store.MarkGoneIDs(ctx, src.Name(), ids)
-	return int(n), "", err
+	ids := map[string]bool{}
+	for _, l := range gone {
+		l.Source = src.Name()
+		if err := s.KeepAdPage(ctx, events.AdPageRead{Listing: l, Gone: true}); err != nil {
+			return ids, "", fmt.Errorf("mark %s sold: %w", l.ExternalID, err)
+		}
+		ids[l.ExternalID] = true
+	}
+	return ids, "", nil
 }
 
 // detail reads the ad pages of todo (the potential buys not read before,
@@ -324,22 +383,6 @@ func (s *Scanner) detail(ctx context.Context, scan Scan, src sources.Source, ite
 	}
 	slog.Info("gem scan: reading ad pages", "id", scan.ID, "candidates", len(todo))
 
-	var removed []string
-	markRemoved := func() {
-		if len(removed) == 0 {
-			return
-		}
-		fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		defer cancel()
-		n, err := s.Store.MarkGoneIDs(fctx, src.Name(), removed)
-		if err != nil {
-			slog.Warn("gem scan: mark removed", "err", err)
-		}
-		gone += int(n)
-		removed = nil
-	}
-	defer markRemoved()
-
 	read, pushbacks, failures := 0, 0, 0
 	for n, i := range todo {
 		if n > 0 && n%breakEvery == 0 && !s.sleep(ctx, jittered(breakFor, 1)) {
@@ -355,7 +398,11 @@ func (s *Scanner) detail(ctx context.Context, scan Scan, src sources.Source, ite
 			return gone, "", ctx.Err()
 		case errors.Is(err, sources.ErrGone):
 			pushbacks, failures = 0, 0
-			removed = append(removed, l.ExternalID)
+			if err := s.KeepAdPage(ctx, events.AdPageRead{Listing: l, Gone: true}); err != nil {
+				slog.Warn("gem scan: mark removed", "id", l.ExternalID, "err", err)
+			} else if items[i].Active {
+				gone++
+			}
 			items[i].Active = false
 			r.Update(i, items[i])
 		case pushedBack(err):
@@ -375,8 +422,8 @@ func (s *Scanner) detail(ctx context.Context, scan Scan, src sources.Source, ite
 			}
 		default:
 			pushbacks, failures = 0, 0
-			if err := s.Store.SaveDetails(ctx, l, enriched); err != nil {
-				slog.Warn("gem scan: save ad page", "id", l.ExternalID, "err", err)
+			if err := s.KeepAdPage(ctx, events.AdPageRead{Listing: l, Read: &enriched}); err != nil {
+				slog.Warn("gem scan: keep ad page", "id", l.ExternalID, "err", err)
 			}
 			items[i].Listing, items[i].Detailed = enriched, true
 			r.Update(i, items[i])
@@ -386,7 +433,6 @@ func (s *Scanner) detail(ctx context.Context, scan Scan, src sources.Source, ite
 			return gone, "", err
 		}
 		if (n+1)%saveEvery == 0 {
-			markRemoved()
 			if _, _, err := s.save(ctx, scan, items, r); err != nil {
 				return gone, "", err
 			}
