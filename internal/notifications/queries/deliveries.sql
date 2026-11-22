@@ -20,20 +20,21 @@ WHERE user_id = @user_id AND search_name = @search_name AND NOT digested AND key
 UPDATE deliveries SET digested = TRUE WHERE key = @key;
 
 -- name: QueueDigest :exec
-INSERT INTO digest_queue (key, user_id, search_name, channel_kind, channel_target, listing)
-VALUES (@key, @user_id, @search_name, @channel_kind, @channel_target, @listing)
+INSERT INTO digest_queue (key, user_id, search_name, channel_kind, channel_target, listing, lang)
+VALUES (@key, @user_id, @search_name, @channel_kind, @channel_target, @listing, @lang)
 ON CONFLICT DO NOTHING;
 
 -- name: DueDigests :many
 -- Searches whose oldest queued ad has waited a full window.
-SELECT user_id, search_name, channel_kind, channel_target FROM digest_queue
-GROUP BY user_id, search_name, channel_kind, channel_target
+SELECT user_id, search_name, channel_kind, channel_target, lang FROM digest_queue
+GROUP BY user_id, search_name, channel_kind, channel_target, lang
 HAVING min(queued_at) < now() - make_interval(secs => @window_seconds::float8);
 
 -- name: ListDigest :many
 -- One search's queued ads, oldest first.
 SELECT key, listing FROM digest_queue
 WHERE user_id = @user_id AND search_name = @search_name AND channel_kind = @channel_kind AND channel_target = @channel_target
+  AND lang = @lang
 ORDER BY queued_at, key;
 
 -- name: DeleteDigested :exec

@@ -22,6 +22,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/A1nar-S/advertisiment-monitoring/internal/deals"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/matching/matchingdb"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/db"
@@ -165,6 +166,7 @@ func (s *Service) Notifications(ctx context.Context, l events.ListingDiscovered)
 
 	// Pass 2: one ad-page read for this listing, shared by every waiting
 	// search of every user.
+	var unchecked []string // filters the unread ad page left unchecked
 	if len(pending) > 0 {
 		switch enriched, err := s.readAdPage(ctx, enricher, l); {
 		case errors.Is(err, sources.ErrGone):
@@ -173,7 +175,7 @@ func (s *Service) Notifications(ctx context.Context, l events.ListingDiscovered)
 			// Better an unconfirmed alert than a missed deal: tell the
 			// candidates, flagged, rather than failing (and so dropping) the
 			// listing for everyone.
-			l.Fields = append(l.Fields, events.Field{Name: "⚠️ Unconfirmed", Value: "Could not read the ad page to check: " + strings.Join(pendingKeys(pending, l, enrichable), ", ")})
+			unchecked = pendingKeys(pending, l, enrichable)
 			matched = append(matched, pending...)
 		default:
 			l = enriched
@@ -197,20 +199,49 @@ func (s *Service) Notifications(ctx context.Context, l events.ListingDiscovered)
 	if len(matched) == 0 {
 		return nil, nil
 	}
-	l.Fields = slices.Concat(l.Fields, s.dealFields(ctx, l))
+
+	// What the matcher adds, written once per language of those told.
+	ratings, rated := s.rate(ctx, l)
+	added := map[string][]events.Field{}
+	addedIn := func(lang string) []events.Field {
+		if fs, ok := added[lang]; ok {
+			return fs
+		}
+		var fs []events.Field
+		if len(unchecked) > 0 {
+			fs = append(fs, uncheckedField(lang, unchecked))
+		}
+		if rated {
+			fs = append(fs, deals.FieldsIn(ratings, deals.Lang(lang))...)
+		}
+		added[lang] = fs
+		return fs
+	}
 
 	out := make([]Notification, 0, len(matched))
 	for _, search := range matched {
 		listing := l
+		listing.Fields = slices.Concat(l.Fields, addedIn(search.Lang))
 		out = append(out, Notification{SearchID: search.ID, NotificationRequested: events.NotificationRequested{
 			Key:        fmt.Sprintf("%d:%s:%s", search.ID, l.Source, l.ExternalID),
 			UserID:     search.UserID,
 			SearchName: search.Name,
 			Channel:    search.Channel,
 			Listing:    &listing,
+			Lang:       search.Lang,
 		}})
 	}
 	return out, nil
+}
+
+// uncheckedField flags an alert whose ad page could not be read to check
+// the filters keys.
+func uncheckedField(lang string, keys []string) events.Field {
+	f := events.Field{Name: "⚠️ Unconfirmed", Value: "Could not read the ad page to check: " + strings.Join(keys, ", ")}
+	if lang == events.LangLatvian {
+		f.Name, f.Value = "⚠️ Nav pārbaudīts", "Neizdevās nolasīt sludinājuma lapu, lai pārbaudītu: "+strings.Join(keys, ", ")
+	}
+	return f
 }
 
 // readAdPage reads l's ad page through enricher, counting and logging the

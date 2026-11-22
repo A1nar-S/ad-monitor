@@ -8,20 +8,21 @@ import lv from './lv'
 
 export type Locale = 'en' | 'lv'
 export const locales: { id: Locale; label: string }[] = [
-  { id: 'en', label: 'English' },
   { id: 'lv', label: 'Latviešu' },
+  { id: 'en', label: 'English' },
 ]
 const messages: Record<Locale, Messages> = { en, lv }
 const storageKey = 'locale'
 
+// Latvian unless the reader chose otherwise.
 function initial(): Locale {
   try {
     const saved = localStorage.getItem(storageKey)
     if (saved === 'en' || saved === 'lv') return saved
   } catch {
-    // Storage can be blocked; fall back to the browser's language.
+    // Storage can be blocked; then it is the default.
   }
-  return navigator.language.toLowerCase().startsWith('lv') ? 'lv' : 'en'
+  return 'lv'
 }
 
 export const locale = ref<Locale>(initial())

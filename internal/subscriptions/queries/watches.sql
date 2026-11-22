@@ -98,8 +98,8 @@ DELETE FROM watches WHERE id = @id RETURNING target_id;
 -- name: ListTargetWatches :many
 -- The enabled watches of a target, with where their alerts go.
 SELECT w.id, w.user_id, w.name, w.rule, w.target_cents, w.drop_percent, w.reference_cents, w.below,
-       w.interval_minutes, c.kind AS channel_kind, c.target AS channel_target
-FROM watches w JOIN channels c ON c.id = w.channel_id
+       w.interval_minutes, c.kind AS channel_kind, c.target AS channel_target, u.alert_lang
+FROM watches w JOIN channels c ON c.id = w.channel_id JOIN users u ON u.id = w.user_id
 WHERE w.target_id = @target_id AND w.enabled
 ORDER BY w.id;
 

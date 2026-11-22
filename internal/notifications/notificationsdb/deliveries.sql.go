@@ -67,8 +67,8 @@ func (q *Queries) DeleteDigested(ctx context.Context, keys []string) error {
 }
 
 const dueDigests = `-- name: DueDigests :many
-SELECT user_id, search_name, channel_kind, channel_target FROM digest_queue
-GROUP BY user_id, search_name, channel_kind, channel_target
+SELECT user_id, search_name, channel_kind, channel_target, lang FROM digest_queue
+GROUP BY user_id, search_name, channel_kind, channel_target, lang
 HAVING min(queued_at) < now() - make_interval(secs => $1::float8)
 `
 
@@ -77,6 +77,7 @@ type DueDigestsRow struct {
 	SearchName    string
 	ChannelKind   string
 	ChannelTarget string
+	Lang          string
 }
 
 // Searches whose oldest queued ad has waited a full window.
@@ -94,6 +95,7 @@ func (q *Queries) DueDigests(ctx context.Context, windowSeconds float64) ([]DueD
 			&i.SearchName,
 			&i.ChannelKind,
 			&i.ChannelTarget,
+			&i.Lang,
 		); err != nil {
 			return nil, err
 		}
@@ -108,6 +110,7 @@ func (q *Queries) DueDigests(ctx context.Context, windowSeconds float64) ([]DueD
 const listDigest = `-- name: ListDigest :many
 SELECT key, listing FROM digest_queue
 WHERE user_id = $1 AND search_name = $2 AND channel_kind = $3 AND channel_target = $4
+  AND lang = $5
 ORDER BY queued_at, key
 `
 
@@ -116,6 +119,7 @@ type ListDigestParams struct {
 	SearchName    string
 	ChannelKind   string
 	ChannelTarget string
+	Lang          string
 }
 
 type ListDigestRow struct {
@@ -130,6 +134,7 @@ func (q *Queries) ListDigest(ctx context.Context, arg ListDigestParams) ([]ListD
 		arg.SearchName,
 		arg.ChannelKind,
 		arg.ChannelTarget,
+		arg.Lang,
 	)
 	if err != nil {
 		return nil, err
@@ -171,8 +176,8 @@ func (q *Queries) PurgeDeliveries(ctx context.Context, olderThanSeconds float64)
 }
 
 const queueDigest = `-- name: QueueDigest :exec
-INSERT INTO digest_queue (key, user_id, search_name, channel_kind, channel_target, listing)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO digest_queue (key, user_id, search_name, channel_kind, channel_target, listing, lang)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT DO NOTHING
 `
 
@@ -183,6 +188,7 @@ type QueueDigestParams struct {
 	ChannelKind   string
 	ChannelTarget string
 	Listing       []byte
+	Lang          string
 }
 
 func (q *Queries) QueueDigest(ctx context.Context, arg QueueDigestParams) error {
@@ -193,6 +199,7 @@ func (q *Queries) QueueDigest(ctx context.Context, arg QueueDigestParams) error 
 		arg.ChannelKind,
 		arg.ChannelTarget,
 		arg.Listing,
+		arg.Lang,
 	)
 	return err
 }

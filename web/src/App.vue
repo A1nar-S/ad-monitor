@@ -25,6 +25,7 @@ import ToastHost from './components/ToastHost.vue'
 import { api, ApiError, type Me } from './api'
 import { t } from './i18n'
 import { onLinkClick, route } from './router'
+import { alertLang, alertLangs } from './state'
 
 const me = ref<Me | null>(null)
 const state = ref<'loading' | 'out' | 'in' | 'down'>('loading')
@@ -89,6 +90,8 @@ const initials = computed(() =>
 onMounted(async () => {
   try {
     me.value = await api.me()
+    alertLangs.value = me.value.alertLangs
+    alertLang.value = me.value.alertLang
     state.value = 'in'
   } catch (reason) {
     state.value =
@@ -104,6 +107,7 @@ function reload() {
 async function logout() {
   await api.logout().catch(() => undefined)
   me.value = null
+  alertLang.value = null
   state.value = 'out'
 }
 </script>

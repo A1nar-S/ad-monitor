@@ -48,6 +48,9 @@ scraper --listings.discovered--> ingest (upsert + outbox) --listings.new--> matc
 bot (Discord, Telegram) ─┐
 dashboard api ─┴─> subscriptions (users, channels, searches, logins) <── read live by scraper and matcher
 ```
+- **Alert language:** per account (`users.alert_lang`, `/language` or the dashboard's preferences; Latvian until chosen,
+  like the dashboard). The matcher and the watch loop read it, so they retry until the api has migrated. Alerts carry it (`NotificationRequested.Lang`); sources name fields per language (`Field.Names`), the
+  notifier and price watches have their own phrasebooks, verdicts come from `deals.FieldsIn`. Ad values stay as posted.
 - **Self-service, no config file.** People manage their own searches with the chat bot or the dashboard; there is no
   users file. Both go through one write path, `subscriptions.Service` (`CreateSearch`/`UpdateSearch`/`SaveSearchByName`,
   `SetEnabled`, `DeleteSearch`), which compiles the search through the source's `sources.Catalog` (validation, "did you

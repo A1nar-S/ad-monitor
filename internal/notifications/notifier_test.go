@@ -24,7 +24,7 @@ type fake struct {
 }
 
 func (f *fake) Kind() string { return "fake" }
-func (f *fake) NotifyListing(_ context.Context, target string, l events.ListingDiscovered) error {
+func (f *fake) NotifyListing(_ context.Context, target string, l events.ListingDiscovered, _ string) error {
 	if f.fail {
 		return errors.New("boom")
 	}
@@ -241,6 +241,17 @@ func TestDigestFailingPartWay(t *testing.T) {
 	}
 }
 
+func TestDigestInLatvian(t *testing.T) {
+	ls := []events.ListingDiscovered{{Title: "A"}, {Title: "B"}}
+	msgs := digestMessages("audi", ls, 5, 10*time.Minute, "lv")
+	if len(msgs) != 1 || !strings.HasPrefix(msgs[0].text, "📦 **Vēl 2 atbilstības meklējumam “audi”** (vairāk nekā 5 paziņojumi 10 min laikā") {
+		t.Errorf("digest = %+v", msgs)
+	}
+	if w := WordsIn("lv"); w.matches(21) != "atbilstība" || w.matches(11) != "atbilstības" {
+		t.Error("latvian plural of 21 / 11")
+	}
+}
+
 func TestDigestMessagesSplit(t *testing.T) {
 	var ls []events.ListingDiscovered
 	for i := range 45 {
@@ -249,7 +260,7 @@ func TestDigestMessagesSplit(t *testing.T) {
 			URL: fmt.Sprintf("https://www.ss.com/msg/lv/transport/cars/audi/a4/ad%03d.html", i),
 		})
 	}
-	msgs := digestMessages("audi", ls, 5, 10*time.Minute)
+	msgs := digestMessages("audi", ls, 5, 10*time.Minute, "")
 	if len(msgs) < 2 {
 		t.Fatalf("want several messages, got %d", len(msgs))
 	}
@@ -271,18 +282,21 @@ func TestRepostText(t *testing.T) {
 	price := func(v float64) *float64 { return &v }
 	first := time.Date(2026, 10, 3, 9, 0, 0, 0, time.UTC)
 	l := events.ListingDiscovered{PriceValue: price(8500), RepostOf: &events.Repost{FirstListed: first, Times: 1, PriceValue: price(8900), Price: "8 900 €"}}
-	if got, want := RepostText(l), "First listed 3 Oct 2026, in 1 earlier ad. Last asked 8 900 €, now 8 500 € (400 € less)."; got != want {
+	if got, want := RepostText(l, "lv"), "Pirmoreiz ievietots 03.10.2026., 1 agrākā sludinājumā. Iepriekš prasīja 8 900 €, tagad 8 500 € (par 400 € mazāk)."; got != want {
+		t.Errorf("latvian = %q\nwant      %q", got, want)
+	}
+	if got, want := RepostText(l, ""), "First listed 3 Oct 2026, in 1 earlier ad. Last asked 8 900 €, now 8 500 € (400 € less)."; got != want {
 		t.Errorf("cheaper = %q\nwant      %q", got, want)
 	}
 	l.RepostOf.Times, l.PriceValue = 3, price(8900)
-	if got, want := RepostText(l), "First listed 3 Oct 2026, in 3 earlier ads. Same price as before."; got != want {
+	if got, want := RepostText(l, "en"), "First listed 3 Oct 2026, in 3 earlier ads. Same price as before."; got != want {
 		t.Errorf("same price = %q\nwant         %q", got, want)
 	}
 	l.PriceValue = nil
-	if got, want := RepostText(l), "First listed 3 Oct 2026, in 3 earlier ads. Last asked 8 900 €."; got != want {
+	if got, want := RepostText(l, "en"), "First listed 3 Oct 2026, in 3 earlier ads. Last asked 8 900 €."; got != want {
 		t.Errorf("no price now = %q\nwant           %q", got, want)
 	}
-	if RepostText(events.ListingDiscovered{}) != "" {
+	if RepostText(events.ListingDiscovered{}, "") != "" {
 		t.Error("text for an ad that is no repost")
 	}
 	l.Title, l.Price = "BMW 520", "8 900 €"

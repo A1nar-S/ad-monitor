@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/textutil"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/subscriptions"
 )
@@ -20,6 +21,7 @@ const (
 	CmdDashboard = "dashboard"
 	CmdSetup     = "setup"
 	CmdLink      = "link"
+	CmdLanguage  = "language"
 
 	SetupStatusChannel = "status-channel"
 	SetupStatusOff     = "status-off"
@@ -103,6 +105,9 @@ func (b *Bot) Commands() []Command {
 		{Name: CmdDashboard, Description: "Get a login link to edit your searches in the browser"},
 		{Name: CmdLink, Description: "Link your account on another chat app, to share your searches", Example: "ABCD-EFGH", Params: []Param{
 			{Name: "code", Description: "The code link gave you on the other app; empty = get a code", Kind: Text, MaxLen: 20},
+		}},
+		{Name: CmdLanguage, Description: "Choose the language your alerts are written in", Example: "lv", Params: []Param{
+			{Name: "lang", Description: "lv = latviešu, en = English; empty = show the current one", Kind: Text, Choices: events.AlertLangs},
 		}},
 		{Name: CmdSetup, Description: "Bot settings, for the bot's admins", ManagersOnly: true, Subcommands: []Command{
 			{Name: SetupStatusChannel, Description: "Post the service's start, stop and error messages in a channel", Params: []Param{

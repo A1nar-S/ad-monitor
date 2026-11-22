@@ -122,7 +122,7 @@ func (s *Service) EnabledSearches(ctx context.Context, source string) ([]Search,
 func searchFromRow(r subscriptionsdb.ListEnabledSearchesRow) (Search, error) {
 	s := Search{
 		ID: r.ID, UserID: r.UserID, Name: r.Name, Source: r.Source, Feeds: r.Feeds,
-		Channel: events.Channel{Kind: r.ChannelKind, Target: r.ChannelTarget},
+		Channel: events.Channel{Kind: r.ChannelKind, Target: r.ChannelTarget}, Lang: alertLangOr(r.AlertLang),
 	}
 	if err := json.Unmarshal(r.Filters, &s.Filters); err != nil {
 		return s, err

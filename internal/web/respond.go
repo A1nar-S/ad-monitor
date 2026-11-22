@@ -19,9 +19,12 @@ func (s *server) fail(w http.ResponseWriter, err error) bool {
 		return false
 	}
 	var inv *sources.InvalidSearch
+	var badLang *subscriptions.InvalidLang
 	switch {
 	case errors.As(err, &inv):
 		writeError(w, http.StatusUnprocessableEntity, inv.Msg)
+	case errors.As(err, &badLang):
+		writeError(w, http.StatusUnprocessableEntity, badLang.Error())
 	case errors.Is(err, subscriptions.ErrNotFound):
 		writeError(w, http.StatusNotFound, "no such search")
 	case errors.Is(err, subscriptions.ErrWatchNotFound):

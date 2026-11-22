@@ -37,7 +37,7 @@ Message @BotFather → `/newbot` → token into `TELEGRAM_BOT_TOKEN`. It works i
 - `/watch cars name:Parents make:Skoda, Toyota price_max:7000 channel:#monitoring`
 - `/watch flats name:Rent region:Rīga deal:Izīrē rooms_min:2`
 - `/edit cars name:Parents price_max:9000 clear:model`
-- `/searches`, `/unwatch`, `/matches`, `/dashboard` (login link), `/link`
+- `/searches`, `/unwatch`, `/matches`, `/dashboard` (login link), `/link`, `/language lv|en` (alert language, Latvian by default; also in the dashboard's preferences)
 - Admins: `/setup status-channel`, `/setup status-off`, `/setup show`
 
 Alerts go to your DMs, or to `channel:`.

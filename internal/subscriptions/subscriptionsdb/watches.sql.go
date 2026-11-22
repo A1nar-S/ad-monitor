@@ -408,8 +408,8 @@ func (q *Queries) InsertWatchTarget(ctx context.Context, arg InsertWatchTargetPa
 
 const listTargetWatches = `-- name: ListTargetWatches :many
 SELECT w.id, w.user_id, w.name, w.rule, w.target_cents, w.drop_percent, w.reference_cents, w.below,
-       w.interval_minutes, c.kind AS channel_kind, c.target AS channel_target
-FROM watches w JOIN channels c ON c.id = w.channel_id
+       w.interval_minutes, c.kind AS channel_kind, c.target AS channel_target, u.alert_lang
+FROM watches w JOIN channels c ON c.id = w.channel_id JOIN users u ON u.id = w.user_id
 WHERE w.target_id = $1 AND w.enabled
 ORDER BY w.id
 `
@@ -426,6 +426,7 @@ type ListTargetWatchesRow struct {
 	IntervalMinutes int32
 	ChannelKind     string
 	ChannelTarget   string
+	AlertLang       string
 }
 
 // The enabled watches of a target, with where their alerts go.
@@ -450,6 +451,7 @@ func (q *Queries) ListTargetWatches(ctx context.Context, targetID int64) ([]List
 			&i.IntervalMinutes,
 			&i.ChannelKind,
 			&i.ChannelTarget,
+			&i.AlertLang,
 		); err != nil {
 			return nil, err
 		}

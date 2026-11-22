@@ -23,7 +23,7 @@ var ad = events.ListingDiscovered{
 }
 
 func TestListingHTML(t *testing.T) {
-	got := listingHTML(ad, maxCaption)
+	got := listingHTML(ad, "", maxCaption)
 	want := "<b>🆕 New listing</b>\nSkoda Octavia &lt;RS&gt;\n💰 <b>6 500 €</b>\n<b>🚗 Car</b>: Skoda Octavia\n<b>📅 Year</b>: 2015\n" +
 		`<a href="https://ss.com/a.html?x=1&amp;y=2">📎 View on ss.com</a>` + "\nID: abc"
 	if got != want {
@@ -36,11 +36,18 @@ func TestListingHTML(t *testing.T) {
 	for range 40 {
 		long.Fields = append(long.Fields, events.Field{Name: "Fact", Value: strings.Repeat("x", 40)})
 	}
-	got = listingHTML(long, maxCaption)
+	got = listingHTML(long, "en", maxCaption)
 	visible := strings.NewReplacer("<b>", "", "</b>", "", "&lt;", "<", "&gt;", ">", "&amp;", "&").Replace(got)
 	visible = visible[:strings.Index(visible, "<a href")] + "📎 View on ss.com\nID: abc"
 	if n := utf8.RuneCountInString(visible); n > maxCaption || !strings.Contains(got, "View on ss.com") {
 		t.Errorf("caption of %d characters:\n%s", n, got)
+	}
+
+	lv := ad
+	lv.Fields = []events.Field{{Name: "🚗 Car", Names: map[string]string{"lv": "🚗 Auto"}, Value: "Skoda Octavia"}}
+	if got := listingHTML(lv, "lv", maxCaption); !strings.HasPrefix(got, "<b>🆕 Jauns sludinājums</b>") ||
+		!strings.Contains(got, "<b>🚗 Auto</b>: Skoda Octavia") || !strings.Contains(got, "📎 Skatīt vietnē ss.com") {
+		t.Errorf("latvian:\n%s", got)
 	}
 }
 
@@ -66,15 +73,15 @@ func TestNotifyListing(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := n.NotifyListing(ctx, "5", ad); err != nil || strings.Join(methods, ",") != "sendPhoto,sendMessage" {
+	if err := n.NotifyListing(ctx, "5", ad, ""); err != nil || strings.Join(methods, ",") != "sendPhoto,sendMessage" {
 		t.Errorf("a photo Telegram can't fetch falls back to text: %v, %v", methods, err)
 	}
 	methods, photoFails = nil, false
-	if err := n.NotifyListing(ctx, "5", ad); err != nil || strings.Join(methods, ",") != "sendPhoto" {
+	if err := n.NotifyListing(ctx, "5", ad, ""); err != nil || strings.Join(methods, ",") != "sendPhoto" {
 		t.Errorf("photo: %v, %v", methods, err)
 	}
 	methods, blocked = nil, true
-	if err := n.NotifyListing(ctx, "5", ad); !errors.Is(err, notifications.ErrUndeliverable) || len(methods) != 1 {
+	if err := n.NotifyListing(ctx, "5", ad, ""); !errors.Is(err, notifications.ErrUndeliverable) || len(methods) != 1 {
 		t.Errorf("blocked: %v, %v", methods, err)
 	}
 	if err := n.NotifyText(ctx, "5", "hi"); !errors.Is(err, notifications.ErrUndeliverable) {

@@ -136,6 +136,17 @@ func (q *Queries) DeleteUser(ctx context.Context, id int64) error {
 	return err
 }
 
+const getAlertLang = `-- name: GetAlertLang :one
+SELECT alert_lang FROM users WHERE id = $1
+`
+
+func (q *Queries) GetAlertLang(ctx context.Context, id int64) (string, error) {
+	row := q.db.QueryRow(ctx, getAlertLang, id)
+	var alert_lang string
+	err := row.Scan(&alert_lang)
+	return alert_lang, err
+}
+
 const getSearchIDByName = `-- name: GetSearchIDByName :one
 SELECT id FROM searches WHERE user_id = $1 AND name = $2
 `
@@ -422,9 +433,10 @@ func (q *Queries) ListEnabledFeeds(ctx context.Context, source string) ([]string
 
 const listEnabledSearches = `-- name: ListEnabledSearches :many
 SELECT s.id, s.user_id, s.name, s.source, s.feeds, s.filters,
-       c.kind AS channel_kind, c.target AS channel_target
+       c.kind AS channel_kind, c.target AS channel_target, u.alert_lang
 FROM searches s
 JOIN channels c ON c.id = s.channel_id
+JOIN users u ON u.id = s.user_id
 WHERE s.enabled AND s.source = $1
 `
 
@@ -437,6 +449,7 @@ type ListEnabledSearchesRow struct {
 	Filters       []byte
 	ChannelKind   string
 	ChannelTarget string
+	AlertLang     string
 }
 
 func (q *Queries) ListEnabledSearches(ctx context.Context, source string) ([]ListEnabledSearchesRow, error) {
@@ -457,6 +470,7 @@ func (q *Queries) ListEnabledSearches(ctx context.Context, source string) ([]Lis
 			&i.Filters,
 			&i.ChannelKind,
 			&i.ChannelTarget,
+			&i.AlertLang,
 		); err != nil {
 			return nil, err
 		}
@@ -766,6 +780,20 @@ type RepointWatchChannelsParams struct {
 
 func (q *Queries) RepointWatchChannels(ctx context.Context, arg RepointWatchChannelsParams) error {
 	_, err := q.db.Exec(ctx, repointWatchChannels, arg.Absorbed, arg.Keeper)
+	return err
+}
+
+const setAlertLang = `-- name: SetAlertLang :exec
+UPDATE users SET alert_lang = $1 WHERE id = $2
+`
+
+type SetAlertLangParams struct {
+	AlertLang string
+	ID        int64
+}
+
+func (q *Queries) SetAlertLang(ctx context.Context, arg SetAlertLangParams) error {
+	_, err := q.db.Exec(ctx, setAlertLang, arg.AlertLang, arg.ID)
 	return err
 }
 

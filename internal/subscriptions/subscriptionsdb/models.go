@@ -69,6 +69,7 @@ type User struct {
 	Platform    *string
 	ExternalID  *string
 	DisplayName string
+	AlertLang   string
 }
 
 type Watch struct {

@@ -24,6 +24,7 @@ type fakeSearches struct {
 	previewed []subscriptions.SearchInput
 	previewOf func([]events.ListingDiscovered) subscriptions.Preview // nil: an empty preview
 	enabled   map[int64]bool
+	lang      string
 }
 
 var (
@@ -102,6 +103,19 @@ func (*fakeSearches) RecentMatches(context.Context, subscriptions.Owner, int64, 
 	return []subscriptions.MatchRef{{SearchID: 7, Source: "ss.com", ExternalID: "42"}, {SearchID: 7, Source: "ss.com", ExternalID: "gone"}}, nil
 }
 func (*fakeSearches) DefaultSource() string { return "ss.com" }
+func (f *fakeSearches) AlertLang(context.Context, subscriptions.Owner) (string, error) {
+	if f.lang == "" {
+		return "lv", nil
+	}
+	return f.lang, nil
+}
+func (f *fakeSearches) SetAlertLang(_ context.Context, _ subscriptions.Owner, lang string) error {
+	if lang != "en" && lang != "lv" {
+		return &subscriptions.InvalidLang{Lang: lang}
+	}
+	f.lang = lang
+	return nil
+}
 func (*fakeSearches) Categories() map[string][]sources.Category {
 	return map[string][]sources.Category{
 		"rrr.lt": {{ID: "parts", Label: "Car parts"}},
@@ -260,5 +274,22 @@ func TestAdminOnlyAndSPA(t *testing.T) {
 	}
 	if w := do(h, "GET", "/api/nope", "s-alice", "", false); w.Code != http.StatusNotFound || !strings.Contains(w.Header().Get("Content-Type"), "json") {
 		t.Errorf("unknown API path: %d", w.Code)
+	}
+}
+
+func TestAlertLang(t *testing.T) {
+	h, f := newServer(t)
+	if w := do(h, "GET", "/api/me", "s-alice", "", false); !strings.Contains(w.Body.String(), `"alertLang":"lv"`) ||
+		!strings.Contains(w.Body.String(), `"alertLangs":["lv","en"]`) {
+		t.Errorf("me before choosing: %s", w.Body)
+	}
+	if w := do(h, "PUT", "/api/me/alert-lang", "s-alice", `{"lang":"en"}`, true); w.Code != http.StatusOK || f.lang != "en" {
+		t.Errorf("set: %d %s, lang %q", w.Code, w.Body, f.lang)
+	}
+	if w := do(h, "PUT", "/api/me/alert-lang", "s-alice", `{"lang":"de"}`, true); w.Code != http.StatusUnprocessableEntity || f.lang != "en" {
+		t.Errorf("unknown language: %d, lang %q; want 422 and unchanged", w.Code, f.lang)
+	}
+	if w := do(h, "PUT", "/api/me/alert-lang", "s-alice", `{"lang":"en"}`, false); w.Code != http.StatusForbidden {
+		t.Errorf("without the CSRF header: %d, want 403", w.Code)
 	}
 }

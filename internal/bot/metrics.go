@@ -19,7 +19,7 @@ var commandsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 // sends can never create series.
 func commandLabel(name string) string {
 	switch name {
-	case CmdWatch, CmdEdit, CmdSearches, CmdMatches, CmdUnwatch, CmdDashboard, CmdSetup, CmdLink:
+	case CmdWatch, CmdEdit, CmdSearches, CmdMatches, CmdUnwatch, CmdDashboard, CmdSetup, CmdLink, CmdLanguage:
 		return name
 	case ActionLink:
 		return "menu_link"

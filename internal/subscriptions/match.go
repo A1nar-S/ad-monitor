@@ -44,6 +44,7 @@ type Search struct {
 	Feeds   []string // what to watch, in the source's own terms
 	Filters Filters
 	Channel events.Channel
+	Lang    string // the user's alert language
 }
 
 // Verdict is the outcome of checking a listing against a search.

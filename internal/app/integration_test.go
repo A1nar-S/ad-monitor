@@ -198,7 +198,7 @@ type sent struct {
 }
 
 func (*fakeDiscord) Kind() string { return "discord" }
-func (d *fakeDiscord) NotifyListing(_ context.Context, target string, l events.ListingDiscovered) error {
+func (d *fakeDiscord) NotifyListing(_ context.Context, target string, l events.ListingDiscovered, _ string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	s := sent{target: target, listingID: l.ExternalID, fields: l.Fields}
@@ -292,6 +292,9 @@ func addSearch(t *testing.T, subs *subscriptions.Service, user, target, name, ca
 	ctx := context.Background()
 	o, err := subs.PlatformOwner(ctx, "discord", user, user)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subs.SetAlertLang(ctx, o, "en"); err != nil { // the checks below read English alerts
 		t.Fatal(err)
 	}
 	ch, err := subs.EnsureChannel(ctx, o, "discord", target, "#"+target)

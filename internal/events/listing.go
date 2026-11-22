@@ -83,12 +83,35 @@ type Repost struct {
 	PriceValue  *float64  `json:"price_value,omitempty"` // the latest earlier ad's
 }
 
-// Field is one labelled fact in a notification.
+// Field is one labelled fact in a notification. Name is English; Names
+// holds it in other alert languages, by code ("lv"), where the source has
+// them. The value is shown as the site wrote it.
 type Field struct {
-	Name   string `json:"name"`
-	Value  string `json:"value"`
-	Inline bool   `json:"inline,omitempty"`
+	Name   string            `json:"name"`
+	Names  map[string]string `json:"names,omitempty"`
+	Value  string            `json:"value"`
+	Inline bool              `json:"inline,omitempty"`
 }
+
+// NameIn is the field's name in lang, English when it has none there.
+func (f Field) NameIn(lang string) string {
+	if n := f.Names[lang]; n != "" {
+		return n
+	}
+	return f.Name
+}
+
+// Languages alerts can be written in. A user who never chose reads
+// DefaultLang; an alert with no Lang (sent before alerts had one) is
+// English.
+const (
+	LangLatvian = "lv"
+	LangEnglish = "en"
+	DefaultLang = LangLatvian
+)
+
+// AlertLangs are the alert languages, the default first.
+var AlertLangs = []string{LangLatvian, LangEnglish}
 
 // Num returns a numeric attribute, as sources put numbers in Attrs and JSON
 // round-trips them as float64.
@@ -118,4 +141,8 @@ type NotificationRequested struct {
 	Channel    Channel            `json:"channel"`
 	Listing    *ListingDiscovered `json:"listing,omitempty"`
 	Text       string             `json:"text,omitempty"` // used when Listing is nil
+	// Lang is the language the user reads alerts in (see AlertLangs); the
+	// notifier writes its own words in it. Text comes already written.
+	// "" = English: a record from before alerts had a language.
+	Lang string `json:"lang,omitempty"`
 }

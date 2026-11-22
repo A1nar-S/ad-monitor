@@ -39,15 +39,15 @@ func (n *Notifier) NotifyText(ctx context.Context, chat, msg string) error {
 
 // NotifyListing sends the ad's photo with the facts as its caption. A photo
 // Telegram can't fetch falls back to a text message.
-func (n *Notifier) NotifyListing(ctx context.Context, chat string, l events.ListingDiscovered) error {
+func (n *Notifier) NotifyListing(ctx context.Context, chat string, l events.ListingDiscovered, lang string) error {
 	if l.ImageURL != "" {
-		err := n.c.SendPhoto(ctx, chat, l.ImageURL, listingHTML(l, maxCaption))
+		err := n.c.SendPhoto(ctx, chat, l.ImageURL, listingHTML(l, lang, maxCaption))
 		var te *telegram.Error
 		if err == nil || !errors.As(err, &te) || te.Code != http.StatusBadRequest || telegram.Undeliverable(err) {
 			return classify(err)
 		}
 	}
-	_, err := n.c.SendMessage(ctx, chat, listingHTML(l, maxText), nil, true)
+	_, err := n.c.SendMessage(ctx, chat, listingHTML(l, lang, maxText), nil, true)
 	return classify(err)
 }
 
@@ -58,13 +58,14 @@ func classify(err error) error {
 	return err
 }
 
-// listingHTML renders a listing in at most limit visible characters,
-// leaving out the source's facts that don't fit.
-func listingHTML(l events.ListingDiscovered, limit int) string {
+// listingHTML renders a listing in lang in at most limit visible
+// characters, leaving out the source's facts that don't fit.
+func listingHTML(l events.ListingDiscovered, lang string, limit int) string {
+	w := notifications.WordsIn(lang)
 	var c caption
-	heading := "🆕 New listing"
+	heading := w.NewListing
 	if l.RepostOf != nil {
-		heading = "♻️ Reposted listing"
+		heading = w.Reposted
 	}
 	c.line("<b>"+heading+"</b>", heading)
 	if t := strings.TrimSpace(l.Title); t != "" {
@@ -75,23 +76,24 @@ func listingHTML(l events.ListingDiscovered, limit int) string {
 		c.line("💰 <b>"+html.EscapeString(l.Price)+"</b>", "💰 "+l.Price)
 	}
 	if l.RepostOf != nil {
-		t := "♻️ " + notifications.RepostText(l)
+		t := "♻️ " + notifications.RepostText(l, lang)
 		c.line(html.EscapeString(t), t)
 	}
 	var tail caption
 	if l.URL != "" {
-		t := "📎 View on " + l.Source
+		t := fmt.Sprintf(w.ViewOn, l.Source)
 		tail.line(`<a href="`+html.EscapeString(l.URL)+`">`+html.EscapeString(t)+"</a>", t)
 	}
 	if l.ExternalID != "" {
 		tail.line("ID: "+html.EscapeString(l.ExternalID), "ID: "+l.ExternalID)
 	}
 	for _, f := range l.Fields {
-		t := f.Name + ": " + f.Value
+		name := f.NameIn(lang)
+		t := name + ": " + f.Value
 		if c.n+1+utf8.RuneCountInString(t)+1+tail.n > limit {
 			continue
 		}
-		c.line("<b>"+html.EscapeString(f.Name)+"</b>: "+html.EscapeString(f.Value), t)
+		c.line("<b>"+html.EscapeString(name)+"</b>: "+html.EscapeString(f.Value), t)
 	}
 	if c.n+1+tail.n > limit {
 		return c.html.String()

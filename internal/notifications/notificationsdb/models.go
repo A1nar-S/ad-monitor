@@ -24,4 +24,5 @@ type DigestQueue struct {
 	ChannelTarget string
 	Listing       []byte
 	QueuedAt      pgtype.Timestamptz
+	Lang          string
 }

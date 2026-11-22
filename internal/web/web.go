@@ -31,6 +31,8 @@ type Searches interface {
 	RecentMatches(ctx context.Context, o subscriptions.Owner, searchID int64, limit int) ([]subscriptions.MatchRef, error)
 	Categories() map[string][]sources.Category
 	DefaultSource() string
+	AlertLang(ctx context.Context, o subscriptions.Owner) (string, error)
+	SetAlertLang(ctx context.Context, o subscriptions.Owner, lang string) error
 	Preview(in subscriptions.SearchInput, candidates []events.ListingDiscovered) (subscriptions.Preview, error)
 	CompileFeeds(in subscriptions.SearchInput) (source string, feeds []string, err error)
 }
@@ -89,6 +91,7 @@ func New(cfg Config) http.Handler {
 	mux.HandleFunc("GET /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.logout)
 	mux.Handle("GET /api/me", s.auth(s.me))
+	mux.Handle("PUT /api/me/alert-lang", s.auth(s.setAlertLang))
 	mux.Handle("GET /api/sources", s.auth(s.listSources))
 	mux.Handle("GET /api/channels", s.auth(s.channels))
 	mux.Handle("GET /api/searches", s.auth(s.listSearches))

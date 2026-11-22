@@ -47,6 +47,21 @@ type fakeSearches struct {
 	status   *events.Channel
 	admin    bool
 	linked   string // the code Link accepts
+	lang     string
+}
+
+func (f *fakeSearches) AlertLang(context.Context, subscriptions.Owner) (string, error) {
+	if f.lang == "" {
+		return "lv", nil
+	}
+	return f.lang, nil
+}
+func (f *fakeSearches) SetAlertLang(_ context.Context, _ subscriptions.Owner, lang string) error {
+	if lang != "en" && lang != "lv" {
+		return &subscriptions.InvalidLang{Lang: lang}
+	}
+	f.lang = lang
+	return nil
 }
 
 func newFakeSearches() *fakeSearches {
@@ -618,5 +633,20 @@ func TestSetup(t *testing.T) {
 	}
 	if r := setup(SetupShow, map[string]any{}); !strings.Contains(r, "Status messages: off") {
 		t.Errorf("show off: %q", r)
+	}
+}
+
+func TestLanguage(t *testing.T) {
+	b, _, f := newBot()
+	ctx := context.Background()
+	u := User{ID: "1", Name: "Alice"}
+	if r := b.Run(ctx, u, Call{Command: CmdLanguage}); !strings.Contains(r.Text, "**latviešu**") {
+		t.Errorf("before choosing: %q, want the default", r.Text)
+	}
+	if r := b.Run(ctx, u, Call{Command: CmdLanguage, Args: map[string]any{"lang": " EN "}}); f.lang != "en" || !strings.Contains(r.Text, "English") {
+		t.Errorf("set en: %q, lang %q", r.Text, f.lang)
+	}
+	if r := b.Run(ctx, u, Call{Command: CmdLanguage, Args: map[string]any{"lang": "de"}}); f.lang != "en" || !strings.HasPrefix(r.Text, "❌") {
+		t.Errorf("unknown language: %q, lang %q", r.Text, f.lang)
 	}
 }

@@ -228,7 +228,7 @@ func adFields(l events.ListingDiscovered) []events.Field {
 		{"house_type", "🏠 House"},
 	} {
 		if v, ok := l.Str(f.key); ok {
-			fs = append(fs, events.Field{Name: f.name, Value: v, Inline: true})
+			fs = append(fs, field(f.name, v, true))
 		}
 	}
 	return fs

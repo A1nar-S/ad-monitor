@@ -169,7 +169,7 @@ func displayFields(l events.ListingDiscovered, a *ad) []events.Field {
 	var fs []events.Field
 	add := func(name, value string, inline bool) {
 		if value != "" {
-			fs = append(fs, events.Field{Name: name, Value: value, Inline: inline})
+			fs = append(fs, field(name, value, inline))
 		}
 	}
 	// Zero rooms/area show up for "Citi"/unknown; nothing useful to display.

@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { Monitor, Moon, Settings2, Sun } from 'lucide-vue-next'
+import { api, ApiError } from '../api'
 import { locale, locales, setLocale, t } from '../i18n'
+import { alertLang, alertLangs } from '../state'
 import { setThemeMode, themeMode, type ThemeMode } from '../theme'
+import { toastError } from '../toast'
 
 // A small popover with the theme and language choices, for the sidebar, the
 // mobile top bar and the sign-in page.
@@ -17,6 +20,22 @@ const themes: { id: ThemeMode; icon: typeof Sun }[] = [
   { id: 'dark', icon: Moon },
   { id: 'auto', icon: Monitor },
 ]
+
+// An alert language by its own name, as the UI languages are listed.
+const langLabel = (id: string) => locales.find((l) => l.id === id)?.label ?? id
+
+async function chooseAlertLang(lang: string) {
+  const before = alertLang.value
+  alertLang.value = lang
+  try {
+    alertLang.value = (await api.setAlertLang(lang)).alertLang
+  } catch (reason) {
+    alertLang.value = before
+    toastError(
+      reason instanceof ApiError ? reason.message : t('prefs.alertSaveFailed'),
+    )
+  }
+}
 
 function onPointerDown(event: PointerEvent) {
   if (!root.value?.contains(event.target as Node)) open.value = false
@@ -111,6 +130,38 @@ onBeforeUnmount(() =>
           {{ option.label }}
         </button>
       </div>
+
+      <template v-if="alertLang !== null && alertLangs.length > 1">
+        <p class="mt-4 mb-1.5 text-xs font-medium text-gray-500">
+          {{ t('prefs.alertLanguage') }}
+        </p>
+        <div
+          class="grid grid-cols-2 rounded-md bg-gray-150/80 p-0.5"
+          role="radiogroup"
+          :aria-label="t('prefs.alertLanguage')"
+        >
+          <button
+            v-for="id in alertLangs"
+            :key="id"
+            type="button"
+            role="radio"
+            :lang="id"
+            :aria-checked="alertLang === id"
+            class="h-7 rounded-[5px] text-small transition-colors"
+            :class="
+              alertLang === id
+                ? 'bg-raised font-medium text-gray-900 shadow-card'
+                : 'text-gray-600 hover:text-gray-900'
+            "
+            @click="chooseAlertLang(id)"
+          >
+            {{ langLabel(id) }}
+          </button>
+        </div>
+        <p class="mt-1.5 text-xs text-gray-500">
+          {{ t('prefs.alertLanguageHint') }}
+        </p>
+      </template>
     </div>
   </div>
 </template>

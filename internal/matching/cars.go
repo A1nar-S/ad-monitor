@@ -62,19 +62,20 @@ func (s *Service) rateableCar(l events.ListingDiscovered) bool {
 	return ok && cars.RateableCar(l)
 }
 
-// dealFields are the verdicts for l, when it is a rateable car. A failed
-// lookup costs only the comparisons, never the alert.
-func (s *Service) dealFields(ctx context.Context, l events.ListingDiscovered) []events.Field {
+// rate rates l, when it is a rateable car; the alerts show the verdicts in
+// their readers' languages. A failed lookup costs only the comparisons,
+// never the alert.
+func (s *Service) rate(ctx context.Context, l events.ListingDiscovered) (deals.Ratings, bool) {
 	if s.peers == nil {
-		return nil
+		return deals.Ratings{}, false
 	}
 	cars, ok := s.carAds(l)
 	if !ok || !cars.RateableCar(l) {
-		return nil
+		return deals.Ratings{}, false
 	}
 	car, ok := deals.CarOf(l, cars.CarTerm)
 	if !ok {
-		return nil
+		return deals.Ratings{}, false
 	}
 	rows, err := s.peers.CarPeers(ctx, PeerQuery{
 		Source: l.Source, Make: car.Make, Model: car.Model,
@@ -93,5 +94,5 @@ func (s *Service) dealFields(ctx context.Context, l events.ListingDiscovered) []
 			})
 		}
 	}
-	return deals.Fields(car, peers)
+	return deals.Rate(car, peers), true
 }

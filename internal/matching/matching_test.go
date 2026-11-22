@@ -138,6 +138,9 @@ func TestMatchRecordAndRecent(t *testing.T) {
 	if err := svc.Handle(ctx, l, publish); err != nil || len(sent) != 1 {
 		t.Errorf("redelivery: %d sent (err %v), want still 1", len(sent), err)
 	}
+	if sent[0].Lang != "lv" {
+		t.Errorf("lang = %q, want the default lv", sent[0].Lang)
+	}
 	// A failed publish records nothing, so the retry tells them.
 	l.ExternalID = "2"
 	if err := svc.Handle(ctx, l, func(context.Context, events.NotificationRequested) error { return errors.New("down") }); err == nil {
@@ -194,15 +197,26 @@ func TestNotificationsEnrichOnce(t *testing.T) {
 		t.Errorf("ad page handed on = %+v, want the one read", kept)
 	}
 
-	// The ad page failing: candidates still hear about it, flagged.
+	// The ad page failing: candidates still hear about it, flagged, each
+	// in their language (alice chose English, bob reads the default).
+	if err := subs.SetAlertLang(ctx, alice, "en"); err != nil {
+		t.Fatal(err)
+	}
 	src.err = errors.New("403")
 	l.ExternalID = "8"
 	got, err = svc.Notifications(ctx, l)
 	if err != nil || len(got) != 4 {
 		t.Fatalf("unconfirmed: %d notifications, err %v; want all 4", len(got), err)
 	}
-	if f := got[len(got)-1].Listing.Fields; len(f) == 0 || !strings.Contains(f[len(f)-1].Value, "gearbox") {
-		t.Errorf("unconfirmed listing not flagged: %+v", f)
+	for _, n := range got {
+		f := n.Listing.Fields
+		want := "⚠️ Unconfirmed"
+		if n.UserID == bob.UserID {
+			want = "⚠️ Nav pārbaudīts"
+		}
+		if len(f) == 0 || f[len(f)-1].Name != want || !strings.Contains(f[len(f)-1].Value, "gearbox") || (n.Lang == "lv") != (n.UserID == bob.UserID) {
+			t.Errorf("%s: unconfirmed flag %+v, lang %q; want %q", n.SearchName, f, n.Lang, want)
+		}
 	}
 
 	// A removed ad is announced to no one, also not to the search that

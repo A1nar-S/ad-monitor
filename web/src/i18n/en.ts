@@ -55,6 +55,10 @@ const en = {
     auto: 'Auto',
     autoHint: 'Follows your system setting.',
     language: 'Language',
+    alertLanguage: 'Alert language',
+    alertLanguageHint:
+      'For the alerts sent to your chats. The bot has it too: /language.',
+    alertSaveFailed: "Couldn't change the alert language. Try again.",
   },
 
   signIn: {

@@ -87,10 +87,17 @@ SELECT id, name FROM searches WHERE user_id = @user_id;
 
 -- name: ListEnabledSearches :many
 SELECT s.id, s.user_id, s.name, s.source, s.feeds, s.filters,
-       c.kind AS channel_kind, c.target AS channel_target
+       c.kind AS channel_kind, c.target AS channel_target, u.alert_lang
 FROM searches s
 JOIN channels c ON c.id = s.channel_id
+JOIN users u ON u.id = s.user_id
 WHERE s.enabled AND s.source = @source;
+
+-- name: GetAlertLang :one
+SELECT alert_lang FROM users WHERE id = @id;
+
+-- name: SetAlertLang :exec
+UPDATE users SET alert_lang = @alert_lang WHERE id = @id;
 
 -- name: ListEnabledFeeds :many
 SELECT DISTINCT unnest(feeds)::text AS feed FROM searches WHERE enabled AND source = @source;

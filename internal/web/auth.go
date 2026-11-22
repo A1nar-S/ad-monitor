@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/subscriptions"
 )
 
@@ -90,16 +91,35 @@ func (s *server) auth(h ownerHandler) http.Handler {
 	})
 }
 
-func (s *server) me(w http.ResponseWriter, _ *http.Request, o subscriptions.Owner) {
+func (s *server) me(w http.ResponseWriter, r *http.Request, o subscriptions.Owner) {
+	lang, err := s.Searches.AlertLang(r.Context(), o)
+	if s.fail(w, err) {
+		return
+	}
 	me := map[string]any{
 		"name": o.Name, "platform": o.Platform, "admin": o.Admin, "maxSearches": s.MaxSearches,
 		"maxWatches": s.MaxWatches, "watchIntervals": []int{},
-		"gems": s.Gems != nil && len(s.GemSources) > 0,
+		"gems":      s.Gems != nil && len(s.GemSources) > 0,
+		"alertLang": lang, "alertLangs": events.AlertLangs, // the default first
 	}
 	if s.Watches != nil {
 		me["watchIntervals"] = s.Watches.AllowedWatchIntervals()
 	}
 	writeJSON(w, http.StatusOK, me)
+}
+
+// setAlertLang: {"lang": "lv"}.
+func (s *server) setAlertLang(w http.ResponseWriter, r *http.Request, o subscriptions.Owner) {
+	var b struct {
+		Lang string `json:"lang"`
+	}
+	if !decode(w, r, &b) {
+		return
+	}
+	if s.fail(w, s.Searches.SetAlertLang(r.Context(), o, b.Lang)) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"alertLang": b.Lang})
 }
 
 // admin lets only admins through.

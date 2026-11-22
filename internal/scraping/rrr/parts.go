@@ -242,7 +242,7 @@ func fields(l events.ListingDiscovered, car string, numbers []string) []events.F
 	var fs []events.Field
 	add := func(name, value string, inline bool) {
 		if value != "" {
-			fs = append(fs, events.Field{Name: name, Value: value, Inline: inline})
+			fs = append(fs, field(name, value, inline))
 		}
 	}
 	add("🔧 Part", str(l.Attrs, attrCategory), false)

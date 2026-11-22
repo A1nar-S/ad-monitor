@@ -25,7 +25,6 @@ import (
 	"github.com/A1nar-S/advertisiment-monitoring/internal/events"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/notifications/notificationsdb"
 	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/db"
-	"github.com/A1nar-S/advertisiment-monitoring/internal/platform/textutil"
 )
 
 //go:embed migrations/*.sql
@@ -36,7 +35,8 @@ var migrationFiles embed.FS
 type Notifier interface {
 	// Kind matches events.Channel.Kind, e.g. "discord".
 	Kind() string
-	NotifyListing(ctx context.Context, target string, l events.ListingDiscovered) error
+	// NotifyListing renders l with its own words in lang (see WordsIn).
+	NotifyListing(ctx context.Context, target string, l events.ListingDiscovered, lang string) error
 	NotifyText(ctx context.Context, target, msg string) error
 }
 
@@ -126,7 +126,7 @@ func (s *Service) Handle(ctx context.Context, req events.NotificationRequested) 
 
 	var err error
 	if req.Listing != nil {
-		err = n.NotifyListing(ctx, req.Channel.Target, *req.Listing)
+		err = n.NotifyListing(ctx, req.Channel.Target, *req.Listing, req.Lang)
 	} else {
 		err = n.NotifyText(ctx, req.Channel.Target, req.Text)
 	}
@@ -175,7 +175,7 @@ func (s *Service) queueIfOverBurst(ctx context.Context, req events.NotificationR
 		}
 		return q.QueueDigest(ctx, notificationsdb.QueueDigestParams{
 			Key: req.Key, UserID: req.UserID, SearchName: req.SearchName,
-			ChannelKind: req.Channel.Kind, ChannelTarget: req.Channel.Target, Listing: listing,
+			ChannelKind: req.Channel.Kind, ChannelTarget: req.Channel.Target, Listing: listing, Lang: req.Lang,
 		})
 	})
 	if err != nil {
@@ -251,7 +251,7 @@ func (s *Service) flushDigest(ctx context.Context, n Notifier, d notificationsdb
 		}
 	}
 	done := 0 // ads carried by the messages sent so far
-	for _, msg := range digestMessages(d.SearchName, ls, s.burst, s.burstWindow) {
+	for _, msg := range digestMessages(d.SearchName, ls, s.burst, s.burstWindow, d.Lang) {
 		err := n.NotifyText(ctx, d.ChannelTarget, msg.text)
 		switch {
 		case errors.Is(err, ErrUndeliverable):
@@ -285,18 +285,19 @@ type digestMessage struct {
 	ads  int
 }
 
-// digestMessages renders queued ads as a few compact text messages: one line
-// per ad, at most maxDigestAds lines, each message under maxMessageLen.
-func digestMessages(search string, ls []events.ListingDiscovered, burst int, window time.Duration) []digestMessage {
+// digestMessages renders queued ads as a few compact text messages in lang:
+// one line per ad, at most maxDigestAds lines, each message under
+// maxMessageLen.
+func digestMessages(search string, ls []events.ListingDiscovered, burst int, window time.Duration, lang string) []digestMessage {
 	if len(ls) == 0 {
 		return nil
 	}
-	head := fmt.Sprintf("📦 **%d more %s for “%s”** (over %d in %s, so bundled)",
-		len(ls), plural(len(ls), "match", "matches"), search, burst, window)
+	w := WordsIn(lang)
+	head := fmt.Sprintf(w.digestHead, len(ls), w.matches(len(ls)), search, burst, w.window(window))
 	var lines []digestMessage // one line each
 	for i, l := range ls {
 		if i == maxDigestAds {
-			lines = append(lines, digestMessage{fmt.Sprintf("…and %d more", len(ls)-maxDigestAds), len(ls) - maxDigestAds})
+			lines = append(lines, digestMessage{fmt.Sprintf(w.andMore, len(ls)-maxDigestAds), len(ls) - maxDigestAds})
 			break
 		}
 		lines = append(lines, digestMessage{digestLine(l), 1})
@@ -343,52 +344,6 @@ func digestLine(l events.ListingDiscovered) string {
 		line = "• ♻️ " + strings.TrimPrefix(line, "• ") // seen before in another ad
 	}
 	return line
-}
-
-// RepostText says what was known about a reposted ad's item, for any
-// notifier: "First listed 3 Oct 2026, in 2 earlier ads. Last asked 8 900 €,
-// now 8 500 € (400 € less)."
-func RepostText(l events.ListingDiscovered) string {
-	r := l.RepostOf
-	if r == nil {
-		return ""
-	}
-	s := "First listed " + r.FirstListed.In(siteZone).Format("2 Jan 2006")
-	if r.Times == 1 {
-		s += ", in 1 earlier ad."
-	} else {
-		s += fmt.Sprintf(", in %d earlier ads.", r.Times)
-	}
-	switch {
-	case r.PriceValue != nil && l.PriceValue != nil && *r.PriceValue != *l.PriceValue:
-		diff := *l.PriceValue - *r.PriceValue
-		change := "more"
-		if diff < 0 {
-			diff, change = -diff, "less"
-		}
-		s += fmt.Sprintf(" Last asked %s, now %s (%s %s).", textutil.Euros(*r.PriceValue), textutil.Euros(*l.PriceValue), textutil.Euros(diff), change)
-	case r.PriceValue != nil && l.PriceValue != nil:
-		s += " Same price as before."
-	case r.Price != "":
-		s += " Last asked " + strings.Join(strings.Fields(r.Price), " ") + "."
-	}
-	return s
-}
-
-// siteZone is where the sites are, for dates in messages: the process runs
-// in UTC, and an ad first seen just after midnight in Riga was seen "today".
-var siteZone = func() *time.Location {
-	if z, err := time.LoadLocation("Europe/Riga"); err == nil {
-		return z
-	}
-	return time.UTC
-}()
-
-func plural(n int, one, many string) string {
-	if n == 1 {
-		return one
-	}
-	return many
 }
 
 // release forgets a claimed key so a retry can deliver it.

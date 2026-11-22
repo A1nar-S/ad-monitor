@@ -41,8 +41,8 @@ func (n *Notifier) NotifyText(ctx context.Context, channelID, msg string) error 
 	return classify(err)
 }
 
-func (n *Notifier) NotifyListing(ctx context.Context, channelID string, l events.ListingDiscovered) error {
-	_, err := n.session.ChannelMessageSendEmbed(channelID, embed(l), discordgo.WithContext(ctx))
+func (n *Notifier) NotifyListing(ctx context.Context, channelID string, l events.ListingDiscovered, lang string) error {
+	_, err := n.session.ChannelMessageSendEmbed(channelID, embed(l, lang), discordgo.WithContext(ctx))
 	return classify(err)
 }
 
@@ -60,15 +60,16 @@ func classify(err error) error {
 	return err
 }
 
-// embed renders a listing without knowing the source: the source decided which
-// facts (Fields) are worth showing, in which order.
-func embed(l events.ListingDiscovered) *discordgo.MessageEmbed {
+// embed renders a listing in lang without knowing the source: the source
+// decided which facts (Fields) are worth showing, in which order.
+func embed(l events.ListingDiscovered, lang string) *discordgo.MessageEmbed {
+	w := notifications.WordsIn(lang)
 	e := &discordgo.MessageEmbed{
-		Title: "🆕 New listing",
+		Title: w.NewListing,
 		Color: embedColor,
 	}
 	if l.RepostOf != nil {
-		e.Title, e.Color = "♻️ Reposted listing", repostColor
+		e.Title, e.Color = w.Reposted, repostColor
 	}
 
 	e.Description = l.Title
@@ -76,17 +77,17 @@ func embed(l events.ListingDiscovered) *discordgo.MessageEmbed {
 		if e.Description != "" {
 			e.Description += "\n"
 		}
-		e.Description += fmt.Sprintf("[📎 View on %s](%s)", l.Source, l.URL)
+		e.Description += fmt.Sprintf("[%s](%s)", fmt.Sprintf(w.ViewOn, l.Source), l.URL)
 	}
 
 	if l.Price != "" {
-		e.Fields = append(e.Fields, &discordgo.MessageEmbedField{Name: "💰 Price", Value: l.Price, Inline: true})
+		e.Fields = append(e.Fields, &discordgo.MessageEmbedField{Name: w.Price, Value: l.Price, Inline: true})
 	}
 	if r := l.RepostOf; r != nil {
-		e.Fields = append(e.Fields, &discordgo.MessageEmbedField{Name: "♻️ Seen before", Value: notifications.RepostText(l)})
+		e.Fields = append(e.Fields, &discordgo.MessageEmbedField{Name: w.SeenBefore, Value: notifications.RepostText(l, lang)})
 	}
 	for _, f := range l.Fields {
-		e.Fields = append(e.Fields, &discordgo.MessageEmbedField{Name: f.Name, Value: f.Value, Inline: f.Inline})
+		e.Fields = append(e.Fields, &discordgo.MessageEmbedField{Name: f.NameIn(lang), Value: f.Value, Inline: f.Inline})
 	}
 	if l.ImageURL != "" {
 		e.Image = &discordgo.MessageEmbedImage{URL: l.ImageURL}

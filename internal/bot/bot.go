@@ -59,6 +59,8 @@ type Searches interface {
 	LinkTarget(ctx context.Context, o subscriptions.Owner, code string) ([]subscriptions.Account, error)
 	Link(ctx context.Context, o subscriptions.Owner, code string) (subscriptions.LinkResult, error)
 	Accounts(ctx context.Context, o subscriptions.Owner) ([]subscriptions.Account, error)
+	AlertLang(ctx context.Context, o subscriptions.Owner) (string, error)
+	SetAlertLang(ctx context.Context, o subscriptions.Owner, lang string) error
 }
 
 // Ad is what a match shows of a stored ad.
@@ -184,6 +186,9 @@ func (b *Bot) run(ctx context.Context, u User, c Call) (Reply, error) {
 			b.publicURL, token)}, nil
 	case CmdLink:
 		return b.link(ctx, o, argString(c.Args, "code"))
+	case CmdLanguage:
+		text, err := b.language(ctx, o, strings.ToLower(strings.TrimSpace(argString(c.Args, "lang"))))
+		return Reply{Text: text}, err
 	}
 	return Reply{}, fmt.Errorf("unknown command %q", c.Command)
 }
@@ -663,11 +668,32 @@ func (b *Bot) owner(ctx context.Context, u User) (subscriptions.Owner, error) {
 	return b.searches.PlatformOwner(ctx, b.m.Platform(), u.ID, u.Name)
 }
 
+// langNames name the alert languages in themselves.
+var langNames = map[string]string{events.LangEnglish: "English", events.LangLatvian: "latviešu"}
+
+// language shows or sets the language of the owner's alerts.
+func (b *Bot) language(ctx context.Context, o subscriptions.Owner, lang string) (string, error) {
+	if lang == "" {
+		cur, err := b.searches.AlertLang(ctx, o)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("🌐 Your alerts are written in **%s**. Change it with **language** lv or en.", langNames[cur]), nil
+	}
+	if err := b.searches.SetAlertLang(ctx, o, lang); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("🌐 Your alerts will be written in **%s**.", langNames[lang]), nil
+}
+
 func (b *Bot) errorText(what string, err error) string {
 	var inv *sources.InvalidSearch
+	var badLang *subscriptions.InvalidLang
 	switch {
 	case errors.As(err, &inv):
 		return "❌ " + inv.Msg
+	case errors.As(err, &badLang):
+		return "❌ Alerts can be written in lv (latviešu) or en (English)."
 	case errors.Is(err, subscriptions.ErrNotFound):
 		return "❌ No such search."
 	case errors.Is(err, subscriptions.ErrNotAdmin):

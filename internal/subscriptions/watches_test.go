@@ -126,6 +126,17 @@ func TestWatchLifecycle(t *testing.T) {
 	}
 	drops, checks := watchAlerts.WithLabelValues(AlertDrop), watchChecks.WithLabelValues("ok")
 	drops0, checks0 := testutil.ToFloat64(drops), testutil.ToFloat64(checks)
+	// Ana reads her alerts in English; ben never chose (Latvian).
+	if lang, err := svc.AlertLang(ctx, ben); err != nil || lang != "lv" {
+		t.Errorf("ben's alert language = %q (err %v), want the default lv", lang, err)
+	}
+	if err := svc.SetAlertLang(ctx, ana, "en"); err != nil {
+		t.Fatal(err)
+	}
+	var badLang *InvalidLang
+	if err := svc.SetAlertLang(ctx, ana, "de"); !errors.As(err, &badLang) {
+		t.Errorf("unknown language: err = %v, want InvalidLang", err)
+	}
 	check(1, int64(119900)) // below both: one alert each
 	if d := testutil.ToFloat64(drops) - drops0; d != 2 {
 		t.Errorf("drop alerts counter rose by %v, want 2", d)
@@ -140,8 +151,8 @@ func TestWatchLifecycle(t *testing.T) {
 	if !strings.Contains(got[0].Text, "€1,199") || !strings.Contains(got[0].Text, "(was €1,250)") || !strings.Contains(got[0].Text, "target of €1,200") {
 		t.Errorf("ana's alert: %s", got[0].Text)
 	}
-	if !strings.Contains(got[1].Text, "7.7% below your reference price of €1,299 (you asked for 5%)") {
-		t.Errorf("ben's alert: %s", got[1].Text)
+	if !strings.Contains(got[1].Text, "Par 7,7% zem jūsu atsauces cenas €1,299 (jūs prasījāt 5%)") || got[1].Lang != "lv" || got[0].Lang != "en" {
+		t.Errorf("ben's alert, in Latvian: %s (lang %q)", got[1].Text, got[1].Lang)
 	}
 	if got[0].Key == "" || got[0].Key == got[1].Key {
 		t.Errorf("keys: %q %q", got[0].Key, got[1].Key)
@@ -173,7 +184,8 @@ func TestWatchLifecycle(t *testing.T) {
 	check(1, fmt.Errorf("fetch: %w", sources.ErrBlocked))
 	got = relay()
 	if len(got) != 2 || !strings.Contains(got[0].Text, "the site refuses the request") ||
-		!strings.Contains(got[0].Text, "https://ads.example/watches/") || !strings.Contains(got[0].Text, "last price €1,180") {
+		!strings.Contains(got[0].Text, "https://ads.example/watches/") || !strings.Contains(got[0].Text, "last price €1,180") ||
+		!strings.Contains(got[1].Text, "vietne atsaka pieprasījumu") {
 		t.Fatalf("failing alerts: %+v", got)
 	}
 	check(1, fmt.Errorf("fetch: %w", sources.ErrBlocked))
@@ -188,7 +200,7 @@ func TestWatchLifecycle(t *testing.T) {
 	// It reads again: recovered, at the same price, so no new drop alert.
 	check(1, int64(118000))
 	got = relay()
-	if len(got) != 2 || !strings.Contains(got[0].Text, "works again") {
+	if len(got) != 2 || !strings.Contains(got[0].Text, "works again") || !strings.Contains(got[1].Text, "atkal izdodas") {
 		t.Fatalf("recovery: %+v", got)
 	}
 

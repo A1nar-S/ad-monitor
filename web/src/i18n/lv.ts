@@ -54,6 +54,10 @@ const lv: Messages = {
     auto: 'Auto',
     autoHint: 'Atbilst sistēmas iestatījumam.',
     language: 'Valoda',
+    alertLanguage: 'Paziņojumu valoda',
+    alertLanguageHint:
+      'Paziņojumiem, ko saņemat čatos. To var mainīt arī botā: /language.',
+    alertSaveFailed: 'Neizdevās nomainīt paziņojumu valodu. Mēģiniet vēlreiz.',
   },
 
   signIn: {

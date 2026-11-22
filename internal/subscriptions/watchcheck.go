@@ -197,7 +197,7 @@ func (s *Service) recordReading(ctx context.Context, id int64, reading sources.R
 		}
 		if t.Failing {
 			for _, w := range watches {
-				text := fmt.Sprintf("✅ **%s**: reading the price works again: **%s**.\n%s", w.Name, reading.Price, t.Url)
+				text := fmt.Sprintf(watchPhrases(w.AlertLang).recovered, w.Name, reading.Price, t.Url)
 				if err := insertAlert(ctx, q, w, AlertRecovered, &cents, text, &raised); err != nil {
 					return err
 				}
@@ -231,14 +231,13 @@ func (s *Service) recordFailure(ctx context.Context, q *subscriptionsdb.Queries,
 	if err != nil || t.Failing || !failing {
 		return err
 	}
-	last := "no valid price yet"
-	if t.PriceCents != nil {
-		last = fmt.Sprintf("last price %s on %s", sources.FormatCents(*t.PriceCents, t.Currency), t.OkAt.Time.UTC().Format("2 Jan 15:04 MST"))
-	}
 	for _, w := range watches {
-		text := fmt.Sprintf("⚠️ **%s**: can't read the price any more: %s (%d tries). Its %s.\n"+
-			"Alerts resume by themselves when the page reads again. If the page changed, pick the price again: %s",
-			w.Name, failureReason(readErr), failures, last, s.dashboardLink(w.ID))
+		p := watchPhrases(w.AlertLang)
+		last := p.noPrice
+		if t.PriceCents != nil {
+			last = fmt.Sprintf(p.lastPrice, sources.FormatCents(*t.PriceCents, t.Currency), t.OkAt.Time.UTC().Format(p.when))
+		}
+		text := fmt.Sprintf(p.failing, w.Name, p.reason(readErr), failures, last, s.dashboardLink(w.ID, p))
 		if err := insertAlert(ctx, q, w, AlertFailing, nil, text, raised); err != nil {
 			return err
 		}
@@ -246,49 +245,36 @@ func (s *Service) recordFailure(ctx context.Context, q *subscriptionsdb.Queries,
 	return nil
 }
 
-// dropText is the message of a price alert.
+// dropText is the message of a price alert, in the watcher's language.
 func (s *Service) dropText(w subscriptionsdb.ListTargetWatchesRow, rule WatchRule, t subscriptionsdb.LockWatchTargetRow, now sources.Price) string {
+	p := watchPhrases(w.AlertLang)
 	var b strings.Builder
-	fmt.Fprintf(&b, "📉 **%s**: now **%s**", w.Name, now)
+	fmt.Fprintf(&b, p.now, w.Name, now)
 	if t.PriceCents != nil && *t.PriceCents != now.Cents {
-		fmt.Fprintf(&b, " (was %s)", sources.FormatCents(*t.PriceCents, now.Currency))
+		fmt.Fprintf(&b, p.was, sources.FormatCents(*t.PriceCents, now.Currency))
 	}
 	b.WriteString("\n")
 	if rule.Kind == RuleBelow {
-		fmt.Fprintf(&b, "At or below your target of %s.", sources.FormatCents(*rule.TargetCents, now.Currency))
+		fmt.Fprintf(&b, p.atTarget, sources.FormatCents(*rule.TargetCents, now.Currency))
 	} else {
 		off := float64(w.ReferenceCents-now.Cents) * 100 / float64(w.ReferenceCents)
-		fmt.Fprintf(&b, "%s%% below your reference price of %s (you asked for %s%%).",
-			strconv.FormatFloat(off, 'f', 1, 64), sources.FormatCents(w.ReferenceCents, now.Currency),
-			strconv.FormatFloat(*rule.DropPercent, 'f', -1, 64))
+		fmt.Fprintf(&b, p.belowReference, p.decimal(strconv.FormatFloat(off, 'f', 1, 64)), sources.FormatCents(w.ReferenceCents, now.Currency),
+			p.decimal(strconv.FormatFloat(*rule.DropPercent, 'f', -1, 64)))
 	}
 	b.WriteString("\n" + t.Url)
 	return b.String()
 }
 
-func (s *Service) dashboardLink(watchID int64) string {
+func (s *Service) dashboardLink(watchID int64, p *watchWords) string {
 	if s.publicURL == "" {
-		return "the dashboard"
+		return p.dashboard
 	}
 	return fmt.Sprintf("%s/watches/%d", s.publicURL, watchID)
 }
 
-// failureReason says in a few words why a page could not be read.
-func failureReason(err error) string {
-	switch {
-	case errors.Is(err, sources.ErrPageGone):
-		return "the page is gone"
-	case errors.Is(err, sources.ErrBlocked):
-		return "the site refuses the request"
-	case errors.Is(err, sources.ErrNoPrice):
-		return "the price is not where it was (" + clipText(err.Error(), 120) + ")"
-	}
-	return "the site can't be reached"
-}
-
 func insertAlert(ctx context.Context, q *subscriptionsdb.Queries, w subscriptionsdb.ListTargetWatchesRow, kind string, cents *int64, text string, raised *[]string) error {
 	payload, err := json.Marshal(events.NotificationRequested{
-		UserID: w.UserID, Channel: events.Channel{Kind: w.ChannelKind, Target: w.ChannelTarget}, Text: text,
+		UserID: w.UserID, Channel: events.Channel{Kind: w.ChannelKind, Target: w.ChannelTarget}, Text: text, Lang: alertLangOr(w.AlertLang),
 	})
 	if err != nil {
 		return err

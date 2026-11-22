@@ -13,6 +13,10 @@ export type Me = {
   watchIntervals: number[]
   // The gem finder is on (everyone browses; admins scan).
   gems: boolean
+  // The language the user's alerts are written in (Latvian until chosen);
+  // alertLangs are the ones there are, the default first.
+  alertLang: string
+  alertLangs: string[]
 }
 
 // A full scan of every listing of a category for sale, rated: the gem finder. Pass 1
@@ -304,6 +308,8 @@ async function call<T>(
 
 export const api = {
   me: () => call<Me>('GET', '/api/me'),
+  setAlertLang: (lang: string) =>
+    call<{ alertLang: string }>('PUT', '/api/me/alert-lang', { lang }),
   logout: () => call<void>('POST', '/api/logout'),
   sources: () => call<Source[]>('GET', '/api/sources'),
   channels: () => call<Channel[]>('GET', '/api/channels'),
