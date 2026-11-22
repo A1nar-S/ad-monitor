@@ -198,20 +198,52 @@ func (v Verdict) String() string {
 	return [...]string{"🚩 Suspiciously cheap", "🔥 Steal", "👍 Good price", "😐 Fair", "👎 Pricey", "💩 Overpriced"}[v]
 }
 
-func verdictFor(diff float64) Verdict {
+// The price is judged in euros against a tolerance that grows slower than
+// the price: what a gap means depends on what the car costs. 300 € over a
+// 1 500 € car is a haggle; 5 000 € over a 20 000 € one is a lot.
+//
+//	tol = max(0.12 × median, 0.2 × √(15 000 × median))
+//	z   = (median − price) / tol    (+ = cheaper than similar ads)
+//
+// tol is 20% of a 15 000 € median, 63% of 1 500 €, 16% of 22 500 € and
+// never below 12%.
+const (
+	tolRef   = 15000.0
+	tolShare = 0.20
+	tolFloor = 0.12
+)
+
+// tolerance is how far from median a price may be before it counts fully.
+func tolerance(median float64) float64 {
+	return max(tolFloor*median, tolShare*math.Sqrt(tolRef*median))
+}
+
+// verdictFor names a price diff (relative) and z (in tolerances). Far
+// below the median is Suspicious only when the gap is large in euros too: a
+// 1 500 € car at 900 € is a cheap car, not a scam.
+func verdictFor(diff, z float64) Verdict {
 	switch {
-	case diff <= -0.40:
+	case diff <= -0.40 && z >= 1:
 		return Suspicious
-	case diff <= -0.15:
+	case z >= 0.75:
 		return Steal
-	case diff <= -0.05:
+	case z >= 0.25:
 		return Good
-	case diff < 0.08:
+	case z > -0.4:
 		return Fair
-	case diff < 0.20:
+	case z > -1:
 		return Pricey
 	}
 	return Overpriced
+}
+
+// priceVs rates price against the median of similar ads.
+func priceVs(median, price float64) PriceRating {
+	r := PriceRating{Median: median, Tol: tolerance(median)}
+	r.Diff = price/median - 1
+	r.Z = (median - price) / r.Tol
+	r.Verdict = verdictFor(r.Diff, r.Z)
+	return r
 }
 
 // PriceRating compares a car's price with the median of its most similar
@@ -220,7 +252,9 @@ type PriceRating struct {
 	Verdict  Verdict
 	Diff     float64 // price/Median - 1: -0.14 is 14% below
 	Median   float64
-	Peers    int // how many ads the median is over
+	Tol      float64 // tolerance(Median)
+	Z        float64 // (Median - price) / Tol: +1 is a full tolerance below
+	Peers    int     // how many ads the median is over
 	YearMin  int
 	YearMax  int
 	KmMin    float64 // both 0 when no compared ad has a mileage
@@ -258,10 +292,13 @@ func RatePrice(c Car, peers []Peer) (PriceRating, bool) {
 	slices.SortStableFunc(near, func(a, b scored) int { return cmp.Compare(a.dist, b.dist) })
 	near = near[:min(nearest, len(near))]
 
-	r := PriceRating{Peers: len(near), YearMin: near[0].Year, YearMax: near[0].Year, Detailed: c.MileageKm > 0}
 	prices := make([]float64, len(near))
 	for i, p := range near {
 		prices[i] = p.Price
+	}
+	r := priceVs(median(prices), c.Price)
+	r.Peers, r.YearMin, r.YearMax, r.Detailed = len(near), near[0].Year, near[0].Year, c.MileageKm > 0
+	for _, p := range near {
 		r.YearMin, r.YearMax = min(r.YearMin, p.Year), max(r.YearMax, p.Year)
 		if p.MileageKm > 0 {
 			if r.KmMin == 0 || p.MileageKm < r.KmMin {
@@ -270,9 +307,6 @@ func RatePrice(c Car, peers []Peer) (PriceRating, bool) {
 			r.KmMax = max(r.KmMax, p.MileageKm)
 		}
 	}
-	r.Median = median(prices)
-	r.Diff = c.Price/r.Median - 1
-	r.Verdict = verdictFor(r.Diff)
 	return r, true
 }
 
@@ -286,17 +320,22 @@ func median(xs []float64) float64 {
 	return (s[n/2-1] + s[n/2]) / 2
 }
 
-// Text is the price line of an alert, e.g. "🔥 Steal: 14% below the median
-// of 12 similar ads (10 350 €; 2015–2018, 140–230k km)".
+// Gap is how far the price is from the median, e.g. "1 450 € (14%)".
+func (r PriceRating) Gap() string {
+	return fmt.Sprintf("%s (%d%%)", Euros(math.Abs(r.Diff*r.Median)), int(math.Round(math.Abs(r.Diff)*100)))
+}
+
+// Text is the price line of an alert, e.g. "🔥 Steal: 1 450 € (14%) below
+// the median of 12 similar ads (10 350 €; 2015–2018, 140–230k km)".
 func (r PriceRating) Text() string {
 	var pos string
-	switch pct := int(math.Round(math.Abs(r.Diff) * 100)); {
-	case pct < 2:
+	switch {
+	case math.Abs(r.Diff) < 0.02:
 		pos = "about the median"
 	case r.Diff < 0:
-		pos = fmt.Sprintf("%d%% below the median", pct)
+		pos = r.Gap() + " below the median"
 	default:
-		pos = fmt.Sprintf("%d%% above the median", pct)
+		pos = r.Gap() + " above the median"
 	}
 	years := strconv.Itoa(r.YearMin)
 	if r.YearMax != r.YearMin {

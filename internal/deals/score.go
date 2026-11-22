@@ -8,7 +8,7 @@ import (
 // The score is a weighted sum: each thing known about a car gives x from
 // −1 to +1 (unknown = 0) and S = Σ weight × x.
 //
-//	price      3    clamp(−diff / 0.20, −1, 1): 20% below similar ads is +1
+//	price      3    clamp(z, −1, 1): a tolerance below similar ads is +1 (deals.go)
 //	mileage    2    RateMileage: against what is usual for its age
 //	inspection 2    RateInspection: none −1, runs out within 3 months −0.25, valid 0
 //	engine     2    good +1, ok 0, depends −0.25, risky −1 × wear
@@ -28,8 +28,7 @@ const (
 	weightGearbox   = 1.5
 	weightEquipment = 1.5
 
-	priceFull = 0.20 // a price this far from similar ads counts fully
-	wearKm    = 200000.0
+	wearKm = 200000.0
 
 	goodScore = 4.0
 	badScore  = -2.0
@@ -52,17 +51,16 @@ func (r Ratings) Components() []Component {
 		cs = append(cs, Component{Key: key, X: x, Weight: w, Points: w * x, Why: why})
 	}
 	if p := r.Price; p != nil {
-		pct := int(math.Round(math.Abs(p.Diff) * 100))
 		why := "priced like similar ads"
 		switch {
 		case p.Verdict == Suspicious:
-			why = fmt.Sprintf("%d%% below similar ads, which usually means damage, a scam or a typo", pct)
-		case p.Diff <= -0.05:
-			why = fmt.Sprintf("%d%% below similar ads", pct)
-		case p.Diff >= 0.08:
-			why = fmt.Sprintf("%d%% above similar ads", pct)
+			why = p.Gap() + " below similar ads, which usually means damage, a scam or a typo"
+		case p.Verdict <= Good:
+			why = p.Gap() + " below similar ads"
+		case p.Verdict >= Pricey:
+			why = p.Gap() + " above similar ads"
 		}
-		add("price", weightPrice, clamp(-p.Diff/priceFull, -1, 1), why)
+		add("price", weightPrice, clamp(p.Z, -1, 1), why)
 	}
 	if m := r.Mileage; m != nil {
 		why := ""
@@ -151,16 +149,20 @@ func Display(score float64) int {
 	if math.IsInf(score, -1) {
 		return 0
 	}
-	return int(clamp(math.Round(50+5*score), 0, 100))
+	return int(clamp(math.Round(50+DisplayPoints(score)), 0, 100))
 }
 
+// DisplayPoints is what points of the score (a component's or the sum)
+// are worth on Display's scale.
+func DisplayPoints(points float64) float64 { return 5 * points }
+
 // Candidate reports whether a car rated from its list page alone looks
-// worth reading its ad page for: a price known and not above similar ads
+// worth reading its ad page for: a price known and no worse than Fair
 // (nor too low to trust), no risky engine, and a mileage not far beyond its
 // age. The ad page then adds the gearbox and equipment.
 func Candidate(r Ratings) bool {
 	switch {
-	case r.Price == nil || r.Price.Verdict == Suspicious || r.Price.Diff >= 0.08:
+	case r.Price == nil || r.Price.Verdict == Suspicious || r.Price.Verdict >= Pricey:
 		return false
 	case r.Engine != nil && r.Engine.Rating == RatingRisky:
 		return false

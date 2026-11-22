@@ -53,7 +53,7 @@ func peersAt(prices ...float64) []Peer {
 }
 
 func TestRatePrice(t *testing.T) {
-	car := Car{Year: 2016, MileageKm: 189000, Price: 8500}
+	car := Car{Year: 2016, MileageKm: 189000, Price: 7500}
 
 	r, ok := RatePrice(car, peersAt(10000, 10200, 10000, 9800, 10500))
 	if !ok {
@@ -62,7 +62,7 @@ func TestRatePrice(t *testing.T) {
 	if r.Median != 10000 || r.Peers != 5 || r.Verdict != Steal {
 		t.Errorf("rating = %+v, want median 10000 over 5, a steal", r)
 	}
-	if want := "🔥 Steal: 15% below the median of 5 similar ads (10 000 €; 2016, 180k km)"; r.Text() != want {
+	if want := "🔥 Steal: 2 500 € (25%) below the median of 5 similar ads (10 000 €; 2016, 180k km)"; r.Text() != want {
 		t.Errorf("text = %q\nwant   %q", r.Text(), want)
 	}
 
@@ -109,17 +109,33 @@ func TestRatePriceWithoutMileage(t *testing.T) {
 	}
 }
 
-func TestVerdictFor(t *testing.T) {
+func TestTolerance(t *testing.T) {
+	for median, want := range map[float64]float64{1500: 949, 15000: 3000, 22500: 3674, 50000: 6000} {
+		if got := tolerance(median); math.Abs(got-want) > 1 {
+			t.Errorf("tolerance(%v) = %.0f, want %.0f", median, got, want)
+		}
+	}
+}
+
+// The same share of the price means less on a cheap car than on a dear one.
+func TestPriceVs(t *testing.T) {
 	tests := []struct {
-		diff float64
-		want Verdict
+		median, price float64
+		want          Verdict
 	}{
-		{-0.50, Suspicious}, {-0.40, Suspicious}, {-0.30, Steal}, {-0.15, Steal}, {-0.10, Good},
-		{-0.05, Good}, {0, Fair}, {0.07, Fair}, {0.08, Pricey}, {0.19, Pricey}, {0.20, Overpriced},
+		// At 15 000 € the tolerance is 20%: −40 / −15 / −5 / +8 / +20%.
+		{15000, 9000, Suspicious}, {15000, 12750, Steal}, {15000, 14250, Good}, {15000, 15000, Fair},
+		{15000, 16050, Fair}, {15000, 16200, Pricey}, {15000, 17850, Pricey}, {15000, 18000, Overpriced},
+		// 300–500 € over a 1 500 € car is a haggle, not a rip-off.
+		{1500, 1800, Fair}, {1500, 2000, Pricey}, {1500, 3000, Overpriced},
+		// 600 € under it is a cheap car, not a scam; 1 000 € under is odd.
+		{1500, 900, Good}, {1500, 500, Suspicious},
+		// 2 500 € on a 22 500 € car is a lot.
+		{22500, 25000, Pricey}, {22500, 20000, Good},
 	}
 	for _, tt := range tests {
-		if got := verdictFor(tt.diff); got != tt.want {
-			t.Errorf("verdictFor(%v) = %v, want %v", tt.diff, got, tt.want)
+		if got := priceVs(tt.median, tt.price); got.Verdict != tt.want {
+			t.Errorf("%v against %v = %v (z %.2f), want %v", tt.price, tt.median, got.Verdict, got.Z, tt.want)
 		}
 	}
 }
@@ -417,21 +433,21 @@ func TestTrimsHaveNoOverlaps(t *testing.T) {
 func TestOverall(t *testing.T) {
 	risky := &Note{Name: "2.0d N47", Rating: RatingRisky}
 	good := &Note{Name: "2.0d B47", Rating: RatingGood}
-	price := func(v Verdict, diff float64) *PriceRating { return &PriceRating{Verdict: v, Diff: diff} }
+	price := func(p float64) *PriceRating { r := priceVs(10000, p); return &r }
 	tests := []struct {
 		name string
 		r    Ratings
 		want Buy
 		why  string
 	}{
-		{"pricey with a risky engine", Ratings{Price: price(Pricey, 0.12), Engine: risky}, BadBuy, "12% above similar ads, risky engine (2.0d N47)"},
-		{"a steal cancels a risky engine", Ratings{Price: price(Steal, -0.2), Engine: risky}, AverageBuy, "20% below similar ads, risky engine (2.0d N47)"},
-		{"fair, durable, well equipped", Ratings{Price: price(Fair, 0), Engine: good, Gearbox: good, Equipment: &EquipmentRating{Level: WellEquipped}}, GoodBuy,
+		{"pricey with a risky engine", Ratings{Price: price(11200), Engine: risky}, BadBuy, "1 200 € (12%) above similar ads, risky engine (2.0d N47)"},
+		{"a steal cancels a risky engine", Ratings{Price: price(8000), Engine: risky}, AverageBuy, "2 000 € (20%) below similar ads, risky engine (2.0d N47)"},
+		{"fair, durable, well equipped", Ratings{Price: price(10000), Engine: good, Gearbox: good, Equipment: &EquipmentRating{Level: WellEquipped}}, GoodBuy,
 			"priced like similar ads, durable engine (2.0d B47), durable gearbox (2.0d B47), well equipped"},
-		{"fair and durable is not yet good", Ratings{Price: price(Fair, 0), Engine: good, Gearbox: good}, AverageBuy,
+		{"fair and durable is not yet good", Ratings{Price: price(10000), Engine: good, Gearbox: good}, AverageBuy,
 			"priced like similar ads, durable engine (2.0d B47), durable gearbox (2.0d B47)"},
 		{"no price: engine and equipment", Ratings{Engine: risky, Equipment: &EquipmentRating{Level: Basic}}, BadBuy, "risky engine (2.0d N47), basic equipment"},
-		{"suspicious price overrides", Ratings{Price: price(Suspicious, -0.5), Engine: good}, CheckFirst, "50% below similar ads, which usually means damage, a scam or a typo"},
+		{"suspicious price overrides", Ratings{Price: price(5000), Engine: good}, CheckFirst, "5 000 € (50%) below similar ads, which usually means damage, a scam or a typo"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -447,7 +463,7 @@ func TestOverall(t *testing.T) {
 }
 
 func TestFields(t *testing.T) {
-	car := Car{Make: "BMW", Model: "520", Fuel: Diesel, EngineL: 2.0, Year: 2016, MileageKm: 180000, Price: 9500, Gearbox: Automatic}
+	car := Car{Make: "BMW", Model: "520", Fuel: Diesel, EngineL: 2.0, Year: 2016, MileageKm: 180000, Price: 9000, Gearbox: Automatic}
 	fs := Fields(car, peersAt(1e4, 1e4, 1e4, 1e4, 1e4))
 	var names []string
 	for _, f := range fs {
@@ -456,7 +472,7 @@ func TestFields(t *testing.T) {
 	if got := strings.Join(names, ", "); got != "⭐ Overall, 🏷️ Price verdict, 📏 Mileage verdict, 🔧 Engine verdict, 🕹️ Gearbox verdict" {
 		t.Errorf("fields = %s", got)
 	}
-	want := "✅ Potentially a good buy: 5% below similar ads, durable engine (2.0d B47), durable gearbox (ZF 6- or 8-speed automatic). Still have it inspected before paying."
+	want := "✅ Potentially a good buy: 1 000 € (10%) below similar ads, durable engine (2.0d B47), durable gearbox (ZF 6- or 8-speed automatic). Still have it inspected before paying."
 	if fs[0].Value != want {
 		t.Errorf("overall = %q\nwant      %q", fs[0].Value, want)
 	}
@@ -473,12 +489,13 @@ func TestFields(t *testing.T) {
 
 func TestScore(t *testing.T) {
 	good := &Note{Name: "x", Rating: RatingGood}
-	steal := Ratings{Price: &PriceRating{Verdict: Steal, Diff: -0.25}, Engine: good}
-	fair := Ratings{Price: &PriceRating{Verdict: Fair, Diff: 0.02}, Engine: good}
+	at := func(p float64) *PriceRating { r := priceVs(10000, p); return &r }
+	steal := Ratings{Price: at(7500), Engine: good}
+	fair := Ratings{Price: at(10200), Engine: good}
 	if steal.Score() <= fair.Score() {
 		t.Errorf("steal %v ranks below fair %v", steal.Score(), fair.Score())
 	}
-	odd := Ratings{Price: &PriceRating{Verdict: Suspicious, Diff: -0.6}, Engine: good}
+	odd := Ratings{Price: at(4000), Engine: good}
 	if !math.IsInf(odd.Score(), -1) || !math.IsInf((Ratings{Engine: good}).Score(), -1) {
 		t.Error("suspicious or barely known cars should rank last")
 	}

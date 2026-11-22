@@ -117,7 +117,8 @@ dashboard api ─┴─> subscriptions (users, channels, searches, logins) <─�
   Scanned-only rows have `seen_by_feed = false`, so alerts behave as if no scan ran.
 - **Car verdicts** (`internal/deals`): overall, price vs similar stored ads, mileage for its age, engine/gearbox
   reputation and trim level (`deals/codebook/*.json`). The score is a weighted sum of parts x ∈ [−1, 1] (`score.go`):
-  price 3 (`−diff/0.20`), mileage 2 (`mileage.go`: km vs 18 000/year, −log₂ ratio, weighted `10/(age+5)` so the same
+  price 3 (z = gap in euros / `max(0.12·m, 0.2·√(15000·m))`, m the peers' median: 20% at 15 000 €,
+  63% at 1 500 €, so a cheap car's few hundred euros don't sink it), mileage 2 (`mileage.go`: km vs 18 000/year, −log₂ ratio, weighted `10/(age+5)` so the same
   km costs a new car more), technical inspection 2 (ad page: none or expired −1, < 3 months left −0.25, valid 0),
   engine 2 (risky × wear `km/200k`), gearbox 1.5, equipment 1.5. Good ≥ 4, bad ≤ −2,
   shown as `50 + 5·S` (0–100). Alerts and the gem finder share it. English only; sources translate via

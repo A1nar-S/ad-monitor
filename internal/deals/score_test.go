@@ -61,14 +61,14 @@ func TestComponents(t *testing.T) {
 	good := &Note{Name: "B47", Rating: RatingGood}
 	risky := &Note{Name: "N47", Rating: RatingRisky}
 	r := Ratings{
-		Price:     &PriceRating{Verdict: Steal, Diff: -0.1},
+		Price:     &PriceRating{Verdict: Good, Diff: -0.1, Z: 0.5},
 		Mileage:   &MileageRating{Km: 300000, X: -0.5},
 		Engine:    risky,
 		Gearbox:   good,
 		Equipment: &EquipmentRating{Level: Average, Better: 6, Of: 8},
 	}
 	want := map[string]float64{
-		"price":     3 * 0.5,   // 10% below: half of the full 20%
+		"price":     3 * 0.5,   // half a tolerance below
 		"mileage":   2 * -0.5,  //
 		"engine":    2 * -1.5,  // risky, worn: 300k km is past 1.5 × 200k
 		"gearbox":   1.5 * 1,   //
@@ -94,6 +94,8 @@ func TestDisplay(t *testing.T) {
 	}
 }
 
+func priced(median, price float64) *PriceRating { r := priceVs(median, price); return &r }
+
 func TestCandidate(t *testing.T) {
 	fair := &PriceRating{Verdict: Fair, Diff: 0.03}
 	tests := []struct {
@@ -105,6 +107,8 @@ func TestCandidate(t *testing.T) {
 		{"no price", Ratings{Engine: &Note{Rating: RatingGood}}, false},
 		{"pricey", Ratings{Price: &PriceRating{Verdict: Pricey, Diff: 0.1}}, false},
 		{"too cheap to trust", Ratings{Price: &PriceRating{Verdict: Suspicious, Diff: -0.5}}, false},
+		{"300 € over a 1 500 € car", Ratings{Price: priced(1500, 1800)}, true},
+		{"2 500 € over a 22 500 € car", Ratings{Price: priced(22500, 25000)}, false},
 		{"risky engine", Ratings{Price: fair, Engine: &Note{Rating: RatingRisky}}, false},
 		{"far too many km", Ratings{Price: fair, Mileage: &MileageRating{X: -0.8}}, false},
 		{"a few too many km", Ratings{Price: fair, Mileage: &MileageRating{X: -0.3}}, true},
