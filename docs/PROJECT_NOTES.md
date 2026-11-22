@@ -128,7 +128,7 @@ dashboard api ─┴─> subscriptions (users, channels, searches, logins) <─�
   63% at 1 500 €, so a cheap car's few hundred euros don't sink it), mileage 2 (`mileage.go`: km vs 18 000/year, −log₂ ratio, weighted `10/(age+5)` so the same
   km costs a new car more), technical inspection 2 (ad page: none or expired −1, < 3 months left −0.25, valid 0),
   engine 2 (risky × wear `km/200k`), gearbox 1.5, model reliability 1.5, equipment 1.5. Good ≥ 4, bad ≤ −2,
-  shown as `50 + 5·S` (0–100). Alerts and the gem finder share it. Texts come in `deals.Langs` (`lang.go`:
+  shown as `50 + 50·tanh(S/10)` (0–100). Alerts and the gem finder share it. Texts come in `deals.Langs` (`lang.go`:
   English, the alerts'; Latvian for the gem finder, stored per gem in `gems.translations` and picked by `?lang=`;
   codebook entries need `notes_lv`). No emojis: the gem finder gets each verdict in parts (`deals.LinesIn`:
   tone, label, subject, text, has/lacks lists) and draws its own icons and colours. The vocabulary is English; sources translate via

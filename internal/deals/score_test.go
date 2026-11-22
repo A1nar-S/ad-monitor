@@ -89,10 +89,33 @@ func TestComponents(t *testing.T) {
 }
 
 func TestDisplay(t *testing.T) {
-	for score, want := range map[float64]int{0: 50, 4: 70, -2: 40, 20: 100, -20: 0, math.Inf(-1): 0} {
+	for score, want := range map[float64]int{0: 50, 1: 55, 4: 69, -2: 40, 11.5: 91, -14.5: 5, 20: 98, -20: 2, math.Inf(-1): 0} {
 		if got := Display(score); got != want {
 			t.Errorf("Display(%v) = %d, want %d", score, got, want)
 		}
+	}
+	if Display(30) <= Display(20) {
+		t.Error("a better car must show higher, not be cut off at 100")
+	}
+}
+
+// The parts on Display's scale add up to how far the total is from 50.
+func TestDisplayPointsAddUp(t *testing.T) {
+	for _, parts := range [][]float64{{3, 2, 2, 1.5, 1.5, 1.5}, {3, -2, 1.5}, {-3, -2, -2, -1.5}, {1, -1}} {
+		var score float64
+		for _, p := range parts {
+			score += p
+		}
+		var sum float64
+		for _, p := range parts {
+			sum += DisplayPoints(p, score)
+		}
+		if want := 50 * math.Tanh(score/displaySpread); !near(sum, want) {
+			t.Errorf("%v: parts add up to %.3f, want %.3f", parts, sum, want)
+		}
+	}
+	if got := DisplayPoints(3, 0); got != 15 {
+		t.Errorf("price +1 in a car scoring 0 = %v, want 15", got)
 	}
 }
 

@@ -161,17 +161,30 @@ func (r Ratings) judge(l Lang) (float64, []string, bool) {
 }
 
 // Display is the score on a 0–100 scale for people: 50 is a car with
-// nothing for or against it.
+// nothing for or against it. It bends towards the ends instead of being cut
+// off, so better cars always show higher: 50 + 50·tanh(S/displaySpread),
+// 5 a point near the middle. Only a car too suspicious to rate is 0.
 func Display(score float64) int {
-	if math.IsInf(score, -1) {
+	if math.IsInf(score, -1) || math.IsNaN(score) {
 		return 0
 	}
-	return int(clamp(math.Round(50+DisplayPoints(score)), 0, 100))
+	return int(math.Round(50 + shown(score)))
 }
 
-// DisplayPoints is what points of the score (a component's or the sum)
-// are worth on Display's scale.
-func DisplayPoints(points float64) float64 { return 5 * points }
+const displaySpread = 10.0
+
+// shown is how far from 50 Display puts score.
+func shown(score float64) float64 { return 50 * math.Tanh(score/displaySpread) }
+
+// DisplayPoints is what a component's points are worth on Display's scale
+// in a car whose total is score: its share of how far the total is from 50,
+// so the parts add up to the total shown.
+func DisplayPoints(points, score float64) float64 {
+	if score == 0 || math.IsInf(score, 0) || math.IsNaN(score) {
+		return 50 / displaySpread * points
+	}
+	return points * shown(score) / score
+}
 
 // Candidate reports whether a car rated from its list page alone looks
 // worth reading its ad page for: a price known and no worse than Fair

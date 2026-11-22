@@ -144,7 +144,7 @@ func (r *rater) Rate(i int) (gems.Rated, bool) {
 	}
 	for _, p := range ratings.Components() {
 		x.Components = append(x.Components, gems.Component{
-			Key: p.Key, X: p.X, Weight: p.Weight, Points: p.Points, Score: deals.DisplayPoints(p.Points), Why: p.Why,
+			Key: p.Key, X: p.X, Weight: p.Weight, Points: p.Points, Score: deals.DisplayPoints(p.Points, score), Why: p.Why,
 		})
 	}
 	if ratings.Price != nil {

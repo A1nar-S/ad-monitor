@@ -83,9 +83,9 @@ const specs = computed(() =>
 )
 
 // The breakdown in score points: from the neutral 50, what each part adds
-// or takes, rounded so the parts add up to the score shown (unless the score
-// hit 0 or 100). Bars share one scale: the largest part there can be,
-// price's 15 points.
+// or takes (the backend's share of the total), rounded so the parts add up to
+// the score shown (gems rated before shares existed may not). Bars share one
+// scale: the largest part there can be, price's 15 points.
 const neutral = 50
 const maxPart = 15
 const parts = computed(() => {
