@@ -39,9 +39,9 @@ var (
 )
 
 // handleObserved runs handle for one record with retries, timing every attempt.
-func handleObserved[T any](ctx context.Context, topic string, delay time.Duration, v T, handle func(context.Context, T) error) error {
+func handleObserved[T any](ctx context.Context, topic string, sub Subscription, v T, handle func(context.Context, T) error) error {
 	attempts := 0
-	return retry(ctx, delay, func() error {
+	return retry(ctx, sub, func() error {
 		if attempts++; attempts > 1 {
 			handleRetries.WithLabelValues(topic).Inc()
 		}

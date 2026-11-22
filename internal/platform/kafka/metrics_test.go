@@ -25,7 +25,7 @@ func TestHandleObservedCountsRetries(t *testing.T) {
 	before := testutil.ToFloat64(retries)
 
 	calls := 0
-	err := handleObserved(context.Background(), topic, time.Millisecond, 1, func(context.Context, int) error {
+	err := handleObserved(context.Background(), topic, Subscription{RetryDelay: time.Millisecond}, 1, func(context.Context, int) error {
 		if calls++; calls == 1 {
 			return errors.New("transient") // retried after retryDelay
 		}
