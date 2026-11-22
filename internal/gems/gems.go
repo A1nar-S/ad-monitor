@@ -208,8 +208,10 @@ type Page struct {
 	Total    int   `json:"total"`
 	Page     int   `json:"page"`
 	PageSize int   `json:"pageSize"`
-	// Facets: each choice field's key → the values the gems have.
+	// Facets: each choice field's key → the values the gems the other
+	// filters let through have; Buys the same for the verdicts.
 	Facets map[string][]Facet `json:"facets"`
+	Buys   []Facet            `json:"buys"`
 	// Detailed of All gems had their ad page read: only those have the
 	// Detail fields to filter on.
 	Detailed int `json:"detailed"`
@@ -283,7 +285,17 @@ func (s *Service) List(ctx context.Context, source, category string, q Query) (P
 	if err != nil {
 		return Page{}, err
 	}
-	facets, err := s.facets(ctx, source, category, spec)
+	facets, err := s.facets(ctx, spec, gemsdb.GemFacetsParams{
+		Source: source, Category: category, Buy: q.Buy, MinPrice: q.MinPrice, MaxPrice: q.MaxPrice,
+		DetailedOnly: q.DetailedOnly, Choices: cj, Ranges: rj,
+	})
+	if err != nil {
+		return Page{}, err
+	}
+	buyRows, err := s.q.GemBuyCounts(ctx, gemsdb.GemBuyCountsParams{
+		Source: source, Category: category, MinPrice: q.MinPrice, MaxPrice: q.MaxPrice,
+		DetailedOnly: q.DetailedOnly, Choices: cj, Ranges: rj,
+	})
 	if err != nil {
 		return Page{}, err
 	}
@@ -292,7 +304,10 @@ func (s *Service) List(ctx context.Context, source, category string, q Query) (P
 		return Page{}, err
 	}
 	p := Page{Items: make([]Gem, 0, len(rows)), Total: int(total), Page: q.Page, PageSize: PageSize, Facets: facets,
-		Detailed: int(counts.Detailed), All: int(counts.Total)}
+		Buys: make([]Facet, 0, len(buyRows)), Detailed: int(counts.Detailed), All: int(counts.Total)}
+	for _, r := range buyRows {
+		p.Buys = append(p.Buys, Facet{Value: r.Buy, Count: int(r.N)})
+	}
 	for _, r := range rows {
 		g := Gem{
 			ExternalID: r.ExternalID, Heading: r.Heading, Title: r.Title, URL: r.Url, ImageURL: r.ImageUrl,
@@ -308,17 +323,34 @@ func (s *Service) List(ctx context.Context, source, category string, q Query) (P
 	return p, nil
 }
 
-func (s *Service) facets(ctx context.Context, source, category string, spec Spec) (map[string][]Facet, error) {
-	keys := map[string]string{}
+// facetKey is how GemFacets counts one choice: Parent is the choice it
+// narrows, Skip the choices its counts ignore.
+type facetKey struct {
+	Parent string   `json:"parent"`
+	Skip   []string `json:"skip"`
+}
+
+// facets counts each choice's values among the gems that pass every other
+// filter: a choice ignores itself (so its other values stay offered) and
+// the choices it narrows' children (picking a make again clears the model).
+func (s *Service) facets(ctx context.Context, spec Spec, p gemsdb.GemFacetsParams) (map[string][]Facet, error) {
+	keys := map[string]facetKey{}
 	out := map[string][]Facet{}
 	for _, f := range spec.Fields {
-		if f.Kind == Choice {
-			keys[f.Key] = f.DependsOn
-			out[f.Key] = []Facet{}
+		if f.Kind != Choice {
+			continue
 		}
+		k := facetKey{Parent: f.DependsOn, Skip: []string{f.Key}}
+		for _, child := range spec.Fields {
+			if child.DependsOn == f.Key {
+				k.Skip = append(k.Skip, child.Key)
+			}
+		}
+		keys[f.Key] = k
+		out[f.Key] = []Facet{}
 	}
-	kj, _ := json.Marshal(keys)
-	rows, err := s.q.GemFacets(ctx, gemsdb.GemFacetsParams{Keys: kj, Source: source, Category: category})
+	p.Keys, _ = json.Marshal(keys)
+	rows, err := s.q.GemFacets(ctx, p)
 	if err != nil {
 		return nil, err
 	}

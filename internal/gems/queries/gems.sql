@@ -99,16 +99,48 @@ WHERE source = @source AND category = @category
          OR (r.value->>1)::float8 > 0 AND COALESCE((attrs->>r.key)::float8, 0) NOT BETWEEN 1e-9 AND (r.value->>1)::float8);
 
 -- name: GemFacets :many
--- The values each choice attr takes, with how many gems have each. keys:
--- {"model": "make", "fuel": ""}, each attr with the choice it narrows;
--- parent is that one's value (a model's make), "" if none.
-SELECT f.key::text AS key, (g.attrs->>f.key)::text AS value, COALESCE(g.attrs->>f.value, '')::text AS parent,
-       count(*)::int AS n
+-- The values each choice attr takes among the gems the other filters let
+-- through, with how many have each. keys: {"model": {"parent": "make",
+-- "skip": ["model"]}, …}: each attr, the choice it narrows (parent is that
+-- one's value, a model's make; "" if none) and the choices its own counts
+-- ignore (itself, and those narrowing it). Keep the filters in step with
+-- CountGems.
+SELECT f.key::text AS key, (g.attrs->>f.key)::text AS value,
+       COALESCE(g.attrs->>(f.value->>'parent'), '')::text AS parent, count(*)::int AS n
 FROM gems g
-CROSS JOIN jsonb_each_text(@keys::jsonb) AS f
+CROSS JOIN jsonb_each(@keys::jsonb) AS f
 WHERE g.source = @source AND g.category = @category AND g.attrs->>f.key <> ''
+  AND (@buy::text = '' OR g.buy = @buy::text)
+  AND (@min_price::float8 = 0 OR g.price_value >= @min_price::float8)
+  AND (@max_price::float8 = 0 OR g.price_value <= @max_price::float8)
+  AND (NOT @detailed_only::boolean OR g.detailed)
+  AND NOT EXISTS (
+      SELECT 1 FROM jsonb_each(@choices::jsonb) c
+      WHERE NOT (f.value->'skip') ? c.key AND NOT COALESCE(c.value ? (g.attrs->>c.key), FALSE))
+  AND NOT EXISTS (
+      SELECT 1 FROM jsonb_each(@ranges::jsonb) r
+      WHERE (r.value->>0)::float8 > 0 AND COALESCE((g.attrs->>r.key)::float8, 0) < (r.value->>0)::float8
+         OR (r.value->>1)::float8 > 0 AND COALESCE((g.attrs->>r.key)::float8, 0) NOT BETWEEN 1e-9 AND (r.value->>1)::float8)
 GROUP BY 1, 2, 3
 ORDER BY 1, 2, 3;
+
+-- name: GemBuyCounts :many
+-- How many gems the other filters let through have each verdict. Keep the
+-- filters in step with CountGems.
+SELECT buy, count(*)::int AS n FROM gems
+WHERE source = @source AND category = @category
+  AND (@min_price::float8 = 0 OR price_value >= @min_price::float8)
+  AND (@max_price::float8 = 0 OR price_value <= @max_price::float8)
+  AND (NOT @detailed_only::boolean OR detailed)
+  AND NOT EXISTS (
+      SELECT 1 FROM jsonb_each(@choices::jsonb) c
+      WHERE NOT COALESCE(c.value ? (attrs->>c.key), FALSE))
+  AND NOT EXISTS (
+      SELECT 1 FROM jsonb_each(@ranges::jsonb) r
+      WHERE (r.value->>0)::float8 > 0 AND COALESCE((attrs->>r.key)::float8, 0) < (r.value->>0)::float8
+         OR (r.value->>1)::float8 > 0 AND COALESCE((attrs->>r.key)::float8, 0) NOT BETWEEN 1e-9 AND (r.value->>1)::float8)
+GROUP BY buy
+ORDER BY buy;
 
 -- name: DetailedCount :one
 -- How many gems had their ad page read, for the hint by the filters.

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"maps"
 	"math"
 	"os"
 	"slices"
@@ -45,7 +46,7 @@ func newTestService(t *testing.T) *Service {
 
 // things is a category to test the engine with: an item is rated by its
 // price alone (cheaper is better), and one under 10 000 is worth its ad
-// page, which adds a shape.
+// page, which adds a shape (narrowing the colour, as a model a make).
 type things struct{}
 
 func (things) ID() string { return "things" }
@@ -53,7 +54,7 @@ func (things) Spec() Spec {
 	return Spec{
 		Fields: []Field{
 			{Key: "colour", Kind: Choice, Control: "chips", Card: true},
-			{Key: "shape", Kind: Choice, Control: "chips", Detail: true},
+			{Key: "shape", Kind: Choice, Control: "chips", Detail: true, DependsOn: "colour"},
 			{Key: "year", Kind: Range, Control: "range"},
 		},
 		Sorts: []Sort{{ID: "newest", Key: "year", Desc: true}},
@@ -302,8 +303,40 @@ func TestScan(t *testing.T) {
 		t.Errorf("last = %s, want the one with too little known", last.ExternalID)
 	}
 	f := page.Facets
-	if len(f["colour"]) != 2 || f["colour"][0] != (Facet{Value: "blue", Count: 2}) || len(f["shape"]) != 1 || f["shape"][0].Count != 3 {
+	if len(f["colour"]) != 2 || f["colour"][0] != (Facet{Value: "blue", Count: 2}) || len(f["shape"]) != 2 ||
+		f["shape"][1] != (Facet{Value: "round", Parent: "red", Count: 1}) {
 		t.Errorf("facets = %+v", f)
+	}
+	if n := countOf(page.Buys); n["good"] != 2 || n["good"]+n["average"]+n["bad"]+n["check"] != 5 {
+		t.Errorf("verdict counts = %+v", page.Buys)
+	}
+
+	// Each filter narrows the others' counts, never its own: its other
+	// values stay on offer. A colour's counts ignore the shape too (picking
+	// a colour clears the shape it narrows).
+	for _, tt := range []struct {
+		name          string
+		q             Query
+		colour, shape map[string]int
+		buys          map[string]int
+	}{
+		{"red", Query{Choices: map[string][]string{"colour": {"red"}}},
+			map[string]int{"red": 3, "blue": 2}, map[string]int{"round": 1}, map[string]int{"good": 1, "average": 2}},
+		{"round", Query{Choices: map[string][]string{"shape": {"round"}}},
+			map[string]int{"red": 3, "blue": 2}, map[string]int{"round": 3}, map[string]int{"good": 2, "average": 1}},
+		{"6000 to 10 000", Query{MinPrice: 6000, MaxPrice: 10000},
+			map[string]int{"blue": 2}, map[string]int{"round": 2}, map[string]int{"good": 1, "average": 1}},
+		{"good buys", Query{Buy: "good"},
+			map[string]int{"red": 1, "blue": 1}, map[string]int{"round": 2}, map[string]int{"good": 2, "average": 3}},
+	} {
+		p, err := svc.List(ctx, "site", "things", tt.q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c, sh, b := countOf(p.Facets["colour"]), countOf(p.Facets["shape"]), countOf(p.Buys); !maps.Equal(c, tt.colour) ||
+			!maps.Equal(sh, tt.shape) || !maps.Equal(b, tt.buys) {
+			t.Errorf("%s: colours %v, shapes %v, verdicts %v; want %v, %v, %v", tt.name, c, sh, b, tt.colour, tt.shape, tt.buys)
+		}
 	}
 
 	for _, tt := range []struct {
@@ -349,6 +382,16 @@ func TestScan(t *testing.T) {
 	if scan := runScan(t, svc, scanner); scan.Status != "done" || scan.DetailTotal != 0 || len(site.reads) != 0 {
 		t.Errorf("second scan: %+v, read %v; want nothing new to read", scan, site.reads)
 	}
+}
+
+// countOf is facets as value → count, a value seen twice (under two
+// parents) summed.
+func countOf(fs []Facet) map[string]int {
+	m := map[string]int{}
+	for _, f := range fs {
+		m[f.Value] += f.Count
+	}
+	return m
 }
 
 // statusErr is a site's HTTP error, as sources report one.

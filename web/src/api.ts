@@ -118,7 +118,10 @@ export type GemPage = {
   total: number
   page: number
   pageSize: number
+  // Each choice's values among the gems the other filters let through;
+  // buys the same for the verdicts.
   facets: Record<string, GemFacet[]>
+  buys: GemFacet[]
   // detailed of all gems had their ad page read.
   detailed: number
   all: number

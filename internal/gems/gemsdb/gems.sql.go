@@ -170,20 +170,99 @@ func (q *Queries) FinishScan(ctx context.Context, arg FinishScanParams) error {
 	return err
 }
 
+const gemBuyCounts = `-- name: GemBuyCounts :many
+SELECT buy, count(*)::int AS n FROM gems
+WHERE source = $1 AND category = $2
+  AND ($3::float8 = 0 OR price_value >= $3::float8)
+  AND ($4::float8 = 0 OR price_value <= $4::float8)
+  AND (NOT $5::boolean OR detailed)
+  AND NOT EXISTS (
+      SELECT 1 FROM jsonb_each($6::jsonb) c
+      WHERE NOT COALESCE(c.value ? (attrs->>c.key), FALSE))
+  AND NOT EXISTS (
+      SELECT 1 FROM jsonb_each($7::jsonb) r
+      WHERE (r.value->>0)::float8 > 0 AND COALESCE((attrs->>r.key)::float8, 0) < (r.value->>0)::float8
+         OR (r.value->>1)::float8 > 0 AND COALESCE((attrs->>r.key)::float8, 0) NOT BETWEEN 1e-9 AND (r.value->>1)::float8)
+GROUP BY buy
+ORDER BY buy
+`
+
+type GemBuyCountsParams struct {
+	Source       string
+	Category     string
+	MinPrice     float64
+	MaxPrice     float64
+	DetailedOnly bool
+	Choices      []byte
+	Ranges       []byte
+}
+
+type GemBuyCountsRow struct {
+	Buy string
+	N   int32
+}
+
+// How many gems the other filters let through have each verdict. Keep the
+// filters in step with CountGems.
+func (q *Queries) GemBuyCounts(ctx context.Context, arg GemBuyCountsParams) ([]GemBuyCountsRow, error) {
+	rows, err := q.db.Query(ctx, gemBuyCounts,
+		arg.Source,
+		arg.Category,
+		arg.MinPrice,
+		arg.MaxPrice,
+		arg.DetailedOnly,
+		arg.Choices,
+		arg.Ranges,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GemBuyCountsRow
+	for rows.Next() {
+		var i GemBuyCountsRow
+		if err := rows.Scan(&i.Buy, &i.N); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const gemFacets = `-- name: GemFacets :many
-SELECT f.key::text AS key, (g.attrs->>f.key)::text AS value, COALESCE(g.attrs->>f.value, '')::text AS parent,
-       count(*)::int AS n
+SELECT f.key::text AS key, (g.attrs->>f.key)::text AS value,
+       COALESCE(g.attrs->>(f.value->>'parent'), '')::text AS parent, count(*)::int AS n
 FROM gems g
-CROSS JOIN jsonb_each_text($1::jsonb) AS f
+CROSS JOIN jsonb_each($1::jsonb) AS f
 WHERE g.source = $2 AND g.category = $3 AND g.attrs->>f.key <> ''
+  AND ($4::text = '' OR g.buy = $4::text)
+  AND ($5::float8 = 0 OR g.price_value >= $5::float8)
+  AND ($6::float8 = 0 OR g.price_value <= $6::float8)
+  AND (NOT $7::boolean OR g.detailed)
+  AND NOT EXISTS (
+      SELECT 1 FROM jsonb_each($8::jsonb) c
+      WHERE NOT (f.value->'skip') ? c.key AND NOT COALESCE(c.value ? (g.attrs->>c.key), FALSE))
+  AND NOT EXISTS (
+      SELECT 1 FROM jsonb_each($9::jsonb) r
+      WHERE (r.value->>0)::float8 > 0 AND COALESCE((g.attrs->>r.key)::float8, 0) < (r.value->>0)::float8
+         OR (r.value->>1)::float8 > 0 AND COALESCE((g.attrs->>r.key)::float8, 0) NOT BETWEEN 1e-9 AND (r.value->>1)::float8)
 GROUP BY 1, 2, 3
 ORDER BY 1, 2, 3
 `
 
 type GemFacetsParams struct {
-	Keys     []byte
-	Source   string
-	Category string
+	Keys         []byte
+	Source       string
+	Category     string
+	Buy          string
+	MinPrice     float64
+	MaxPrice     float64
+	DetailedOnly bool
+	Choices      []byte
+	Ranges       []byte
 }
 
 type GemFacetsRow struct {
@@ -193,11 +272,24 @@ type GemFacetsRow struct {
 	N      int32
 }
 
-// The values each choice attr takes, with how many gems have each. keys:
-// {"model": "make", "fuel": ""}, each attr with the choice it narrows;
-// parent is that one's value (a model's make), "" if none.
+// The values each choice attr takes among the gems the other filters let
+// through, with how many have each. keys: {"model": {"parent": "make",
+// "skip": ["model"]}, …}: each attr, the choice it narrows (parent is that
+// one's value, a model's make; "" if none) and the choices its own counts
+// ignore (itself, and those narrowing it). Keep the filters in step with
+// CountGems.
 func (q *Queries) GemFacets(ctx context.Context, arg GemFacetsParams) ([]GemFacetsRow, error) {
-	rows, err := q.db.Query(ctx, gemFacets, arg.Keys, arg.Source, arg.Category)
+	rows, err := q.db.Query(ctx, gemFacets,
+		arg.Keys,
+		arg.Source,
+		arg.Category,
+		arg.Buy,
+		arg.MinPrice,
+		arg.MaxPrice,
+		arg.DetailedOnly,
+		arg.Choices,
+		arg.Ranges,
+	)
 	if err != nil {
 		return nil, err
 	}

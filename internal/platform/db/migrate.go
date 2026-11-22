@@ -12,9 +12,19 @@ import (
 	"github.com/pressly/goose/v3/lock"
 )
 
-// Open connects to Postgres and checks the connection.
+// Open connects to Postgres and checks the connection. JIT is off unless
+// the URL turns it on: every query here is short, and compiling one (on
+// whenever Postgres overestimates a query's cost, as with the gem finder's
+// facet counts over JSON attrs) can take ten times as long as running it.
 func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(ctx, url)
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return nil, fmt.Errorf("database: %w", err)
+	}
+	if _, set := cfg.ConnConfig.RuntimeParams["jit"]; !set {
+		cfg.ConnConfig.RuntimeParams["jit"] = "off"
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("database: %w", err)
 	}

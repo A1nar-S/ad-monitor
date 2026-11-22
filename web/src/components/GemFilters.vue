@@ -8,10 +8,12 @@ import { formatNumber, t, tKey } from '../i18n'
 
 // The gem finder's filters, drawn from the category's spec: the parent owns
 // the query (v-model) and loads the gems when it changes; facets say which
-// values the gems have, with counts.
+// values the gems the other filters let through have, with counts, so every
+// filter narrows what the others offer.
 const props = defineProps<{
   spec: GemSpec
   facets: GemPage['facets'] | null
+  buys: GemPage['buys'] | null
   detailed: number
   all: number
 }>()
@@ -31,7 +33,8 @@ const firstDetail = computed(() => details.value[0]?.key)
 const picked = (key: string) => query.value.choices[key] ?? []
 
 // The values a choice offers: those the gems have (with counts), narrowed
-// by the choice it depends on.
+// by the choice it depends on. A picked value stays, at 0 if the other
+// filters left none, so it can still be unpicked.
 function options(f: GemField) {
   let all = props.facets?.[f.key] ?? []
   if (f.dependsOn) {
@@ -40,8 +43,23 @@ function options(f: GemField) {
   }
   const counts = new Map<string, number>()
   for (const x of all) counts.set(x.value, (counts.get(x.value) ?? 0) + x.count)
+  for (const v of picked(f.key)) if (!counts.has(v)) counts.set(v, 0)
   return [...counts].map(([value, count]) => ({ value, count }))
 }
+// A searched choice offers the whole catalog (every place, not just those
+// with a read ad page), those the other filters leave gems at first, most
+// first.
+function searchOptions(f: GemField) {
+  const have = options(f)
+    .filter((o) => o.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .map((o) => o.value)
+  if (!f.options) return have
+  const seen = new Set(have)
+  return [...have, ...f.options.filter((o) => !seen.has(o))]
+}
+const buyCount = (b: GemBuy) =>
+  props.buys ? (props.buys.find((x) => x.value === b)?.count ?? 0) : null
 
 // Setting a choice clears those that depend on it.
 function setChoice(key: string, values: string[]) {
@@ -99,6 +117,11 @@ const ends = [
           @click="setBuy(b)"
         >
           {{ t(`gems.buy.${b}`) }}
+          <span
+            v-if="buyCount(b) !== null"
+            class="text-gray-500 tabular-nums"
+            >{{ formatNumber(buyCount(b)!) }}</span
+          >
         </button>
       </div>
     </fieldset>
@@ -158,7 +181,7 @@ const ends = [
         <span class="field-label">{{ label(f.key) }}</span>
         <MultiSelect
           :model-value="picked(f.key)"
-          :options="f.options ?? options(f).map((o) => o.value)"
+          :options="searchOptions(f)"
           :placeholder="t('gems.search')"
           @update:model-value="setChoice(f.key, $event)"
         />

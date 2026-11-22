@@ -392,6 +392,7 @@ onUnmounted(() => clearTimeout(timer))
             v-model="query"
             :spec="spec"
             :facets="page?.facets ?? null"
+            :buys="page?.buys ?? null"
             :detailed="page?.detailed ?? 0"
             :all="page?.all ?? 0"
           />
@@ -500,6 +501,7 @@ onUnmounted(() => clearTimeout(timer))
         v-model="query"
         :spec="spec"
         :facets="page?.facets ?? null"
+        :buys="page?.buys ?? null"
         :detailed="page?.detailed ?? 0"
         :all="page?.all ?? 0"
       />
