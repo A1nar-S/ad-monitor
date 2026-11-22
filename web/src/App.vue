@@ -266,84 +266,89 @@ async function logout() {
         <GemsView v-else-if="route.name === 'gems' && me.gems" :me="me" />
         <SearchesView v-else :me="me" />
       </div>
-      <AppFooter class="px-4 pb-6" />
+      <AppFooter />
     </main>
   </div>
 
   <!-- Signed out, unreachable or still checking: a single centered card. -->
   <main
     v-else
-    class="grid min-h-screen place-items-center bg-gray-50 px-4 py-16"
+    class="flex min-h-screen flex-col bg-gray-50"
     :aria-busy="state === 'loading'"
   >
-    <div
-      v-if="state === 'loading'"
-      class="size-6 animate-spin rounded-full border-2 border-gray-200 border-t-brand-600"
-      role="status"
-      :aria-label="t('common.loading')"
-    />
+    <div class="grid flex-1 place-items-center px-4 py-16">
+      <div
+        v-if="state === 'loading'"
+        class="size-6 animate-spin rounded-full border-2 border-gray-200 border-t-brand-600"
+        role="status"
+        :aria-label="t('common.loading')"
+      />
 
-    <div v-else class="w-full max-w-[400px]">
-      <div class="fixed top-3 right-3">
-        <PreferencesMenu />
-      </div>
-      <div class="mb-6 flex items-center justify-center gap-2.5">
-        <span
-          class="grid size-8 place-items-center rounded-lg bg-brand-600 text-white shadow-[0_1px_2px_rgb(15_108_189/0.3)]"
-          ><Radar :size="18"
-        /></span>
-        <span class="text-base font-semibold">{{ t('app.name') }}</span>
-      </div>
-
-      <section v-if="state === 'out'" class="card p-8">
-        <h1 class="text-title font-semibold">{{ t('signIn.title') }}</h1>
-        <p class="mt-1 text-sm text-gray-600">
-          {{ t('signIn.lead') }}
-        </p>
-        <div v-if="expired" role="alert" class="message-bar-warning mt-5">
-          <TriangleAlert :size="16" class="mt-0.5 shrink-0 text-warning-600" />
-          {{ t('signIn.expired') }}
+      <div v-else class="w-full max-w-[400px]">
+        <div class="fixed top-3 right-3">
+          <PreferencesMenu />
         </div>
-        <ol class="mt-6 grid gap-4 text-sm">
-          <li class="flex gap-3">
-            <span
-              class="grid size-6 shrink-0 place-items-center rounded-full bg-gray-100 text-xs font-semibold text-gray-700"
-              >1</span
-            >
-            <span class="pt-0.5 text-gray-700"
-              >{{ t('signIn.step1Before') }}
-              <span class="kbd">/dashboard</span>
-              {{ t('signIn.step1After') }}</span
-            >
-          </li>
-          <li class="flex gap-3">
-            <span
-              class="grid size-6 shrink-0 place-items-center rounded-full bg-gray-100 text-xs font-semibold text-gray-700"
-              >2</span
-            >
-            <span class="pt-0.5 text-gray-700">{{ t('signIn.step2') }}</span>
-          </li>
-        </ol>
-        <p class="mt-6 border-t border-gray-150 pt-4 text-xs text-gray-500">
-          {{ t('signIn.footnote') }}
-        </p>
-      </section>
+        <div class="mb-6 flex items-center justify-center gap-2.5">
+          <span
+            class="grid size-8 place-items-center rounded-lg bg-brand-600 text-white shadow-[0_1px_2px_rgb(15_108_189/0.3)]"
+            ><Radar :size="18"
+          /></span>
+          <span class="text-base font-semibold">{{ t('app.name') }}</span>
+        </div>
 
-      <section v-else role="alert" class="card p-8 text-center">
-        <span
-          class="mx-auto mb-4 grid size-10 place-items-center rounded-full bg-danger-50 text-danger-600"
-          ><CircleAlert :size="20"
-        /></span>
-        <h1 class="text-base font-semibold">{{ t('down.title') }}</h1>
-        <p class="mt-1 text-sm text-gray-600">
-          {{ t('down.body') }}
-        </p>
-        <button class="btn-secondary mt-6" @click="reload">
-          <RefreshCw :size="14" />{{ t('common.tryAgain') }}
-        </button>
-      </section>
-      <AppFooter class="mt-6" />
+        <section v-if="state === 'out'" class="card p-8">
+          <h1 class="text-title font-semibold">{{ t('signIn.title') }}</h1>
+          <p class="mt-1 text-sm text-gray-600">
+            {{ t('signIn.lead') }}
+          </p>
+          <div v-if="expired" role="alert" class="message-bar-warning mt-5">
+            <TriangleAlert
+              :size="16"
+              class="mt-0.5 shrink-0 text-warning-600"
+            />
+            {{ t('signIn.expired') }}
+          </div>
+          <ol class="mt-6 grid gap-4 text-sm">
+            <li class="flex gap-3">
+              <span
+                class="grid size-6 shrink-0 place-items-center rounded-full bg-gray-100 text-xs font-semibold text-gray-700"
+                >1</span
+              >
+              <span class="pt-0.5 text-gray-700"
+                >{{ t('signIn.step1Before') }}
+                <span class="kbd">/dashboard</span>
+                {{ t('signIn.step1After') }}</span
+              >
+            </li>
+            <li class="flex gap-3">
+              <span
+                class="grid size-6 shrink-0 place-items-center rounded-full bg-gray-100 text-xs font-semibold text-gray-700"
+                >2</span
+              >
+              <span class="pt-0.5 text-gray-700">{{ t('signIn.step2') }}</span>
+            </li>
+          </ol>
+          <p class="mt-6 border-t border-gray-150 pt-4 text-xs text-gray-500">
+            {{ t('signIn.footnote') }}
+          </p>
+        </section>
+
+        <section v-else role="alert" class="card p-8 text-center">
+          <span
+            class="mx-auto mb-4 grid size-10 place-items-center rounded-full bg-danger-50 text-danger-600"
+            ><CircleAlert :size="20"
+          /></span>
+          <h1 class="text-base font-semibold">{{ t('down.title') }}</h1>
+          <p class="mt-1 text-sm text-gray-600">
+            {{ t('down.body') }}
+          </p>
+          <button class="btn-secondary mt-6" @click="reload">
+            <RefreshCw :size="14" />{{ t('common.tryAgain') }}
+          </button>
+        </section>
+      </div>
     </div>
+    <AppFooter v-if="state !== 'loading'" />
   </main>
   <ToastHost />
 </template>
