@@ -1,6 +1,8 @@
 package deals
 
 import (
+	"cmp"
+	"fmt"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -90,7 +92,7 @@ func (n Note) line(key string, l Lang) Line {
 	label := l.ph().rating[n.Rating]
 	notes := n.Notes
 	if l == Lv {
-		notes = n.NotesLv
+		notes = cmp.Or(n.NotesLv, n.Notes)
 	}
 	return Line{Key: key, Tone: ratingTones[n.Rating], Label: label, Subject: n.NameIn(l), Text: notes}
 }
@@ -106,7 +108,7 @@ func (r EquipmentRating) line(l Lang) Line {
 	case r.Of > 0:
 		ln.Text = capitalise(strings.TrimPrefix(fmtBetter(p, r), ": ")) + "."
 	default:
-		ln.Text = capitalise(strings.TrimSpace(fmtClass(l, r))) + "."
+		ln.Text = fmt.Sprintf(p.lineClass, l.class(r.Class))
 	}
 	ln.Tone, ln.Label = levelTones[r.Level], label
 	return ln

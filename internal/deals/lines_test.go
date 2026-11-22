@@ -49,6 +49,45 @@ func TestLines(t *testing.T) {
 		t.Errorf("very high mileage = %+v", m)
 	}
 
+	// Judged by class: the text says against what.
+	if bad := LinesIn(cases["bad buy"], En); bad[len(bad)-1].Key != "equipment" {
+		t.Errorf("bad buy lines end with %s", bad[len(bad)-1].Key)
+	} else if e := bad[len(bad)-1]; e.Key != "equipment" || e.Tone != ToneBad || e.Label != "Basic" ||
+		e.Text != "Compared with what premium cars of its age usually have: too few similar ads with known equipment to compare." {
+		t.Errorf("equipment by class = %+v", e)
+	}
+	if e := LinesIn(cases["pricey"], Lv)[1]; e.Label != "Labi aprīkots" || e.Tone != ToneGood || !strings.Contains(e.Text, "budžeta auto šajā vecumā") {
+		t.Errorf("equipment by class in Latvian = %+v", e)
+	}
+	// Inspection lines without a ": " are all label, in Latvian too.
+	if i := LinesIn(cases["good buy"], Lv)[2]; i.Label != "Derīga līdz 02.2028 (vēl 15 mēn.)" || i.Text != "" || i.Tone != ToneGood {
+		t.Errorf("inspection in Latvian = %+v", i)
+	}
+	if i := LinesIn(cases["average"], En)[2]; i.Tone != ToneNeutral || !strings.HasPrefix(i.Label, "Valid until 01.2027, but runs out soon") ||
+		i.Text != "Budget for the next one." {
+		t.Errorf("inspection running out = %+v", i)
+	}
+
+	// The lines split from an alert line put it back together: label, ": ",
+	// the text uncapitalised (or the label and "." with no text).
+	for name, r := range cases {
+		for _, l := range Langs {
+			fields := FieldsIn(r, l)[1:]
+			for i, ln := range LinesIn(r, l) {
+				if ln.Key != "price" && ln.Key != "mileage" && ln.Key != "inspection" {
+					continue
+				}
+				got := ln.Label + "."
+				if ln.Text != "" {
+					got = ln.Label + ": " + strings.ToLower(ln.Text[:1]) + ln.Text[1:]
+				}
+				if want := fields[i].Value; !strings.EqualFold(got, want) {
+					t.Errorf("%s (%s) %s: %q from the lines, %q in the alert", name, l, ln.Key, got, want)
+				}
+			}
+		}
+	}
+
 	// No emoji in any part, in either language: the page draws its own.
 	for name, r := range cases {
 		for _, l := range Langs {

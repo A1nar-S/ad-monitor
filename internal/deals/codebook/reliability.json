@@ -442,7 +442,7 @@
     {"makes": ["Porsche"], "models": ["Cayenne"], "fuel": "petrol", "litres": [4.5, 4.8], "years": [2003, 2010], "name": "Cayenne V8", "rating": "risky",
      "notes": "Cylinder-bore scoring (4.8) and coolant-pipe leaks (4.5) are known; a borescope check is worth paying for.",
      "notes_lv": "Zināmas cilindru sieniņu skrambas (4.8) un dzesēšanas cauruļu noplūdes (4.5); endoskopa pārbaude ir naudas vērta."},
-    {"makes": ["Porsche"], "models": ["911", "Boxster", "Cayman"], "fuel": "petrol", "litres": [2.5, 2.7, 3.2, 3.4, 3.6, 3.8], "years": [1997, 2008], "name": "Flat-six (M96/M97)", "name_lv": "Pretējo cilindru 6 (M96/M97)", "rating": "risky",
+    {"makes": ["Porsche"], "models": ["911", "Boxster", "Cayman"], "fuel": "petrol", "litres": [2.5, 2.7, 3.2, 3.4, 3.6, 3.8], "years": [1997, 2008], "name": "Flat-six (M96/M97)", "name_lv": "Boksera 6 cilindru (M96/M97)", "rating": "risky",
      "notes": "Intermediate-shaft (IMS) bearing failure and bore scoring are known; ask if the IMS bearing was upgraded.",
      "notes_lv": "Zināma starpvārpstas (IMS) gultņa atteice un cilindru sieniņu skrambas; pajautājiet, vai IMS gultnis nomainīts pret uzlaboto."},
 

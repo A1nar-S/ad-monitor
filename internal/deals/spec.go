@@ -101,7 +101,7 @@ func (n Note) Text() string { return n.TextIn(En) }
 func (n Note) TextIn(l Lang) string {
 	name, notes := n.Name, n.Notes
 	if l == Lv {
-		name, notes = cmp.Or(n.NameLv, n.Name), n.NotesLv
+		name, notes = cmp.Or(n.NameLv, n.Name), cmp.Or(n.NotesLv, n.Notes)
 	}
 	return fmt.Sprintf("%s: %s. %s", l.ph().rating[n.Rating], name, notes)
 }

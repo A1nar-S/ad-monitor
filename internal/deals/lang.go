@@ -51,6 +51,7 @@ type phrases struct {
 	monthsLeft       func(n int) string
 	equipBetter      string // better, of
 	equipClass       string // class
+	lineClass        string // class: the equipment line's text when judged by class
 	equipHas         string // list
 	equipMissing     string // list, class
 	equipMissingJoin string // between missing features
@@ -109,6 +110,7 @@ var enPhrases = &phrases{
 	monthsLeft:       func(n int) string { return strconv.Itoa(n) + " months left" },
 	equipBetter:      ": better than %d of %d similar ads",
 	equipClass:       " for a %s car of its age (too few similar ads with known equipment to compare)",
+	lineClass:        "Compared with what %s cars of its age usually have: too few similar ads with known equipment to compare.",
 	equipHas:         " Has %s.",
 	equipMissing:     " No %s, which %s cars of its age usually have.",
 	equipMissingJoin: ", no ",
@@ -151,7 +153,7 @@ var lvPhrases = &phrases{
 	thousand: " tūkst. km",
 
 	priceLine:       "%s: %s (%s; %s)",
-	atMedian:        "ap %d līdzīgu sludinājumu mediānu",
+	atMedian:        "tuvu %d līdzīgu sludinājumu mediānai",
 	belowMedian:     "%s zem %d līdzīgu sludinājumu mediānas",
 	aboveMedian:     "%s virs %d līdzīgu sludinājumu mediānas",
 	priceSuspicious: ". Pārbaudiet, vai nav bojājumu, krāpšanas vai kļūdas cenā.",
@@ -163,11 +165,12 @@ var lvPhrases = &phrases{
 	inspectionGone:   "Beidzās %s: ar to nedrīkst braukt, kamēr tā nav izieta no jauna, un tam var būt vajadzīgs remonts.",
 	inspectionNone:   "Nav derīgas tehniskās apskates: ar to nedrīkst braukt, kamēr tā nav izieta, un tam var būt vajadzīgs remonts.",
 	inspectionValid:  "Derīga tehniskā apskate.",
-	inspectionSoon:   "Derīga līdz %s, bet drīz beigsies (%s): rēķinieties ar nākamās izmaksām.",
+	inspectionSoon:   "Derīga līdz %s, bet drīz beigsies (%s): rēķinieties ar nākamās apskates izmaksām.",
 	inspectionUntil:  "Derīga līdz %s (%s).",
 	monthsLeft:       func(n int) string { return "vēl " + strconv.Itoa(n) + " mēn." },
 	equipBetter:      ": labāk nekā %d no %d līdzīgiem sludinājumiem",
 	equipClass:       " %s auto savam vecumam (par maz līdzīgu sludinājumu ar zināmu aprīkojumu, lai salīdzinātu)",
+	lineClass:        "Salīdzināts ar to, kas parasti ir %s auto šajā vecumā: par maz līdzīgu sludinājumu ar zināmu aprīkojumu, lai salīdzinātu.",
 	equipHas:         " Ir: %s.",
 	equipMissing:     " Nav: %s, lai gan %s auto šajā vecumā tas parasti ir.",
 	equipMissingJoin: ", ",

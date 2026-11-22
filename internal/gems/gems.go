@@ -358,9 +358,6 @@ type facetKey struct {
 	Skip   []string `json:"skip"`
 }
 
-// facets counts each choice's values among the gems that pass every other
-// filter: a choice ignores itself (so its other values stay offered) and
-// the choices it narrows' children (picking a make again clears the model).
 // translate puts g's texts in lang, from the stored translations, where
 // they have it.
 func (g *Gem) translate(stored []byte, lang string) {
@@ -386,6 +383,9 @@ func (g *Gem) translate(stored []byte, lang string) {
 	}
 }
 
+// facets counts each choice's values among the gems that pass every other
+// filter: a choice ignores itself (so its other values stay offered) and
+// the choices it narrows' children (picking a make again clears the model).
 func (s *Service) facets(ctx context.Context, spec Spec, p gemsdb.GemFacetsParams) (map[string][]Facet, error) {
 	keys := map[string]facetKey{}
 	out := map[string][]Facet{}
