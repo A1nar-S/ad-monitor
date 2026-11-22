@@ -134,13 +134,18 @@ func TestRater(t *testing.T) {
 	for _, f := range best.Fields {
 		names = append(names, f.Name)
 	}
-	if !slices.Contains(names, "🧰 Equipment verdict") || !slices.Contains(names, "📋 Inspection verdict") {
+	if !slices.Contains(names, "Equipment verdict") || !slices.Contains(names, "Inspection verdict") {
 		t.Errorf("verdicts %v lack the ad page's", names)
+	}
+
+	// The verdicts in parts too, one per component.
+	if len(best.Lines) != len(best.Components) || best.Lines[0].Key != "price" || best.Lines[0].Tone != "great" || best.Lines[0].Label != "Steal" {
+		t.Errorf("lines = %+v", best.Lines)
 	}
 
 	// In Latvian too: every line, and every reason the English has.
 	lv, ok := best.Translations["lv"]
-	if !ok || !strings.HasPrefix(lv.Overall, "✅ Potenciāli labs piedāvājums") || len(lv.Fields) != len(best.Fields) {
+	if !ok || !strings.HasPrefix(lv.Overall, "Potenciāli labs piedāvājums") || len(lv.Fields) != len(best.Fields) || len(lv.Lines) != len(best.Lines) {
 		t.Errorf("Latvian = %+v", lv)
 	}
 	for _, c := range best.Components {

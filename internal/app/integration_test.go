@@ -547,8 +547,8 @@ func TestCarsPipeline(t *testing.T) {
 	for _, f := range discord.listings()[0].fields {
 		verdicts[f.Name] = f.Value
 	}
-	if !strings.HasPrefix(verdicts["🔧 Engine verdict"], "😐 OK: 1.5/1.6 TDCi/HDi (later)") ||
-		verdicts["🧰 Equipment verdict"] == "" || verdicts["⭐ Overall"] == "" || verdicts["🏷️ Price verdict"] != "" {
+	if !strings.HasPrefix(verdicts["Engine verdict"], "OK: 1.5/1.6 TDCi/HDi (later)") ||
+		verdicts["Equipment verdict"] == "" || verdicts["Overall"] == "" || verdicts["Price verdict"] != "" {
 		t.Errorf("peugeot verdicts = %q, want engine, equipment and overall, no price", verdicts)
 	}
 	// 3. A new cheap Opel: no search needs its ad page (the Peugeot search

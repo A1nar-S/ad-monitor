@@ -167,9 +167,10 @@ func (r *rater) rate(i int) (gems.Rated, bool) {
 		d := ratings.Price.Diff
 		x.PriceDiff = &d
 	}
+	x.Lines = linesOf(ratings, deals.En)
 	// The same, for readers of the other languages.
 	for _, l := range deals.Langs[1:] {
-		t := gems.Text{Fields: deals.FieldsIn(ratings, l), Why: map[string]string{}}
+		t := gems.Text{Fields: deals.FieldsIn(ratings, l), Lines: linesOf(ratings, l), Why: map[string]string{}}
 		t.Overall, _ = ratings.TextIn(l)
 		for _, p := range ratings.ComponentsIn(l) {
 			if p.Why != "" {
@@ -182,6 +183,18 @@ func (r *rater) rate(i int) (gems.Rated, bool) {
 		x.Translations[string(l)] = t
 	}
 	return x, true
+}
+
+// linesOf are the verdict lines of r in l, as the gems store them.
+func linesOf(r deals.Ratings, l deals.Lang) []gems.Line {
+	var out []gems.Line
+	for _, ln := range deals.LinesIn(r, l) {
+		out = append(out, gems.Line{
+			Key: ln.Key, Tone: string(ln.Tone), Label: ln.Label, Subject: ln.Subject, Text: ln.Text,
+			Has: ln.Has, Lacks: ln.Lacks, Unticked: ln.Unticked,
+		})
+	}
+	return out
 }
 
 // attrsOf are the Spec's values for a car; unknown ones are left out.

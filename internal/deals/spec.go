@@ -94,7 +94,7 @@ type Note struct {
 	NameLv, NotesLv string
 }
 
-// Text is the alert line, e.g. "👎 Risky: 2.0d N47. Timing chain ...".
+// Text is the alert line, e.g. "Risky: 2.0d N47. Timing chain ...".
 func (n Note) Text() string { return n.TextIn(En) }
 
 // TextIn is the alert line in l.

@@ -128,12 +128,12 @@ func TestRateInspection(t *testing.T) {
 		wantX float64
 		text  string
 	}{
-		{"none", Car{Inspection: NotInspected}, -1, "👎 No valid technical inspection"},
-		{"over a year left", Car{Inspection: Inspected, InspectionUntil: month("2028-02")}, 0, "👍 Valid until 02.2028 (15 months left)."},
-		{"4 months left", Car{Inspection: Inspected, InspectionUntil: month("2027-03")}, 0, "👍 Valid until 03.2027 (4 months left)."},
-		{"runs out this winter", Car{Inspection: Inspected, InspectionUntil: month("2027-01")}, -0.25, "😐 Valid until 01.2027, but runs out soon"},
-		{"already ran out", Car{Inspection: Inspected, InspectionUntil: month("2026-09")}, -1, "👎 Ran out in 09.2026"},
-		{"valid, no end said", Car{Inspection: Inspected}, 0, "👍 Valid technical inspection."},
+		{"none", Car{Inspection: NotInspected}, -1, "No valid technical inspection"},
+		{"over a year left", Car{Inspection: Inspected, InspectionUntil: month("2028-02")}, 0, "Valid until 02.2028 (15 months left)."},
+		{"4 months left", Car{Inspection: Inspected, InspectionUntil: month("2027-03")}, 0, "Valid until 03.2027 (4 months left)."},
+		{"runs out this winter", Car{Inspection: Inspected, InspectionUntil: month("2027-01")}, -0.25, "Valid until 01.2027, but runs out soon"},
+		{"already ran out", Car{Inspection: Inspected, InspectionUntil: month("2026-09")}, -1, "Ran out in 09.2026"},
+		{"valid, no end said", Car{Inspection: Inspected}, 0, "Valid technical inspection."},
 	}
 	for _, tt := range tests {
 		r, ok := RateInspection(tt.car)

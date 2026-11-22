@@ -333,6 +333,10 @@ const en = {
     neutral: 'Starting point',
     neutralHint: 'A car with nothing for or against it',
     total: 'Score',
+    has: 'Has',
+    lacks: 'Missing',
+    unticked:
+      "The seller didn't tick {list}, which every one has, so the list may be incomplete.",
     belowMarket: '{amount} ({pct}%) below similar ads',
     aboveMarket: '{amount} ({pct}%) above similar ads',
     atMarket: 'Market price',

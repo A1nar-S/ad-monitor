@@ -62,7 +62,7 @@ func TestRatePrice(t *testing.T) {
 	if r.Median != 10000 || r.Peers != 5 || r.Verdict != Steal {
 		t.Errorf("rating = %+v, want median 10000 over 5, a steal", r)
 	}
-	if want := "🔥 Steal: 2 500 € (25%) below the median of 5 similar ads (10 000 €; 2016, 180k km)"; r.Text() != want {
+	if want := "Steal: 2 500 € (25%) below the median of 5 similar ads (10 000 €; 2016, 180k km)"; r.Text() != want {
 		t.Errorf("text = %q\nwant   %q", r.Text(), want)
 	}
 
@@ -104,7 +104,7 @@ func TestRatePriceWithoutMileage(t *testing.T) {
 	if !ok {
 		t.Fatal("no rating")
 	}
-	if want := "😐 Fair: about the median of 5 similar ads (10 000 €; 2015–2017). Mileage unknown, so compared on year only."; r.Text() != want {
+	if want := "Fair: about the median of 5 similar ads (10 000 €; 2015–2017). Mileage unknown, so compared on year only."; r.Text() != want {
 		t.Errorf("text = %q\nwant   %q", r.Text(), want)
 	}
 }
@@ -328,7 +328,7 @@ func TestRateEquipment(t *testing.T) {
 	if !ok || r.Level != WellEquipped || r.Better != 6 || r.Of != 7 {
 		t.Fatalf("rating = %+v %v, want well equipped, better than 6 of 7", r, ok)
 	}
-	want := "👍 Well equipped: better than 6 of 7 similar ads. Has 4x4, adaptive cruise control, climate control, reversing camera, xenon lights. " +
+	want := "Well equipped: better than 6 of 7 similar ads. Has 4x4, adaptive cruise control, climate control, reversing camera, xenon lights. " +
 		"No rear parking sensors, which mainstream cars of its age usually have."
 	if r.Text() != want {
 		t.Errorf("text = %q\nwant   %q", r.Text(), want)
@@ -348,7 +348,7 @@ func TestRateEquipment(t *testing.T) {
 		t.Errorf("Dacia: %+v, want well equipped with nothing missing", r)
 	}
 	r, _ = RateEquipment(Car{Make: "BMW", Model: "X4", Year: 2017, Equipment: kit}, nil)
-	want = "👎 Basic for a premium car of its age (too few similar ads with known equipment to compare). " +
+	want = "Basic for a premium car of its age (too few similar ads with known equipment to compare). " +
 		"Has climate control, alloy wheels, cruise control, front parking sensors, rain sensor, rear parking sensors. " +
 		"No reversing camera, which premium cars of its age usually have."
 	if r.Text() != want {
@@ -360,7 +360,7 @@ func TestRateTrim(t *testing.T) {
 	golf := func(eq ...string) Car { return Car{Make: "Volkswagen", Model: "Golf 7", Year: 2015, Equipment: eq} }
 
 	r, ok := RateEquipment(golf("air conditioning"), nil)
-	want := "👎 Base trim: has 0 of the 19 options a Volkswagen Golf 7 could have. Has air conditioning. " +
+	want := "Base trim: has 0 of the 19 options a Volkswagen Golf 7 could have. Has air conditioning. " +
 		"Lacks 4x4, adaptive cruise control, auxiliary heater, climate control."
 	if !ok || r.Level != Basic || r.Text() != want {
 		t.Errorf("base Golf = %v %v %q\nwant %q", r.Level, ok, r.Text(), want)
@@ -469,17 +469,17 @@ func TestFields(t *testing.T) {
 	for _, f := range fs {
 		names = append(names, f.Name)
 	}
-	if got := strings.Join(names, ", "); got != "⭐ Overall, 🏷️ Price verdict, 📏 Mileage verdict, 🔧 Engine verdict, 🕹️ Gearbox verdict" {
+	if got := strings.Join(names, ", "); got != "Overall, Price verdict, Mileage verdict, Engine verdict, Gearbox verdict" {
 		t.Errorf("fields = %s", got)
 	}
-	want := "✅ Potentially a good buy: 1 000 € (10%) below similar ads, durable engine (2.0d B47), durable gearbox (ZF 6- or 8-speed automatic). Still have it inspected before paying."
+	want := "Potentially a good buy: 1 000 € (10%) below similar ads, durable engine (2.0d B47), durable gearbox (ZF 6- or 8-speed automatic). Still have it inspected before paying."
 	if fs[0].Value != want {
 		t.Errorf("overall = %q\nwant      %q", fs[0].Value, want)
 	}
-	if fs[2].Value != "😐 Usual mileage: 180k km at 11 years, 0.9× the usual 196k km for its age." {
+	if fs[2].Value != "Usual mileage: 180k km at 11 years, 0.9× the usual 196k km for its age." {
 		t.Errorf("mileage line = %q", fs[2].Value)
 	}
-	if fs[3].Value != "👍 Good: 2.0d B47. Much more reliable than the N47 it replaced. Usual diesel items: DPF, EGR cooler (there was a recall), dual-mass flywheel." {
+	if fs[3].Value != "Good: 2.0d B47. Much more reliable than the N47 it replaced. Usual diesel items: DPF, EGR cooler (there was a recall), dual-mass flywheel." {
 		t.Errorf("engine line = %q", fs[2].Value)
 	}
 	if fs := Fields(Car{Make: "Lada", Model: "Niva", Year: 2010, Price: 2000}, nil); len(fs) != 0 {

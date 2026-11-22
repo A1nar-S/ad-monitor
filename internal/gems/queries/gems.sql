@@ -52,9 +52,9 @@ DELETE FROM gems WHERE source = @source AND category = @category;
 
 -- name: InsertGem :exec
 INSERT INTO gems (source, category, external_id, scan_id, title, url, image_url, price, price_value, buy, score,
-                  display_score, price_diff, heading, overall, fields, components, detailed, attrs, translations)
+                  display_score, price_diff, heading, overall, fields, components, detailed, attrs, lines, translations)
 VALUES (@source, @category, @external_id, @scan_id, @title, @url, @image_url, @price, @price_value, @buy, @score,
-        @display_score, sqlc.narg(price_diff), @heading, @overall, @fields, @components, @detailed, @attrs, @translations);
+        @display_score, sqlc.narg(price_diff), @heading, @overall, @fields, @components, @detailed, @attrs, @lines, @translations);
 
 -- name: ListGems :many
 -- One page of rated listings, best first unless asked otherwise. Empty

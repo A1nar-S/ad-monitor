@@ -316,9 +316,9 @@ func (q *Queries) GemFacets(ctx context.Context, arg GemFacetsParams) ([]GemFace
 
 const insertGem = `-- name: InsertGem :exec
 INSERT INTO gems (source, category, external_id, scan_id, title, url, image_url, price, price_value, buy, score,
-                  display_score, price_diff, heading, overall, fields, components, detailed, attrs, translations)
+                  display_score, price_diff, heading, overall, fields, components, detailed, attrs, lines, translations)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-        $12, $13, $14, $15, $16, $17, $18, $19, $20)
+        $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 `
 
 type InsertGemParams struct {
@@ -341,6 +341,7 @@ type InsertGemParams struct {
 	Components   []byte
 	Detailed     bool
 	Attrs        []byte
+	Lines        []byte
 	Translations []byte
 }
 
@@ -365,6 +366,7 @@ func (q *Queries) InsertGem(ctx context.Context, arg InsertGemParams) error {
 		arg.Components,
 		arg.Detailed,
 		arg.Attrs,
+		arg.Lines,
 		arg.Translations,
 	)
 	return err
@@ -422,7 +424,7 @@ func (q *Queries) LatestScan(ctx context.Context, arg LatestScanParams) (GemScan
 }
 
 const listGems = `-- name: ListGems :many
-SELECT source, external_id, scan_id, title, url, image_url, price, price_value, buy, score, overall, fields, detailed, display_score, price_diff, components, category, heading, attrs, translations FROM gems
+SELECT source, external_id, scan_id, title, url, image_url, price, price_value, buy, score, overall, fields, detailed, display_score, price_diff, components, category, heading, attrs, lines, translations FROM gems
 WHERE source = $1 AND category = $2
   AND ($3::text = '' OR buy = $3::text)
   AND ($4::float8 = 0 OR price_value >= $4::float8)
@@ -508,6 +510,7 @@ func (q *Queries) ListGems(ctx context.Context, arg ListGemsParams) ([]Gem, erro
 			&i.Category,
 			&i.Heading,
 			&i.Attrs,
+			&i.Lines,
 			&i.Translations,
 		); err != nil {
 			return nil, err

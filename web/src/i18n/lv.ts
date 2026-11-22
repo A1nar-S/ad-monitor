@@ -350,6 +350,10 @@ const lv: Messages = {
     neutral: 'Sākumpunkts',
     neutralHint: 'Auto bez plusiem un mīnusiem',
     total: 'Vērtējums',
+    has: 'Ir',
+    lacks: 'Nav',
+    unticked:
+      'Pārdevējs nav atzīmējis: {list}, lai gan tas ir katram, tāpēc saraksts var būt nepilnīgs.',
     belowMarket: '{amount} ({pct}%) zem līdzīgiem',
     aboveMarket: '{amount} ({pct}%) virs līdzīgiem',
     atMarket: 'Tirgus cena',

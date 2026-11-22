@@ -42,9 +42,20 @@ func RateInspection(c Car) (InspectionRating, bool) {
 	return r, true
 }
 
-// Text is the inspection line of an alert, e.g. "👍 Valid until 02.2027 (15
+// Text is the inspection line of an alert, e.g. "Valid until 02.2027 (15
 // months left)."
 func (r InspectionRating) Text() string { return r.TextIn(En) }
+
+// tone is how the inspection line reads.
+func (r InspectionRating) tone() Tone {
+	switch {
+	case !r.Valid:
+		return ToneBad
+	case !r.Until.IsZero() && r.MonthsLeft < 3:
+		return ToneNeutral
+	}
+	return ToneGood
+}
 
 // TextIn is the inspection line in l.
 func (r InspectionRating) TextIn(l Lang) string {

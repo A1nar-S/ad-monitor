@@ -323,7 +323,7 @@ func (r PriceRating) Gap() string {
 	return fmt.Sprintf("%s (%d%%)", Euros(math.Abs(r.Diff*r.Median)), int(math.Round(math.Abs(r.Diff)*100)))
 }
 
-// Text is the price line of an alert, e.g. "🔥 Steal: 1 450 € (14%) below
+// Text is the price line of an alert, e.g. "Steal: 1 450 € (14%) below
 // the median of 12 similar ads (10 350 €; 2015–2018, 140–230k km)".
 func (r PriceRating) Text() string { return r.TextIn(En) }
 

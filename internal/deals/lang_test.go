@@ -89,10 +89,10 @@ func TestLatvianLines(t *testing.T) {
 	cases := latvianCases(t)
 	good := FieldsIn(cases["good buy"], Lv)
 	for i, want := range []string{
-		"✅ Potenciāli labs piedāvājums: 2 000 € (20%) lētāk par līdzīgiem, mazs nobraukums savam vecumam, izturīgs dzinējs (1.9 TDI), izturīga ātrumkārba (ZF 6 vai 8 pakāpju automāts), labi aprīkots. Pirms maksājat, tomēr ļaujiet to pārbaudīt meistaram.",
-		"🔥 Ļoti izdevīga cena: 2 000 € (20%) zem 12 līdzīgu sludinājumu mediānas (10 000 €; 2015–2018, 140–230 tūkst. km)",
-		"👍 Mazs nobraukums: 60 tūkst. km 6 gadu vecumā, 0,6× no šim vecumam parastajiem 108 tūkst. km.",
-		"👍 Derīga līdz 02.2028 (vēl 15 mēn.).",
+		"Potenciāli labs piedāvājums: 2 000 € (20%) lētāk par līdzīgiem, mazs nobraukums savam vecumam, izturīgs dzinējs (1.9 TDI), izturīga ātrumkārba (ZF 6 vai 8 pakāpju automāts), labi aprīkots. Pirms maksājat, tomēr ļaujiet to pārbaudīt meistaram.",
+		"Ļoti izdevīga cena: 2 000 € (20%) zem 12 līdzīgu sludinājumu mediānas (10 000 €; 2015–2018, 140–230 tūkst. km)",
+		"Mazs nobraukums: 60 tūkst. km 6 gadu vecumā, 0,6× no šim vecumam parastajiem 108 tūkst. km.",
+		"Derīga līdz 02.2028 (vēl 15 mēn.).",
 	} {
 		if good[i].Value != want {
 			t.Errorf("line %d = %q\nwant     %q", i, good[i].Value, want)

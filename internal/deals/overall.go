@@ -95,7 +95,7 @@ func (r Ratings) TextIn(l Lang) (string, bool) {
 	return overallText(b, why, l), true
 }
 
-// overallText is the overall line, e.g. "✅ Potentially a good buy: 14% below
+// overallText is the overall line, e.g. "Potentially a good buy: 14% below
 // similar ads, durable engine (2.0d B47). Still have it inspected."
 func overallText(b Buy, why []string, l Lang) string {
 	p := l.ph()

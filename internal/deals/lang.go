@@ -54,7 +54,7 @@ type phrases struct {
 	equipHas         string // list
 	equipMissing     string // list, class
 	equipMissingJoin string // between missing features
-	trimLine         string // label, had, options, trim
+	trimLine         string // had, options, trim (after the label)
 	trimLacks        string // list
 	trimUnticked     string // list
 
@@ -79,16 +79,16 @@ type phrases struct {
 }
 
 var enPhrases = &phrases{
-	verdict: [...]string{"🚩 Suspiciously cheap", "🔥 Steal", "👍 Good price", "😐 Fair", "👎 Pricey", "💩 Overpriced"},
-	buy:     [...]string{"❌ Likely a bad buy", "😐 Average buy", "✅ Potentially a good buy", "🚩 Too cheap to trust"},
-	level:   [...]string{"👎 Basic", "😐 Average", "👍 Well equipped"},
-	trim:    [...]string{"👎 Base trim", "😐 Mid trim", "👍 Near top trim"},
+	verdict: [...]string{"Suspiciously cheap", "Steal", "Good price", "Fair", "Pricey", "Overpriced"},
+	buy:     [...]string{"Likely a bad buy", "Average buy", "Potentially a good buy", "Too cheap to trust"},
+	level:   [...]string{"Basic", "Average", "Well equipped"},
+	trim:    [...]string{"Base trim", "Mid trim", "Near top trim"},
 	rating: map[Rating]string{
-		RatingGood: "👍 Good", RatingOK: "😐 OK", RatingMixed: "❓ Depends", RatingRisky: "👎 Risky",
+		RatingGood: "Good", RatingOK: "OK", RatingMixed: "Depends", RatingRisky: "Risky",
 	},
-	mileage:  [...]string{"👍 Low mileage", "😐 Usual mileage", "👎 High mileage", "💩 Very high mileage"},
+	mileage:  [...]string{"Low mileage", "Usual mileage", "High mileage", "Very high mileage"},
 	class:    map[string]string{},
-	fields:   [...]string{"⭐ Overall", "🏷️ Price verdict", "📏 Mileage verdict", "📋 Inspection verdict", "🔧 Engine verdict", "🕹️ Gearbox verdict", "🧰 Equipment verdict"},
+	fields:   [...]string{"Overall", "Price verdict", "Mileage verdict", "Inspection verdict", "Engine verdict", "Gearbox verdict", "Equipment verdict"},
 	thousand: "k km",
 
 	priceLine:       "%s: %s (%s; %s)",
@@ -101,18 +101,18 @@ var enPhrases = &phrases{
 	mileageLine: "%s: %s at %s, %s× the usual %s for its age.",
 	years:       func(n int) string { return strconv.Itoa(n) + " years" },
 
-	inspectionGone:   "👎 Ran out in %s: it may not be driven until it passes again, which may need repairs.",
-	inspectionNone:   "👎 No valid technical inspection: it may not be driven until it passes, which may need repairs.",
-	inspectionValid:  "👍 Valid technical inspection.",
-	inspectionSoon:   "😐 Valid until %s, but runs out soon (%s): budget for the next one.",
-	inspectionUntil:  "👍 Valid until %s (%s).",
+	inspectionGone:   "Ran out in %s: it may not be driven until it passes again, which may need repairs.",
+	inspectionNone:   "No valid technical inspection: it may not be driven until it passes, which may need repairs.",
+	inspectionValid:  "Valid technical inspection.",
+	inspectionSoon:   "Valid until %s, but runs out soon (%s): budget for the next one.",
+	inspectionUntil:  "Valid until %s (%s).",
 	monthsLeft:       func(n int) string { return strconv.Itoa(n) + " months left" },
 	equipBetter:      ": better than %d of %d similar ads",
 	equipClass:       " for a %s car of its age (too few similar ads with known equipment to compare)",
 	equipHas:         " Has %s.",
 	equipMissing:     " No %s, which %s cars of its age usually have.",
 	equipMissingJoin: ", no ",
-	trimLine:         "%s: has %d of the %d options a %s could have.",
+	trimLine:         ": has %d of the %d options a %s could have.",
 	trimLacks:        " Lacks %s.",
 	trimUnticked:     " The seller did not tick %s, which every one has, so the list may be incomplete.",
 
@@ -136,18 +136,18 @@ var enPhrases = &phrases{
 }
 
 var lvPhrases = &phrases{
-	verdict: [...]string{"🚩 Aizdomīgi lēts", "🔥 Ļoti izdevīga cena", "👍 Laba cena", "😐 Atbilstoša cena", "👎 Dārgs", "💩 Pārāk dārgs"},
-	buy:     [...]string{"❌ Visticamāk slikts piedāvājums", "😐 Vidējs piedāvājums", "✅ Potenciāli labs piedāvājums", "🚩 Pārāk lēts, lai uzticētos"},
-	level:   [...]string{"👎 Pamata aprīkojums", "😐 Vidējs aprīkojums", "👍 Labi aprīkots"},
-	trim:    [...]string{"👎 Bāzes komplektācija", "😐 Vidēja komplektācija", "👍 Gandrīz pilna komplektācija"},
+	verdict: [...]string{"Aizdomīgi lēts", "Ļoti izdevīga cena", "Laba cena", "Atbilstoša cena", "Dārgs", "Pārāk dārgs"},
+	buy:     [...]string{"Visticamāk slikts piedāvājums", "Vidējs piedāvājums", "Potenciāli labs piedāvājums", "Pārāk lēts, lai uzticētos"},
+	level:   [...]string{"Pamata aprīkojums", "Vidējs aprīkojums", "Labi aprīkots"},
+	trim:    [...]string{"Bāzes komplektācija", "Vidēja komplektācija", "Gandrīz pilna komplektācija"},
 	rating: map[Rating]string{
-		RatingGood: "👍 Labs", RatingOK: "😐 Normāls", RatingMixed: "❓ Atkarīgs no versijas", RatingRisky: "👎 Riskants",
+		RatingGood: "Labs", RatingOK: "Normāls", RatingMixed: "Atkarīgs no versijas", RatingRisky: "Riskants",
 	},
-	mileage: [...]string{"👍 Mazs nobraukums", "😐 Parasts nobraukums", "👎 Liels nobraukums", "💩 Ļoti liels nobraukums"},
+	mileage: [...]string{"Mazs nobraukums", "Parasts nobraukums", "Liels nobraukums", "Ļoti liels nobraukums"},
 	class: map[string]string{
 		"budget": "budžeta", "mainstream": "vidējās klases", "premium": "premium klases", "luxury": "luksusa klases",
 	},
-	fields:   [...]string{"⭐ Kopvērtējums", "🏷️ Cena", "📏 Nobraukums", "📋 Tehniskā apskate", "🔧 Dzinējs", "🕹️ Ātrumkārba", "🧰 Aprīkojums"},
+	fields:   [...]string{"Kopvērtējums", "Cena", "Nobraukums", "Tehniskā apskate", "Dzinējs", "Ātrumkārba", "Aprīkojums"},
 	thousand: " tūkst. km",
 
 	priceLine:       "%s: %s (%s; %s)",
@@ -160,18 +160,18 @@ var lvPhrases = &phrases{
 	mileageLine: "%s: %s %s vecumā, %s× no šim vecumam parastajiem %s.",
 	years:       func(n int) string { return strconv.Itoa(n) + " " + lvPlural(n, "gada", "gadu") },
 
-	inspectionGone:   "👎 Beidzās %s: ar to nedrīkst braukt, kamēr tā nav izieta no jauna, un tam var būt vajadzīgs remonts.",
-	inspectionNone:   "👎 Nav derīgas tehniskās apskates: ar to nedrīkst braukt, kamēr tā nav izieta, un tam var būt vajadzīgs remonts.",
-	inspectionValid:  "👍 Derīga tehniskā apskate.",
-	inspectionSoon:   "😐 Derīga līdz %s, bet drīz beigsies (%s): rēķinieties ar nākamās izmaksām.",
-	inspectionUntil:  "👍 Derīga līdz %s (%s).",
+	inspectionGone:   "Beidzās %s: ar to nedrīkst braukt, kamēr tā nav izieta no jauna, un tam var būt vajadzīgs remonts.",
+	inspectionNone:   "Nav derīgas tehniskās apskates: ar to nedrīkst braukt, kamēr tā nav izieta, un tam var būt vajadzīgs remonts.",
+	inspectionValid:  "Derīga tehniskā apskate.",
+	inspectionSoon:   "Derīga līdz %s, bet drīz beigsies (%s): rēķinieties ar nākamās izmaksām.",
+	inspectionUntil:  "Derīga līdz %s (%s).",
 	monthsLeft:       func(n int) string { return "vēl " + strconv.Itoa(n) + " mēn." },
 	equipBetter:      ": labāk nekā %d no %d līdzīgiem sludinājumiem",
 	equipClass:       " %s auto savam vecumam (par maz līdzīgu sludinājumu ar zināmu aprīkojumu, lai salīdzinātu)",
 	equipHas:         " Ir: %s.",
 	equipMissing:     " Nav: %s, lai gan %s auto šajā vecumā tas parasti ir.",
 	equipMissingJoin: ", ",
-	trimLine:         "%s: ir %d no %d papildu opcijām, kādas var būt %s.",
+	trimLine:         ": ir %d no %d papildu opcijām, kādas var būt %s.",
 	trimLacks:        " Nav: %s.",
 	trimUnticked:     " Pārdevējs nav atzīmējis: %s, lai gan tas ir katram, tāpēc saraksts var būt nepilnīgs.",
 

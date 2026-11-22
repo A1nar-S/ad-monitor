@@ -46,6 +46,9 @@ type Rated struct {
 	Heading string  // what it is, e.g. "BMW 520"
 	Overall string  // the verdict line
 	Fields  []events.Field
+	// Lines are the verdicts (Fields but the overall one) in parts, for
+	// the page to lay out.
+	Lines []Line
 	// Components are the score's parts, for the breakdown.
 	Components []Component
 	PriceDiff  *float64 // vs similar listings: -0.14 is 14% below; nil = not compared
@@ -63,7 +66,22 @@ type Rated struct {
 type Text struct {
 	Overall string            `json:"overall"`
 	Fields  []events.Field    `json:"fields"`
+	Lines   []Line            `json:"lines,omitempty"`
 	Why     map[string]string `json:"why,omitempty"` // by component key
+}
+
+// Line is one verdict in parts: a tone to colour it by (great, good,
+// neutral, mixed, bad, awful, warn), a short label, what it judges, the
+// rest as sentences, and lists of what the item has and lacks.
+type Line struct {
+	Key      string   `json:"key"` // as the component it explains
+	Tone     string   `json:"tone"`
+	Label    string   `json:"label"`
+	Subject  string   `json:"subject,omitempty"`
+	Text     string   `json:"text,omitempty"`
+	Has      []string `json:"has,omitempty"`
+	Lacks    []string `json:"lacks,omitempty"`
+	Unticked []string `json:"unticked,omitempty"`
 }
 
 // Component is one part of a score: x from -1 to +1, weighted.

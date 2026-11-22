@@ -2,12 +2,21 @@
 import { computed, ref } from 'vue'
 import {
   ArrowUpRight,
+  Check,
   ChevronDown,
+  CircleAlert,
+  ClipboardCheck,
+  Cog,
+  Gauge,
   ImageOff,
   Info,
+  Joystick,
+  ListChecks,
   MapPin,
+  Tag,
+  X,
 } from 'lucide-vue-next'
-import type { Gem, GemBuy, GemSpec } from '../api'
+import type { Gem, GemBuy, GemLine, GemSpec, GemTone } from '../api'
 import { formatNumber, t, tKey } from '../i18n'
 
 // One rated listing: photo, price against the market, the verdict and its
@@ -102,10 +111,40 @@ const parts = computed(() => {
     value: shown[i]!,
     label: tKey(`gems.components.${c.key}`, c.key),
     width: `${Math.min(1, Math.abs(raw[i]!) / maxPart) * 50}%`,
+    line: props.gem.lines.find((l) => l.key === c.key) as GemLine | undefined,
+    icon: icons[c.key] ?? Info,
   }))
 })
 const signed = (n: number) => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '0')
-const verdictLines = computed(() => props.gem.fields.slice(1))
+
+// Each part of the score with its verdict: an icon per part, the verdict's
+// label coloured by its tone.
+const icons: Record<string, typeof Tag> = {
+  price: Tag,
+  mileage: Gauge,
+  inspection: ClipboardCheck,
+  engine: Cog,
+  gearbox: Joystick,
+  equipment: ListChecks,
+}
+const toneClass: Record<GemTone, string> = {
+  great: 'bg-success-50 text-success-700 ring-success-100',
+  good: 'bg-success-50 text-success-700 ring-success-100',
+  neutral: 'bg-gray-100 text-gray-700 ring-gray-150',
+  mixed: 'bg-warning-50 text-warning-700 ring-warning-100',
+  warn: 'bg-warning-50 text-warning-700 ring-warning-100',
+  bad: 'bg-danger-50 text-danger-700 ring-danger-100',
+  awful: 'bg-danger-50 text-danger-700 ring-danger-100',
+}
+const iconTone: Record<GemTone, string> = {
+  great: 'bg-success-50 text-success-600',
+  good: 'bg-success-50 text-success-600',
+  neutral: 'bg-gray-100 text-gray-500',
+  mixed: 'bg-warning-50 text-warning-600',
+  warn: 'bg-warning-50 text-warning-600',
+  bad: 'bg-danger-50 text-danger-600',
+  awful: 'bg-danger-50 text-danger-600',
+}
 </script>
 
 <template>
@@ -234,73 +273,124 @@ const verdictLines = computed(() => props.gem.fields.slice(1))
         />
       </button>
 
-      <div v-if="open" class="mt-3 space-y-4 border-t border-gray-150 pt-3">
-        <ul class="space-y-2.5" :aria-label="t('gems.breakdown')">
-          <li
-            class="grid grid-cols-[8.5rem_1fr_3rem] items-center gap-3 text-small"
-          >
-            <span class="text-gray-700">{{ t('gems.neutral') }}</span>
-            <span class="text-xs text-gray-500">{{
-              t('gems.neutralHint')
-            }}</span>
-            <span class="text-right font-medium text-gray-900 tabular-nums">{{
-              neutral
-            }}</span>
-          </li>
-          <li
-            v-for="p in parts"
-            :key="p.key"
-            class="grid grid-cols-[8.5rem_1fr_3rem] items-center gap-x-3 gap-y-0.5 text-small"
-          >
-            <span class="truncate text-gray-700">{{ p.label }}</span>
+      <div v-if="open" class="mt-3 border-t border-gray-150 pt-3">
+        <div
+          class="flex items-center justify-between pb-2 text-small text-gray-500"
+        >
+          <span>{{ t('gems.neutral') }} · {{ t('gems.neutralHint') }}</span>
+          <span class="font-medium text-gray-900 tabular-nums">{{
+            neutral
+          }}</span>
+        </div>
+        <ul
+          class="divide-y divide-gray-150 border-y border-gray-150"
+          :aria-label="t('gems.breakdown')"
+        >
+          <li v-for="p in parts" :key="p.key" class="flex gap-3 py-3">
             <span
-              class="relative h-2 rounded-full bg-gray-100"
+              class="grid size-8 shrink-0 place-items-center rounded-full"
+              :class="iconTone[p.line?.tone ?? 'neutral']"
               aria-hidden="true"
             >
-              <span class="absolute inset-y-0 left-1/2 w-px bg-gray-300" />
-              <span
-                class="absolute inset-y-0 rounded-full"
-                :class="
-                  p.value >= 0
-                    ? 'left-1/2 bg-success-600'
-                    : 'right-1/2 bg-danger-600'
-                "
-                :style="{ width: p.width }"
-              />
+              <component :is="p.icon" :size="16" />
             </span>
-            <span
-              class="text-right font-medium tabular-nums"
-              :class="
-                p.value > 0
-                  ? 'text-success-700'
-                  : p.value < 0
-                    ? 'text-danger-700'
-                    : 'text-gray-500'
-              "
-              >{{ signed(p.value) }}</span
-            >
-            <span
-              v-if="p.why"
-              class="col-start-2 col-end-4 text-xs text-gray-500"
-              >{{ p.why }}</span
-            >
-          </li>
-          <li
-            class="grid grid-cols-[8.5rem_1fr_3rem] items-center gap-3 border-t border-gray-150 pt-2.5 text-small"
-          >
-            <span class="font-medium text-gray-900">{{ t('gems.total') }}</span>
-            <span />
-            <span class="text-right font-semibold text-gray-900 tabular-nums">{{
-              gem.score
-            }}</span>
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span class="text-sm font-medium text-gray-900">{{
+                  p.label
+                }}</span>
+                <span
+                  v-if="p.line"
+                  class="badge ring-1 ring-inset"
+                  :class="toneClass[p.line.tone]"
+                  >{{ p.line.label }}</span
+                >
+                <span
+                  class="ml-auto text-sm font-semibold tabular-nums"
+                  :class="
+                    p.value > 0
+                      ? 'text-success-700'
+                      : p.value < 0
+                        ? 'text-danger-700'
+                        : 'text-gray-500'
+                  "
+                  >{{ signed(p.value) }}</span
+                >
+              </div>
+              <span
+                class="relative mt-2 block h-1.5 rounded-full bg-gray-100"
+                aria-hidden="true"
+              >
+                <span class="absolute inset-y-0 left-1/2 w-px bg-gray-300" />
+                <span
+                  class="absolute inset-y-0 rounded-full"
+                  :class="
+                    p.value >= 0
+                      ? 'left-1/2 bg-success-600'
+                      : 'right-1/2 bg-danger-600'
+                  "
+                  :style="{ width: p.width }"
+                />
+              </span>
+              <p
+                v-if="p.line?.subject || p.line?.text"
+                class="mt-2 text-small text-gray-700"
+              >
+                <span v-if="p.line.subject" class="font-medium text-gray-900"
+                  >{{ p.line.subject }}.
+                </span>
+                {{ p.line.text }}
+              </p>
+              <p v-else-if="p.why" class="mt-2 text-small text-gray-700">
+                {{ p.why }}
+              </p>
+              <div
+                v-if="p.line?.has?.length || p.line?.lacks?.length"
+                class="mt-2 space-y-1.5"
+              >
+                <ul
+                  v-if="p.line.has?.length"
+                  class="flex flex-wrap gap-1.5"
+                  :aria-label="t('gems.has')"
+                >
+                  <li
+                    v-for="f in p.line.has"
+                    :key="f"
+                    class="inline-flex items-center gap-1 rounded bg-success-50 px-1.5 py-0.5 text-xs text-success-700"
+                  >
+                    <Check :size="12" />{{ f }}
+                  </li>
+                </ul>
+                <ul
+                  v-if="p.line.lacks?.length"
+                  class="flex flex-wrap gap-1.5"
+                  :aria-label="t('gems.lacks')"
+                >
+                  <li
+                    v-for="f in p.line.lacks"
+                    :key="f"
+                    class="inline-flex items-center gap-1 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600"
+                  >
+                    <X :size="12" />{{ f }}
+                  </li>
+                </ul>
+              </div>
+              <p
+                v-if="p.line?.unticked?.length"
+                class="mt-2 flex items-start gap-1.5 text-xs text-warning-700"
+              >
+                <CircleAlert :size="13" class="mt-px shrink-0" />
+                {{ t('gems.unticked', { list: p.line.unticked.join(', ') }) }}
+              </p>
+            </div>
           </li>
         </ul>
-        <dl class="space-y-2 text-small">
-          <div v-for="f in verdictLines" :key="f.name">
-            <dt class="font-medium text-gray-900">{{ f.name }}</dt>
-            <dd class="text-gray-700">{{ f.value }}</dd>
-          </div>
-        </dl>
+        <div class="flex items-center justify-between pt-2 text-sm">
+          <span class="font-medium text-gray-900">{{ t('gems.total') }}</span>
+          <span class="font-semibold text-gray-900 tabular-nums">{{
+            gem.score
+          }}</span>
+        </div>
       </div>
     </div>
   </li>

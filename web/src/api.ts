@@ -82,6 +82,22 @@ export type GemComponent = {
   why: string
 }
 
+// One verdict in parts, for the breakdown: a tone to colour it by, a short
+// label, what it judges, the rest, and the equipment it has and lacks.
+export type GemTone =
+  'great' | 'good' | 'neutral' | 'mixed' | 'bad' | 'awful' | 'warn'
+
+export type GemLine = {
+  key: string
+  tone: GemTone
+  label: string
+  subject?: string
+  text?: string
+  has?: string[]
+  lacks?: string[]
+  unticked?: string[]
+}
+
 export type Gem = {
   externalId: string
   heading: string
@@ -96,6 +112,8 @@ export type Gem = {
   score: number // 0-100
   overall: string
   fields: { name: string; value: string }[]
+  // fields but the overall one, in parts; empty on gems rated before.
+  lines: GemLine[]
   detailed: boolean
   components: GemComponent[]
   // The spec fields' values; unknown ones are missing.

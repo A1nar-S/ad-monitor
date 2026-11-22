@@ -456,6 +456,7 @@ func (s *Scanner) save(ctx context.Context, scan Scan, items []Item, results []R
 func row(scan Scan, it Item, x Rated) gemsdb.InsertGemParams {
 	l := it.Listing
 	fields, _ := json.Marshal(nonNil(x.Fields))
+	lines, _ := json.Marshal(nonNil(x.Lines))
 	components, _ := json.Marshal(nonNil(x.Components))
 	attrs, _ := json.Marshal(x.Attrs)
 	tr := x.Translations
@@ -472,7 +473,7 @@ func row(scan Scan, it Item, x Rated) gemsdb.InsertGemParams {
 		Title: l.Title, Url: l.URL, ImageUrl: l.ImageURL, Price: l.Price, PriceValue: *l.PriceValue,
 		Buy: x.Buy, Score: score, DisplayScore: int32(x.Display), PriceDiff: x.PriceDiff,
 		Heading: x.Heading, Overall: x.Overall, Fields: fields, Components: components,
-		Detailed: it.Detailed, Attrs: attrs, Translations: translations,
+		Detailed: it.Detailed, Attrs: attrs, Lines: lines, Translations: translations,
 	}
 }
 

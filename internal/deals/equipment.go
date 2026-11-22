@@ -401,7 +401,7 @@ func notable(eq equipment) []string {
 	return names[:min(6, len(names))]
 }
 
-// Text is the equipment line of an alert, e.g. "👍 Well equipped: better
+// Text is the equipment line of an alert, e.g. "Well equipped: better
 // than 7 of 9 similar ads. Has climate control, 4x4, ... No reversing camera,
 // which premium cars of its age usually have."
 func (r EquipmentRating) Text() string { return r.TextIn(En) }
@@ -412,31 +412,27 @@ func (r EquipmentRating) TextIn(l Lang) string {
 		return r.trimText(l)
 	}
 	p := l.ph()
-	class := r.Class
-	if c, ok := p.class[class]; ok {
-		class = c
-	}
 	s := p.level[r.Level]
 	if r.Of > 0 {
-		s += fmt.Sprintf(p.equipBetter, r.Better, r.Of)
+		s += fmtBetter(p, r)
 	} else {
-		s += fmt.Sprintf(p.equipClass, class)
+		s += fmtClass(l, r)
 	}
 	s += "."
 	if len(r.Has) > 0 {
 		s += fmt.Sprintf(p.equipHas, l.features(r.Has, ", "))
 	}
 	if len(r.Missing) > 0 {
-		s += fmt.Sprintf(p.equipMissing, l.features(r.Missing, p.equipMissingJoin), class)
+		s += fmt.Sprintf(p.equipMissing, l.features(r.Missing, p.equipMissingJoin), l.class(r.Class))
 	}
 	return s
 }
 
-// trimText is e.g. "👍 Near top trim: has 11 of the 17 options a Volkswagen
+// trimText is e.g. "Near top trim: has 11 of the 17 options a Volkswagen
 // Golf 7 could have. Has ... Lacks panoramic roof, 4x4."
 func (r EquipmentRating) trimText(l Lang) string {
 	p := l.ph()
-	s := fmt.Sprintf(p.trimLine, p.trim[r.Level], r.OptionsHad, r.Options, r.Trim)
+	s := p.trim[r.Level] + fmtTrim(p, r)
 	if len(r.Has) > 0 {
 		s += fmt.Sprintf(p.equipHas, l.features(r.Has, ", "))
 	}
@@ -447,6 +443,30 @@ func (r EquipmentRating) trimText(l Lang) string {
 		s += fmt.Sprintf(p.trimUnticked, l.features(r.Unticked, ", "))
 	}
 	return s
+}
+
+// fmtBetter is ": better than 7 of 9 similar ads".
+func fmtBetter(p *phrases, r EquipmentRating) string {
+	return fmt.Sprintf(p.equipBetter, r.Better, r.Of)
+}
+
+// fmtClass is " for a premium car of its age (…)".
+func fmtClass(l Lang, r EquipmentRating) string {
+	return fmt.Sprintf(l.ph().equipClass, l.class(r.Class))
+}
+
+// fmtTrim is ": has 11 of the 17 options a Volkswagen Golf 7 could have.",
+// the trim line after its label.
+func fmtTrim(p *phrases, r EquipmentRating) string {
+	return fmt.Sprintf(p.trimLine, r.OptionsHad, r.Options, r.Trim)
+}
+
+// class names a car class in l.
+func (l Lang) class(c string) string {
+	if n, ok := l.ph().class[c]; ok {
+		return n
+	}
+	return c
 }
 
 // features names equipment in l, joined by sep.

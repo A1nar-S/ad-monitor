@@ -127,7 +127,8 @@ dashboard api ─┴─> subscriptions (users, channels, searches, logins) <─�
   engine 2 (risky × wear `km/200k`), gearbox 1.5, equipment 1.5. Good ≥ 4, bad ≤ −2,
   shown as `50 + 5·S` (0–100). Alerts and the gem finder share it. Texts come in `deals.Langs` (`lang.go`:
   English, the alerts'; Latvian for the gem finder, stored per gem in `gems.translations` and picked by `?lang=`;
-  codebook entries need `notes_lv`). The vocabulary is English; sources translate via
+  codebook entries need `notes_lv`). No emojis: the gem finder gets each verdict in parts (`deals.LinesIn`:
+  tone, label, subject, text, has/lacks lists) and draws its own icons and colours. The vocabulary is English; sources translate via
   `CarAds.CarTerm` (ss.com: `scraping/ss/cars.go`).
   Car alerts read the ad page if no filter did already (one request; a failed read is tolerated).
 - **Flats:** `region`/`district`/`deal` compile into feed paths (shared by everyone watching the area); the rest are local

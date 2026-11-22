@@ -192,6 +192,7 @@ type Gem struct {
 	Score      int            `json:"score"`     // 0-100
 	Overall    string         `json:"overall"`
 	Fields     []events.Field `json:"fields"`   // the verdict lines, as in an alert
+	Lines      []Line         `json:"lines"`    // the same but the overall one, in parts
 	Detailed   bool           `json:"detailed"` // its ad page was read
 	// Components are the score's parts; Attrs the values of the category's
 	// Spec fields (unknown left out).
@@ -336,9 +337,10 @@ func (s *Service) List(ctx context.Context, source, category string, q Query) (P
 			ExternalID: r.ExternalID, Heading: r.Heading, Title: r.Title, URL: r.Url, ImageURL: r.ImageUrl,
 			Price: r.Price, PriceValue: r.PriceValue, PriceDiff: r.PriceDiff, Buy: r.Buy, Score: int(r.DisplayScore),
 			Overall: r.Overall, Detailed: r.Detailed,
-			Fields: []events.Field{}, Components: []Component{}, Attrs: map[string]any{},
+			Fields: []events.Field{}, Lines: []Line{}, Components: []Component{}, Attrs: map[string]any{},
 		}
 		_ = json.Unmarshal(r.Fields, &g.Fields)
+		_ = json.Unmarshal(r.Lines, &g.Lines)
 		_ = json.Unmarshal(r.Components, &g.Components)
 		_ = json.Unmarshal(r.Attrs, &g.Attrs)
 		if q.Lang != "" {
@@ -373,6 +375,9 @@ func (g *Gem) translate(stored []byte, lang string) {
 	g.Overall = t.Overall
 	if t.Fields != nil {
 		g.Fields = t.Fields
+	}
+	if t.Lines != nil {
+		g.Lines = t.Lines
 	}
 	for i, c := range g.Components {
 		if why, ok := t.Why[c.Key]; ok {
