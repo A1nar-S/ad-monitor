@@ -10,7 +10,7 @@ COPY web/ ./
 ARG VERSION=dev
 RUN VITE_APP_VERSION=$VERSION bun run build
 
-FROM golang:1.26 AS build
+FROM golang:1.27 AS build
 ARG CMD
 WORKDIR /src
 COPY go.mod go.sum ./
