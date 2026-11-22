@@ -107,7 +107,7 @@ func TestReliabilityText(t *testing.T) {
 	if got, want := r.Text(), "Rarely fails inspection: 20% of such cars (2009–2011) fail the technical inspection at the first attempt, 40% of all cars that age (CSDD 2022–2024, 600 inspections)."; got != want {
 		t.Errorf("Text = %q\nwant   %q", got, want)
 	}
-	if got, want := r.TextIn(Lv), "Reti neiztur apskati: 20% šādu auto (2009–2011) neiztur tehnisko apskati ar pirmo reizi, no visiem šī vecuma auto — 40% (CSDD 2022–2024, 600 apskates)."; got != want {
+	if got, want := r.TextIn(Lv), "Reti neiziet apskati: 20% šādu auto (2009–2011) neiziet tehnisko apskati ar pirmo reizi, no visiem šī vecuma auto — 40% (CSDD 2022–2024, 600 apskates)."; got != want {
 		t.Errorf("TextIn(Lv) = %q\nwant        %q", got, want)
 	}
 	bad, _ := RateReliability(Car{Make: "Volkswagen", Model: "Golf Plus", Fuel: Diesel, Year: 2010})
