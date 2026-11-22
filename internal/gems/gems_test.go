@@ -1,7 +1,6 @@
 package gems
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"maps"
@@ -70,42 +69,36 @@ func (things) Rater(_ sources.Source, items []Item) (Rater, bool) {
 type thingRater struct{ items []Item }
 
 func (r *thingRater) Update(i int, it Item) { r.items[i] = it }
-func (r *thingRater) Rate() []Rated {
-	var out []Rated
-	for i, it := range r.items {
-		l := it.Listing
-		if !it.Active || l.PriceValue == nil || !strings.HasSuffix(l.Feed, "/sell") {
-			continue
-		}
-		p := *l.PriceValue
-		x := Rated{Item: i, Score: -p / 1000, Display: int(100 - p/200), Buy: "average", Heading: "Thing " + l.ExternalID,
-			Overall: "fine", Candidate: p < 10000, Attrs: map[string]any{}}
-		if p < 8000 {
-			x.Buy = "good"
-		}
-		if p > 50000 {
-			x.Score = math.Inf(-1)
-		}
-		d := p/10000 - 1
-		x.PriceDiff = &d
-		x.Components = []Component{{Key: "price", X: -d, Weight: 3, Points: -3 * d, Why: "priced"}}
-		x.Fields = []events.Field{{Name: "Price", Value: "fine"}}
-		x.Translations = map[string]Text{"lv": {Overall: "labi", Fields: []events.Field{{Name: "Cena", Value: "laba"}},
-			Why: map[string]string{"price": "cena"}}}
-		for _, k := range []string{"colour", "shape"} {
-			if v, ok := l.Str(k); ok {
-				x.Attrs[k] = v
-			}
-		}
-		if y, ok := l.Num("year"); ok {
-			x.Attrs["year"] = y
-		}
-		out = append(out, x)
+func (r *thingRater) Rate(i int) (Rated, bool) {
+	it := r.items[i]
+	l := it.Listing
+	if !it.Active || l.PriceValue == nil || !strings.HasSuffix(l.Feed, "/sell") {
+		return Rated{}, false
 	}
-	slices.SortStableFunc(out, func(a, b Rated) int {
-		return cmp.Or(cmp.Compare(b.Score, a.Score), cmp.Compare(r.items[a.Item].Listing.ExternalID, r.items[b.Item].Listing.ExternalID))
-	})
-	return out
+	p := *l.PriceValue
+	x := Rated{Item: i, Score: -p / 1000, Display: int(100 - p/200), Buy: "average", Heading: "Thing " + l.ExternalID,
+		Overall: "fine", Candidate: p < 10000, Attrs: map[string]any{}}
+	if p < 8000 {
+		x.Buy = "good"
+	}
+	if p > 50000 {
+		x.Score = math.Inf(-1)
+	}
+	d := p/10000 - 1
+	x.PriceDiff = &d
+	x.Components = []Component{{Key: "price", X: -d, Weight: 3, Points: -3 * d, Why: "priced"}}
+	x.Fields = []events.Field{{Name: "Price", Value: "fine"}}
+	x.Translations = map[string]Text{"lv": {Overall: "labi", Fields: []events.Field{{Name: "Cena", Value: "laba"}},
+		Why: map[string]string{"price": "cena"}}}
+	for _, k := range []string{"colour", "shape"} {
+		if v, ok := l.Str(k); ok {
+			x.Attrs[k] = v
+		}
+	}
+	if y, ok := l.Num("year"); ok {
+		x.Attrs["year"] = y
+	}
+	return x, true
 }
 
 // fakeSite lists things for sale on "things/sell", one page per element of

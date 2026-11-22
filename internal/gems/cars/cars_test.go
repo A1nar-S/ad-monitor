@@ -1,6 +1,7 @@
 package cars
 
 import (
+	"cmp"
 	"context"
 	"slices"
 	"strings"
@@ -56,6 +57,20 @@ func detailed(it gems.Item) gems.Item {
 	return it
 }
 
+// rateAll rates every item r can, best first.
+func rateAll(r gems.Rater, items []gems.Item) []gems.Rated {
+	var out []gems.Rated
+	for i := range items {
+		if x, ok := r.Rate(i); ok {
+			out = append(out, x)
+		}
+	}
+	slices.SortStableFunc(out, func(a, b gems.Rated) int {
+		return cmp.Or(cmp.Compare(b.Score, a.Score), cmp.Compare(items[a.Item].Listing.ExternalID, items[b.Item].Listing.ExternalID))
+	})
+	return out
+}
+
 func ids(items []gems.Item, rs []gems.Rated) []string {
 	var out []string
 	for _, x := range rs {
@@ -85,7 +100,7 @@ func TestRater(t *testing.T) {
 		t.Error("a source without whole cars can be rated")
 	}
 
-	rs := r.Rate()
+	rs := rateAll(r, items)
 	got := ids(items, rs)
 	// Not the Niva (nothing to compare with), the sold one, nor a wanted ad;
 	// the sold one still counts as a peer.
@@ -116,7 +131,7 @@ func TestRater(t *testing.T) {
 	// Its ad page read: the details are there and it is rated again.
 	items[0] = detailed(items[0])
 	r.Update(0, items[0])
-	rs = r.Rate()
+	rs = rateAll(r, items)
 	best = rs[0]
 	a = best.Attrs
 	if items[best.Item].Listing.ExternalID != "cheap" || a["body"] != "wagon" || a["region"] != "Rīga" ||
@@ -157,7 +172,7 @@ func TestRater(t *testing.T) {
 	// Removed: no longer rated.
 	items[0].Active = false
 	r.Update(0, items[0])
-	if got := ids(items, r.Rate()); slices.Contains(got, "cheap") {
+	if got := ids(items, rateAll(r, items)); slices.Contains(got, "cheap") {
 		t.Errorf("a removed car is still rated: %v", got)
 	}
 }
@@ -171,7 +186,7 @@ func TestAttrsMatchSpec(t *testing.T) {
 		items = append(items, bmw(id, 10000))
 	}
 	r, _ := Category{}.Rater(site{}, items)
-	for _, x := range r.Rate() {
+	for _, x := range rateAll(r, items) {
 		for k := range x.Attrs {
 			if !slices.ContainsFunc(spec.Fields, func(f gems.Field) bool { return f.Key == k }) {
 				t.Errorf("attr %q is not in the spec", k)

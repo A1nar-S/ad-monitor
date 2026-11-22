@@ -5,8 +5,6 @@
 package cars
 
 import (
-	"cmp"
-	"slices"
 	"strings"
 
 	"github.com/A1nar-S/advertisiment-monitoring/internal/deals"
@@ -110,28 +108,14 @@ func (r *rater) Update(i int, it gems.Item) {
 	r.read(i)
 }
 
-// Rate rates every active car with enough to go on, best first.
-func (r *rater) Rate() []gems.Rated {
-	var out []gems.Rated
-	for i, c := range r.cars {
-		if !c.ok || !c.item.Active {
-			continue
-		}
-		if x, ok := r.rate(i); ok {
-			out = append(out, x)
-		}
-	}
-	slices.SortStableFunc(out, func(a, b gems.Rated) int {
-		return cmp.Or(cmp.Compare(b.Score, a.Score),
-			cmp.Compare(r.cars[a.Item].item.Listing.ExternalID, r.cars[b.Item].item.Listing.ExternalID))
-	})
-	return out
-}
-
 var buyNames = map[deals.Buy]string{deals.GoodBuy: "good", deals.AverageBuy: "average", deals.BadBuy: "bad", deals.CheckFirst: "check"}
 
-func (r *rater) rate(i int) (gems.Rated, bool) {
+// Rate rates car i if it is an active one with enough to go on.
+func (r *rater) Rate(i int) (gems.Rated, bool) {
 	c := r.cars[i]
+	if !c.ok || !c.item.Active {
+		return gems.Rated{}, false
+	}
 	var peers []deals.Peer
 	for _, j := range r.byModel[modelKey(c.car)] {
 		p := r.cars[j]

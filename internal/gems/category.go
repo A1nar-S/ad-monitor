@@ -29,10 +29,13 @@ type Item struct {
 	Detailed bool // its ad page was read
 }
 
-// Rater rates one scan's items.
+// Rater rates one scan's items, one at a time: a verdict's texts are many,
+// so a scan never holds them all at once.
 type Rater interface {
-	// Rate rates every active item it can say something about, best first.
-	Rate() []Rated
+	// Rate rates item i (an index into the items the Rater was made with)
+	// against all of them; ok is false when it is not an active one the
+	// category can say something about.
+	Rate(i int) (x Rated, ok bool)
 	// Update replaces item i: its ad page was read, or it was removed.
 	Update(i int, item Item)
 }

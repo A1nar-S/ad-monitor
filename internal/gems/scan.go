@@ -1,6 +1,7 @@
 package gems
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -179,15 +180,15 @@ func (s *Scanner) scan(ctx context.Context, scan Scan) (outcome, error) {
 	if !ok {
 		return out, fmt.Errorf("%s cannot be rated for %s", scan.Source, cat.ID())
 	}
-	results := r.Rate()
-	if err := s.save(ctx, scan, items, results); err != nil {
+	rated, unread, err := s.save(ctx, scan, items, r)
+	if err != nil {
 		return out, err
 	}
-	out.rated = len(results)
+	out.rated = rated
 
 	// Pass 2: the potential buys' ad pages, then everything rated again
 	// (what the others are compared with changed too).
-	gone, note, err := s.detail(ctx, scan, src, items, r, results)
+	gone, note, err := s.detail(ctx, scan, src, items, r, unread)
 	out.gone += gone
 	if note != "" {
 		out.notes = append(out.notes, note)
@@ -199,11 +200,11 @@ func (s *Scanner) scan(ctx context.Context, scan Scan) (outcome, error) {
 		sctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
 	}
-	results = r.Rate()
-	if serr := s.save(sctx, scan, items, results); serr != nil {
+	rated, _, serr := s.save(sctx, scan, items, r)
+	if serr != nil {
 		return out, serr
 	}
-	out.rated = len(results)
+	out.rated = rated
 	return out, err
 }
 
@@ -305,21 +306,15 @@ func (s *Scanner) markGone(ctx context.Context, src sources.Source, cat Category
 	return int(n), "", err
 }
 
-// detail reads the ad page of every potential buy among results not read
-// before, best first, paced by Wait plus DetailGap and backing off when the
-// site pushes back. It saves the re-rated listings every saveEvery pages,
-// so progress shows. A removed ad is marked sold. note says why it stopped
+// detail reads the ad pages of todo (the potential buys not read before,
+// best first), paced by Wait plus DetailGap and backing off when the site
+// pushes back. It saves the re-rated listings every saveEvery pages, so
+// progress shows. A removed ad is marked sold. note says why it stopped
 // early; err is only ctx's or a failed save.
-func (s *Scanner) detail(ctx context.Context, scan Scan, src sources.Source, items []Item, r Rater, results []Rated) (gone int, note string, err error) {
+func (s *Scanner) detail(ctx context.Context, scan Scan, src sources.Source, items []Item, r Rater, todo []int) (gone int, note string, err error) {
 	enricher, ok := src.(sources.Enricher)
 	if !ok {
 		return 0, "", nil
-	}
-	var todo []int
-	for _, x := range results {
-		if x.Candidate && !items[x.Item].Detailed {
-			todo = append(todo, x.Item)
-		}
 	}
 	progress := func(done int) error {
 		return s.Service.q.DetailProgress(ctx, gemsdb.DetailProgressParams{ID: scan.ID, DetailTotal: int32(len(todo)), Detailed: int32(done)})
@@ -392,7 +387,7 @@ func (s *Scanner) detail(ctx context.Context, scan Scan, src sources.Source, ite
 		}
 		if (n+1)%saveEvery == 0 {
 			markRemoved()
-			if err := s.save(ctx, scan, items, r.Rate()); err != nil {
+			if _, _, err := s.save(ctx, scan, items, r); err != nil {
 				return gone, "", err
 			}
 		}
@@ -432,25 +427,54 @@ func jittered(d time.Duration, jitter float64) time.Duration {
 	return d + time.Duration(rand.Float64()*jitter*float64(d))
 }
 
-// save replaces the gems of the scan's category with results, in one
-// transaction.
-func (s *Scanner) save(ctx context.Context, scan Scan, items []Item, results []Rated) error {
-	return pgx.BeginFunc(ctx, s.Service.pool, func(tx pgx.Tx) error {
+// save rates the items and replaces the gems of the scan's category with
+// them, in one transaction. Each verdict is turned into its row as soon as
+// it is rated: as rows (texts as JSON) a whole category fits the scraper's
+// memory, as verdicts it does not. Rating is done before the transaction,
+// so it stays short. rated is how many were rated; unread are the
+// candidates whose ad page was not read yet, best first.
+func (s *Scanner) save(ctx context.Context, scan Scan, items []Item, r Rater) (rated int, unread []int, err error) {
+	type candidate struct {
+		item  int
+		score float64
+	}
+	var cands []candidate
+	var rows []gemsdb.InsertGemParams
+	for i, it := range items {
+		x, ok := r.Rate(i)
+		if !ok {
+			continue
+		}
+		rated++
+		if x.Candidate && !it.Detailed {
+			cands = append(cands, candidate{i, x.Score})
+		}
+		if it.Listing.PriceValue != nil { // a category rates only priced ones; never store a row without
+			rows = append(rows, row(scan, it, x))
+		}
+	}
+	err = pgx.BeginFunc(ctx, s.Service.pool, func(tx pgx.Tx) error {
 		q := s.Service.q.WithTx(tx)
 		if err := q.ClearGems(ctx, gemsdb.ClearGemsParams{Source: scan.Source, Category: scan.Category}); err != nil {
 			return err
 		}
-		for _, x := range results {
-			it := items[x.Item]
-			if it.Listing.PriceValue == nil {
-				continue // a category rates only priced ones; never store a row without
-			}
-			if err := q.InsertGem(ctx, row(scan, it, x)); err != nil {
-				return fmt.Errorf("save %s: %w", it.Listing.ExternalID, err)
+		for _, p := range rows {
+			if err := q.InsertGem(ctx, p); err != nil {
+				return fmt.Errorf("save %s: %w", p.ExternalID, err)
 			}
 		}
 		return nil
 	})
+	if err != nil {
+		return 0, nil, err
+	}
+	slices.SortStableFunc(cands, func(a, b candidate) int {
+		return cmp.Or(cmp.Compare(b.score, a.score), cmp.Compare(items[a.item].Listing.ExternalID, items[b.item].Listing.ExternalID))
+	})
+	for _, c := range cands {
+		unread = append(unread, c.item)
+	}
+	return rated, unread, nil
 }
 
 func row(scan Scan, it Item, x Rated) gemsdb.InsertGemParams {
