@@ -14,6 +14,7 @@ import {
   ListChecks,
   MapPin,
   Tag,
+  Wrench,
   X,
 } from 'lucide-vue-next'
 import type { Gem, GemBuy, GemLine, GemSpec, GemTone } from '../api'
@@ -125,6 +126,7 @@ const icons: Record<string, typeof Tag> = {
   inspection: ClipboardCheck,
   engine: Cog,
   gearbox: Joystick,
+  reliability: Wrench,
   equipment: ListChecks,
 }
 const toneClass: Record<GemTone, string> = {

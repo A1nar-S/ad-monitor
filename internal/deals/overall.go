@@ -19,12 +19,13 @@ func (b Buy) String() string { return enPhrases.buy[b] }
 
 // Ratings are what is known about one car; nil = unknown.
 type Ratings struct {
-	Price      *PriceRating
-	Mileage    *MileageRating
-	Inspection *InspectionRating
-	Engine     *Note
-	Gearbox    *Note
-	Equipment  *EquipmentRating
+	Price       *PriceRating
+	Mileage     *MileageRating
+	Inspection  *InspectionRating
+	Engine      *Note
+	Gearbox     *Note
+	Reliability *ReliabilityRating
+	Equipment   *EquipmentRating
 }
 
 // Rate gathers everything there is to say about c.
@@ -44,6 +45,9 @@ func Rate(c Car, peers []Peer) Ratings {
 	}
 	if n, ok := RateGearbox(c); ok {
 		r.Gearbox = &n
+	}
+	if m, ok := RateReliability(c); ok {
+		r.Reliability = &m
 	}
 	if e, ok := RateEquipment(c, peers); ok {
 		r.Equipment = &e

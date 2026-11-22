@@ -8,12 +8,13 @@ import (
 // The score is a weighted sum: each thing known about a car gives x from
 // −1 to +1 (unknown = 0) and S = Σ weight × x.
 //
-//	price      3    clamp(z, −1, 1): a tolerance below similar ads is +1 (deals.go)
-//	mileage    2    RateMileage: against what is usual for its age
-//	inspection 2    RateInspection: none −1, runs out within 3 months −0.25, valid 0
-//	engine     2    good +1, ok 0, depends −0.25, risky −1 × wear
-//	gearbox    1.5  as the engine, without wear
-//	equipment  1.5  against similar ads 2 × beaten share − 1; else well +1, basic −1
+//	price       3    clamp(z, −1, 1): a tolerance below similar ads is +1 (deals.go)
+//	mileage     2    RateMileage: against what is usual for its age
+//	inspection  2    RateInspection: none −1, runs out within 3 months −0.25, valid 0
+//	engine      2    good +1, ok 0, depends −0.25, risky −1 × wear
+//	gearbox     1.5  as the engine, without wear
+//	reliability 1.5  RateReliability: how often the model fails inspection at the first attempt (failrate.go)
+//	equipment   1.5  against similar ads 2 × beaten share − 1; else well +1, basic −1
 //
 // wear = clamp(km / 200 000, 0.5, 1.5) (1 with no mileage): a risky engine
 // that has done many km is closer to its failure. S ≥ 4 is a good buy (a
@@ -26,6 +27,7 @@ const (
 	weightInspect   = 2.0
 	weightEngine    = 2.0
 	weightGearbox   = 1.5
+	weightReliable  = 1.5
 	weightEquipment = 1.5
 
 	wearKm = 200000.0
@@ -37,7 +39,7 @@ const (
 
 // Component is one thing's part in the score.
 type Component struct {
-	Key    string  `json:"key"` // price, mileage, inspection, engine, gearbox, equipment
+	Key    string  `json:"key"` // price, mileage, inspection, engine, gearbox, reliability, equipment
 	X      float64 `json:"x"`   // −1..+1 (a worn risky engine down to −1.5)
 	Weight float64 `json:"weight"`
 	Points float64 `json:"points"` // Weight × X
@@ -110,6 +112,16 @@ func (r Ratings) ComponentsIn(l Lang) []Component {
 	}
 	part("engine", r.Engine, weightEngine, 0, wear)
 	part("gearbox", r.Gearbox, weightGearbox, 1, 1)
+	if m := r.Reliability; m != nil {
+		why := ""
+		switch m.level() {
+		case 0:
+			why = ph.whyOftenFails
+		case 2:
+			why = ph.whyRarelyFails
+		}
+		add("reliability", weightReliable, m.X, why)
+	}
 	if e := r.Equipment; e != nil {
 		x := map[Level]float64{Basic: -1, Average: 0, WellEquipped: 1}[e.Level]
 		if e.Trim == "" && e.Of > 0 {

@@ -124,13 +124,16 @@ dashboard api ─┴─> subscriptions (users, channels, searches, logins) <─�
   price 3 (z = gap in euros / `max(0.12·m, 0.2·√(15000·m))`, m the peers' median: 20% at 15 000 €,
   63% at 1 500 €, so a cheap car's few hundred euros don't sink it), mileage 2 (`mileage.go`: km vs 18 000/year, −log₂ ratio, weighted `10/(age+5)` so the same
   km costs a new car more), technical inspection 2 (ad page: none or expired −1, < 3 months left −0.25, valid 0),
-  engine 2 (risky × wear `km/200k`), gearbox 1.5, equipment 1.5. Good ≥ 4, bad ≤ −2,
+  engine 2 (risky × wear `km/200k`), gearbox 1.5, model reliability 1.5, equipment 1.5. Good ≥ 4, bad ≤ −2,
   shown as `50 + 5·S` (0–100). Alerts and the gem finder share it. Texts come in `deals.Langs` (`lang.go`:
   English, the alerts'; Latvian for the gem finder, stored per gem in `gems.translations` and picked by `?lang=`;
   codebook entries need `notes_lv`). No emojis: the gem finder gets each verdict in parts (`deals.LinesIn`:
   tone, label, subject, text, has/lacks lists) and draws its own icons and colours. The vocabulary is English; sources translate via
   `CarAds.CarTerm` (ss.com: `scraping/ss/cars.go`).
   Car alerts read the ad page if no filter did already (one request; a failed read is tolerated).
+- **Model reliability** (`deals/failrate.go`): how often the model fails inspection at the first attempt (±1 year, same
+  fuel) vs all cars of known models that age, from CSDD's open data (data.gov.lv, CC0; per model, no VIN). Refresh yearly with
+  `go run ./cmd/admin csdd-inspections` (streams ~700 MB, writes `deals/codebook/inspections.json`).
 - **Flats:** `region`/`district`/`deal` compile into feed paths (shared by everyone watching the area); the rest are local
   filters.
 - **rrr.lt** (`internal/scraping/rrr`, used car parts): read through the site's own GraphQL API (`POST /graphql`,
@@ -431,6 +434,7 @@ make dlq TOPIC=listings.new     # records a consumer gave up on; make dlq-replay
 # Services on the host instead: make infra, then go run ./cmd/<service>; the dashboard with cd web && bun run dev
 go run ./cmd/admin ss-codebook  # refresh the ss.com codebooks
 go run ./cmd/admin rrr-codebook # refresh the rrr.lt part/model taxonomy (one API request)
+go run ./cmd/admin csdd-inspections # refresh the CSDD model fail-rate table (yearly)
 go generate ./...               # after changing a slice's migrations/ or queries/
 ```
 Deploying: k3s + Cloudflare Tunnel (`deploy/`). Gotchas:

@@ -249,7 +249,7 @@ const lv: Messages = {
     category: 'Kategorija',
     categories: { cars: 'Automašīnas', flats: 'Dzīvokļi' },
     leads: {
-      cars: 'Visas pārdodamās automašīnas, novērtētas pēc cenas, nobraukuma pret vecumu, tehniskās apskates, dzinēja un ātrumkārbas uzticamības un aprīkojuma.',
+      cars: 'Visas pārdodamās automašīnas, novērtētas pēc cenas, nobraukuma pret vecumu, tehniskās apskates, dzinēja un ātrumkārbas uzticamības, modeļa apskašu statistikas (CSDD dati) un aprīkojuma.',
     },
     scan: 'Pārskenēt {site}',
     scanHint:
@@ -342,6 +342,7 @@ const lv: Messages = {
       inspection: 'Tehniskā apskate',
       engine: 'Dzinējs',
       gearbox: 'Ātrumkārba',
+      reliability: 'Modelis apskatē',
       equipment: 'Aprīkojums',
     },
     score: 'Vērtējums {score} no 100',

@@ -8,9 +8,11 @@ import (
 	"time"
 )
 
-// TestMain pins the clock mileage is judged by.
+// TestMain pins the clock mileage is judged by, and the inspection table
+// to a made-up one, so tests don't change with each year's data.
 func TestMain(m *testing.M) {
 	Now = func() time.Time { return time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC) }
+	loadFailTable = func() (*failTable, error) { return newFailTable([]byte(testFailJSON)) }
 	os.Exit(m.Run())
 }
 

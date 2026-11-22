@@ -23,17 +23,18 @@ const (
 
 // The tones of the labels, in the order of their phrases.
 var (
-	verdictTones = [...]Tone{ToneWarn, ToneGreat, ToneGood, ToneNeutral, ToneBad, ToneAwful} // by Verdict
-	mileageTones = [...]Tone{ToneGood, ToneNeutral, ToneBad, ToneAwful}                      // by mileage level
-	levelTones   = [...]Tone{ToneBad, ToneNeutral, ToneGood}                                 // by Level
-	ratingTones  = map[Rating]Tone{RatingGood: ToneGood, RatingOK: ToneNeutral, RatingMixed: ToneMixed, RatingRisky: ToneBad}
+	verdictTones     = [...]Tone{ToneWarn, ToneGreat, ToneGood, ToneNeutral, ToneBad, ToneAwful} // by Verdict
+	mileageTones     = [...]Tone{ToneGood, ToneNeutral, ToneBad, ToneAwful}                      // by mileage level
+	levelTones       = [...]Tone{ToneBad, ToneNeutral, ToneGood}                                 // by Level
+	reliabilityTones = [...]Tone{ToneBad, ToneNeutral, ToneGood}                                 // by ReliabilityRating.level
+	ratingTones      = map[Rating]Tone{RatingGood: ToneGood, RatingOK: ToneNeutral, RatingMixed: ToneMixed, RatingRisky: ToneBad}
 )
 
 // Line is one verdict, in parts, for a page to lay out: what the alerts
 // write as one "Good: 2.0d B47. Much more reliable…" line, with a tone for
 // the page to colour it by.
 type Line struct {
-	Key     string   `json:"key"` // price, mileage, inspection, engine, gearbox, equipment
+	Key     string   `json:"key"` // price, mileage, inspection, engine, gearbox, reliability, equipment
 	Tone    Tone     `json:"tone"`
 	Label   string   `json:"label"`             // "Steal", "Low mileage", "Valid until 10.2028 (23 months left)"
 	Subject string   `json:"subject,omitempty"` // what is judged: the engine, the gearbox, the trim
@@ -81,6 +82,9 @@ func LinesIn(r Ratings, l Lang) []Line {
 	}
 	if r.Gearbox != nil {
 		out = append(out, r.Gearbox.line("gearbox", l))
+	}
+	if r.Reliability != nil {
+		out = append(out, split("reliability", reliabilityTones[r.Reliability.level()], r.Reliability.TextIn(l)))
 	}
 	if r.Equipment != nil {
 		out = append(out, r.Equipment.line(l))

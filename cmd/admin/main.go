@@ -1,9 +1,11 @@
-// Command admin runs one-off maintenance: migrate, purge old data, refresh the ss.com and rrr.lt codebooks.
+// Command admin runs one-off maintenance: migrate, purge old data, refresh the ss.com and rrr.lt codebooks and the
+// CSDD inspection table.
 //
 //	admin migrate
 //	admin purge [-older-than 1440h]
 //	admin ss-codebook [-only cars|flats]
 //	admin rrr-codebook
+//	admin csdd-inspections [-years 3] [-file path:year]
 //	admin dlq list [-limit 50] <topic>
 //	admin dlq replay <topic>
 package main
@@ -42,7 +44,7 @@ func run() error {
 	_ = godotenv.Load() // optional
 
 	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: admin migrate | purge [-older-than 1440h] | ss-codebook [-only cars|flats] | rrr-codebook | dlq list|replay <topic>")
+		return fmt.Errorf("usage: admin migrate | purge [-older-than 1440h] | ss-codebook [-only cars|flats] | rrr-codebook | csdd-inspections | dlq list|replay <topic>")
 	}
 	cmd, args := os.Args[1], os.Args[2:]
 	if cmd == "dlq" {
@@ -53,6 +55,9 @@ func run() error {
 	}
 	if cmd == "rrr-codebook" {
 		return rrrCodebook(args) // needs no database
+	}
+	if cmd == "csdd-inspections" {
+		return csddInspections(args) // needs no database
 	}
 
 	cfg, err := config.AdminFromEnv()

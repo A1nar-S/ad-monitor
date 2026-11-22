@@ -359,8 +359,11 @@ func (r PriceRating) TextIn(l Lang) string {
 func thousands(km float64) string { return strconv.Itoa(int(math.Round(km / 1000))) }
 
 // Euros formats a price the way ss.com does: "10 350 €".
-func Euros(v float64) string {
-	digits := strconv.Itoa(int(math.Round(v)))
+func Euros(v float64) string { return grouped(int(math.Round(v))) + " €" }
+
+// grouped writes n with its thousands apart: "10 350".
+func grouped(n int) string {
+	digits := strconv.Itoa(n)
 	var b strings.Builder
 	for i, d := range digits {
 		if i > 0 && (len(digits)-i)%3 == 0 {
@@ -368,7 +371,7 @@ func Euros(v float64) string {
 		}
 		b.WriteRune(d)
 	}
-	return b.String() + " €"
+	return b.String()
 }
 
 // Fields are the alert lines for c, each only when there is something to
@@ -399,6 +402,9 @@ func FieldsIn(r Ratings, l Lang) []events.Field {
 	}
 	if r.Gearbox != nil {
 		fs = append(fs, events.Field{Name: name[5], Value: r.Gearbox.TextIn(l)})
+	}
+	if r.Reliability != nil {
+		fs = append(fs, events.Field{Name: name[7], Value: r.Reliability.TextIn(l)})
 	}
 	if r.Equipment != nil {
 		fs = append(fs, events.Field{Name: name[6], Value: r.Equipment.TextIn(l)})

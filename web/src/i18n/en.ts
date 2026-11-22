@@ -237,7 +237,7 @@ const en = {
     category: 'Category',
     categories: { cars: 'Cars', flats: 'Flats' },
     leads: {
-      cars: 'Every car for sale, rated on price, mileage for its age, technical inspection, engine and gearbox reliability and equipment.',
+      cars: 'Every car for sale, rated on price, mileage for its age, technical inspection, engine and gearbox reliability, the model’s inspection record (CSDD data) and equipment.',
     },
     scan: 'Rescan {site}',
     scanHint:
@@ -325,6 +325,7 @@ const en = {
       inspection: 'Technical inspection',
       engine: 'Engine',
       gearbox: 'Gearbox',
+      reliability: 'Model at inspection',
       equipment: 'Equipment',
     },
     score: 'Score {score} of 100',

@@ -28,7 +28,7 @@ type phrases struct {
 	rating   map[Rating]string
 	mileage  [4]string // low, usual, high, very high
 	class    map[string]string
-	fields   [7]string // overall, price, mileage, inspection, engine, gearbox, equipment
+	fields   [8]string // overall, price, mileage, inspection, engine, gearbox, equipment, reliability
 	thousand string    // "k km"
 
 	// Price: label, position, median, scope.
@@ -49,15 +49,18 @@ type phrases struct {
 	inspectionSoon   string // until, months left
 	inspectionUntil  string // until, months left
 	monthsLeft       func(n int) string
-	equipBetter      string // better, of
-	equipClass       string // class
-	lineClass        string // class: the equipment line's text when judged by class
-	equipHas         string // list
-	equipMissing     string // list, class
-	equipMissingJoin string // between missing features
-	trimLine         string // had, options, trim (after the label)
-	trimLacks        string // list
-	trimUnticked     string // list
+	reliability      [3]string          // by ReliabilityRating.level
+	reliabilityLine  string             // label, fail %, years, typical %, inspection years, count, "inspections"
+	inspections      func(n int) string // "inspections" after a count
+	equipBetter      string             // better, of
+	equipClass       string             // class
+	lineClass        string             // class: the equipment line's text when judged by class
+	equipHas         string             // list
+	equipMissing     string             // list, class
+	equipMissingJoin string             // between missing features
+	trimLine         string             // had, options, trim (after the label)
+	trimLacks        string             // list
+	trimUnticked     string             // list
 
 	// Why, for the overall line and the breakdown.
 	whyFairPrice      string
@@ -72,6 +75,8 @@ type phrases struct {
 	whyDurable        [2]string // engine, gearbox: name
 	whyRisky          [2]string // engine, gearbox: name
 	whyDepends        [2]string // engine, gearbox
+	whyOftenFails     string
+	whyRarelyFails    string
 	whyWellEquipped   string
 	whyBasic          string
 
@@ -89,7 +94,7 @@ var enPhrases = &phrases{
 	},
 	mileage:  [...]string{"Low mileage", "Usual mileage", "High mileage", "Very high mileage"},
 	class:    map[string]string{},
-	fields:   [...]string{"Overall", "Price verdict", "Mileage verdict", "Inspection verdict", "Engine verdict", "Gearbox verdict", "Equipment verdict"},
+	fields:   [...]string{"Overall", "Price verdict", "Mileage verdict", "Inspection verdict", "Engine verdict", "Gearbox verdict", "Equipment verdict", "Model verdict"},
 	thousand: "k km",
 
 	priceLine:       "%s: %s (%s; %s)",
@@ -102,12 +107,20 @@ var enPhrases = &phrases{
 	mileageLine: "%s: %s at %s, %s× the usual %s for its age.",
 	years:       func(n int) string { return strconv.Itoa(n) + " years" },
 
-	inspectionGone:   "Ran out in %s: it may not be driven until it passes again, which may need repairs.",
-	inspectionNone:   "No valid technical inspection: it may not be driven until it passes, which may need repairs.",
-	inspectionValid:  "Valid technical inspection.",
-	inspectionSoon:   "Valid until %s, but runs out soon (%s): budget for the next one.",
-	inspectionUntil:  "Valid until %s (%s).",
-	monthsLeft:       func(n int) string { return strconv.Itoa(n) + " months left" },
+	inspectionGone:  "Ran out in %s: it may not be driven until it passes again, which may need repairs.",
+	inspectionNone:  "No valid technical inspection: it may not be driven until it passes, which may need repairs.",
+	inspectionValid: "Valid technical inspection.",
+	inspectionSoon:  "Valid until %s, but runs out soon (%s): budget for the next one.",
+	inspectionUntil: "Valid until %s (%s).",
+	monthsLeft:      func(n int) string { return strconv.Itoa(n) + " months left" },
+	reliability:     [...]string{"Often fails inspection", "Usual at inspection", "Rarely fails inspection"},
+	reliabilityLine: "%s: %d%% of such cars (%s) fail the technical inspection at the first attempt, %d%% of all cars that age (CSDD %s, %s %s).",
+	inspections: func(n int) string {
+		if n == 1 {
+			return "inspection"
+		}
+		return "inspections"
+	},
 	equipBetter:      ": better than %d of %d similar ads",
 	equipClass:       " for a %s car of its age (too few similar ads with known equipment to compare)",
 	lineClass:        "Compared with what %s cars of its age usually have: too few similar ads with known equipment to compare.",
@@ -130,6 +143,8 @@ var enPhrases = &phrases{
 	whyDurable:        [...]string{"durable engine (%s)", "durable gearbox (%s)"},
 	whyRisky:          [...]string{"risky engine (%s)", "risky gearbox (%s)"},
 	whyDepends:        [...]string{"engine depends on the version", "gearbox depends on the version"},
+	whyOftenFails:     "such cars often fail inspection",
+	whyRarelyFails:    "such cars rarely fail inspection",
 	whyWellEquipped:   "well equipped",
 	whyBasic:          "basic equipment",
 
@@ -149,7 +164,7 @@ var lvPhrases = &phrases{
 	class: map[string]string{
 		"budget": "budžeta", "mainstream": "vidējās klases", "premium": "premium klases", "luxury": "luksusa klases",
 	},
-	fields:   [...]string{"Kopvērtējums", "Cena", "Nobraukums", "Tehniskā apskate", "Dzinējs", "Ātrumkārba", "Aprīkojums"},
+	fields:   [...]string{"Kopvērtējums", "Cena", "Nobraukums", "Tehniskā apskate", "Dzinējs", "Ātrumkārba", "Aprīkojums", "Modelis apskatē"},
 	thousand: " tūkst. km",
 
 	priceLine:       "%s: %s (%s; %s)",
@@ -168,6 +183,9 @@ var lvPhrases = &phrases{
 	inspectionSoon:   "Derīga līdz %s, bet drīz beigsies (%s): rēķinieties ar nākamās apskates izmaksām.",
 	inspectionUntil:  "Derīga līdz %s (%s).",
 	monthsLeft:       func(n int) string { return "vēl " + strconv.Itoa(n) + " mēn." },
+	reliability:      [...]string{"Bieži neiztur apskati", "Apskatē kā parasti", "Reti neiztur apskati"},
+	reliabilityLine:  "%s: %d%% šādu auto (%s) neiztur tehnisko apskati ar pirmo reizi, no visiem šī vecuma auto — %d%% (CSDD %s, %s %s).",
+	inspections:      func(n int) string { return lvPlural(n, "apskate", "apskates") },
 	equipBetter:      ": labāk nekā %d no %d līdzīgiem sludinājumiem",
 	equipClass:       " %s auto savam vecumam (par maz līdzīgu sludinājumu ar zināmu aprīkojumu, lai salīdzinātu)",
 	lineClass:        "Salīdzināts ar to, kas parasti ir %s auto šajā vecumā: par maz līdzīgu sludinājumu ar zināmu aprīkojumu, lai salīdzinātu.",
@@ -190,6 +208,8 @@ var lvPhrases = &phrases{
 	whyDurable:        [...]string{"izturīgs dzinējs (%s)", "izturīga ātrumkārba (%s)"},
 	whyRisky:          [...]string{"riskants dzinējs (%s)", "riskanta ātrumkārba (%s)"},
 	whyDepends:        [...]string{"dzinējs atkarīgs no versijas", "ātrumkārba atkarīga no versijas"},
+	whyOftenFails:     "šādi auto bieži neiztur apskati",
+	whyRarelyFails:    "šādi auto reti neiztur apskati",
 	whyWellEquipped:   "labi aprīkots",
 	whyBasic:          "pamata aprīkojums",
 
