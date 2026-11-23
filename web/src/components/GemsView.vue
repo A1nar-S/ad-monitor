@@ -28,7 +28,6 @@ import {
   type GemScan,
   type GemSource,
   type GemSpec,
-  type Me,
 } from '../api'
 import { formatNumber, formatRelative, locale, t, tKey } from '../i18n'
 import { toastError } from '../toast'
@@ -37,7 +36,7 @@ import { toastError } from '../toast'
 // the Go side. What can be filtered and shown comes from the category's
 // spec; this page sends the filters (kept in the address, so a view can be
 // shared or reloaded) and renders what comes back. Admins also fetch.
-const props = defineProps<{ me: Me }>()
+const props = defineProps<{ admin: boolean }>()
 
 const sources = ref<GemSource[]>([])
 const source = ref('')
@@ -78,7 +77,7 @@ const status = computed(() => {
   const s = scan.value
   const name = siteName.value
   if (!s)
-    return props.me.admin
+    return props.admin
       ? t('gems.neverScannedAdmin')
       : t('gems.neverScanned', { site: name })
   if (s.status === 'requested') return t('gems.requested')
@@ -93,7 +92,7 @@ const status = computed(() => {
       ? t('gems.failed', { error: s.error })
       : t('gems.failedShort')
   const when = formatRelative(s.finishedAt ?? s.requestedAt)
-  if (!props.me.admin) return t('gems.done', { when, rated: s.rated })
+  if (!props.admin) return t('gems.done', { when, rated: s.rated })
   return s.mode === 'rate'
     ? t('gems.doneRateAdmin', { when, rated: s.rated, read: s.detailed })
     : t('gems.doneAdmin', { when, ads: s.ads, rated: s.rated, gone: s.gone })
@@ -309,7 +308,7 @@ onUnmounted(() => clearTimeout(timer))
 <template>
   <section>
     <PageHeader :title="t('gems.title')" :description="lead">
-      <template v-if="me.admin">
+      <template v-if="admin">
         <button
           class="btn-secondary"
           :disabled="running"
@@ -379,7 +378,7 @@ onUnmounted(() => clearTimeout(timer))
       </div>
     </div>
     <div
-      v-if="me.admin && scan?.status === 'done' && scan.note"
+      v-if="admin && scan?.status === 'done' && scan.note"
       role="alert"
       class="message-bar-warning mb-4"
     >

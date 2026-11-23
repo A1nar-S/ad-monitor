@@ -74,8 +74,16 @@ func TestGemEndpoints(t *testing.T) {
 	if w := do(h, "POST", "/api/gems/scan", "s-alice", "", true); w.Code != http.StatusForbidden {
 		t.Errorf("scan by a member: %d, want 403", w.Code)
 	}
-	if w := do(h, "GET", "/api/gems", "", "", false); w.Code != http.StatusUnauthorized {
-		t.Errorf("list signed out: %d, want 401", w.Code)
+	for _, path := range []string{"/api/gems", "/api/gems/scan", "/api/gems/sources"} {
+		if w := do(h, "GET", path, "", "", false); w.Code != http.StatusOK {
+			t.Errorf("%s for a guest: %d %s", path, w.Code, w.Body)
+		}
+	}
+	if w := do(h, "POST", "/api/gems/scan", "", "", true); w.Code != http.StatusUnauthorized {
+		t.Errorf("scan by a guest: %d, want 401", w.Code)
+	}
+	if w := do(h, "GET", "/api/guest", "", "", false); strings.TrimSpace(w.Body.String()) != `{"gems":true}` {
+		t.Errorf("guest: %s", w.Body)
 	}
 	w := do(h, "GET", "/api/gems/sources", "s-alice", "", false)
 	if body := w.Body.String(); !strings.Contains(body, `"id":"cars"`) || !strings.Contains(body, `"key":"body"`) ||

@@ -63,32 +63,44 @@ type ownerHandler func(http.ResponseWriter, *http.Request, subscriptions.Owner)
 
 // auth resolves the session and, for anything but reads, checks the CSRF
 // header.
-func (s *server) auth(h ownerHandler) http.Handler {
+func (s *server) auth(h ownerHandler) http.Handler { return s.session(h, false) }
+
+// guestOK is auth that lets the signed out through as a zero Owner: a guest.
+func (s *server) guestOK(h ownerHandler) http.Handler { return s.session(h, true) }
+
+func (s *server) session(h ownerHandler, guests bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		if r.Method != http.MethodGet && r.Header.Get(csrfHeader) == "" {
 			writeError(w, http.StatusForbidden, "missing "+csrfHeader+" header")
 			return
 		}
+		var o subscriptions.Owner
 		c, err := r.Cookie(sessionCookie)
-		if err != nil {
-			writeError(w, http.StatusUnauthorized, "not logged in")
-			return
-		}
-		o, err := s.Searches.SessionOwner(r.Context(), c.Value)
-		if err != nil {
-			if !errors.Is(err, subscriptions.ErrBadToken) {
+		if err == nil {
+			o, err = s.Searches.SessionOwner(r.Context(), c.Value)
+			if err != nil && !errors.Is(err, subscriptions.ErrBadToken) {
 				slog.Error("session", "err", err)
 				writeError(w, http.StatusServiceUnavailable, "try again in a moment")
 				return
 			}
-			writeError(w, http.StatusUnauthorized, "not logged in")
-			return
+		}
+		if err != nil {
+			if !guests {
+				writeError(w, http.StatusUnauthorized, "not logged in")
+				return
+			}
+			o = subscriptions.Owner{}
 		}
 		ctx, cancel := context.WithTimeout(context.WithValue(r.Context(), ctxKey{}, o), 10*time.Second)
 		defer cancel()
 		h(w, r.WithContext(ctx), o)
 	})
+}
+
+// guest tells the signed out page what it may offer without a login.
+func (s *server) guest(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]bool{"gems": s.gemsOn()})
 }
 
 func (s *server) me(w http.ResponseWriter, r *http.Request, o subscriptions.Owner) {
@@ -99,7 +111,7 @@ func (s *server) me(w http.ResponseWriter, r *http.Request, o subscriptions.Owne
 	me := map[string]any{
 		"name": o.Name, "platform": o.Platform, "admin": o.Admin, "maxSearches": s.MaxSearches,
 		"maxWatches": s.MaxWatches, "watchIntervals": []int{},
-		"gems":      s.Gems != nil && len(s.GemSources) > 0,
+		"gems":      s.gemsOn(),
 		"alertLang": lang, "alertLangs": events.AlertLangs, // the default first
 	}
 	if s.Watches != nil {

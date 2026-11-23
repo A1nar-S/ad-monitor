@@ -42,6 +42,8 @@ const lv: Messages = {
     administrator: 'Administrators',
     member: 'Dalībnieks',
     signOut: 'Iziet',
+    signIn: 'Pieteikties',
+    guest: 'Viesis',
     license: 'MIT licence',
     source: 'Pirmkods',
   },
@@ -63,6 +65,8 @@ const lv: Messages = {
   signIn: {
     title: 'Pieteikties',
     lead: 'Pieteikšanās notiek caur botu, tāpēc parole nav jāatceras.',
+    locked: 'Piesakieties, lai izmantotu šo lapu.',
+    guest: 'Turpināt bez pieteikšanās',
     expired: 'Šī pieteikšanās saite ir beigusies vai jau izmantota.',
     step1Before: 'Nosūtiet',
     step1After: 'botam.',

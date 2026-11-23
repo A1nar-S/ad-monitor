@@ -189,6 +189,9 @@ func TestLoginFlow(t *testing.T) {
 	if w := do(h, "GET", "/api/me", "", "", false); w.Code != http.StatusUnauthorized {
 		t.Errorf("me without session: %d", w.Code)
 	}
+	if w := do(h, "GET", "/api/guest", "", "", false); strings.TrimSpace(w.Body.String()) != `{"gems":false}` {
+		t.Errorf("guest without a gem finder: %s", w.Body)
+	}
 	w = do(h, "GET", "/api/me", "s-alice", "", false)
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"name":"Alice"`) || !strings.Contains(w.Body.String(), `"maxSearches":10`) {
 		t.Errorf("me: %d %s", w.Code, w.Body)

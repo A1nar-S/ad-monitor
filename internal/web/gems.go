@@ -17,7 +17,7 @@ import (
 )
 
 // Gems is the gem finder: every listing of a category for sale on a source,
-// rated. Everyone may browse it; only admins start a scan.
+// rated. Everyone may browse it, signed in or not; only admins start a scan.
 type Gems interface {
 	CheckRequest(ctx context.Context, source, category string, mode gems.Mode) error
 	LatestScan(ctx context.Context, source, category string) (gems.Scan, bool, error)
@@ -33,13 +33,17 @@ type GemSource struct {
 	Categories []string
 }
 
+func (s *server) gemsOn() bool {
+	return s.Gems != nil && len(s.GemSources) > 0 && s.RequestGemScan != nil
+}
+
 func (s *server) routeGems(mux *http.ServeMux) {
-	if s.Gems == nil || len(s.GemSources) == 0 || s.RequestGemScan == nil {
+	if !s.gemsOn() {
 		return
 	}
-	mux.Handle("GET /api/gems/sources", s.auth(s.gemSources))
-	mux.Handle("GET /api/gems", s.auth(s.listGems))
-	mux.Handle("GET /api/gems/scan", s.auth(s.gemScan))
+	mux.Handle("GET /api/gems/sources", s.guestOK(s.gemSources))
+	mux.Handle("GET /api/gems", s.guestOK(s.listGems))
+	mux.Handle("GET /api/gems/scan", s.guestOK(s.gemScan))
 	mux.Handle("POST /api/gems/scan", s.auth(s.admin(s.requestGemScan)))
 }
 

@@ -11,7 +11,7 @@ export type Me = {
   maxWatches: number
   // Check intervals a price watch may use, in minutes.
   watchIntervals: number[]
-  // The gem finder is on (everyone browses; admins scan).
+  // The gem finder is on (everyone browses, guests too; admins scan).
   gems: boolean
   // The language the user's alerts are written in (Latvian until chosen);
   // alertLangs are the ones there are, the default first.
@@ -308,6 +308,8 @@ async function call<T>(
 
 export const api = {
   me: () => call<Me>('GET', '/api/me'),
+  // What the signed out may use.
+  guest: () => call<{ gems: boolean }>('GET', '/api/guest'),
   setAlertLang: (lang: string) =>
     call<{ alertLang: string }>('PUT', '/api/me/alert-lang', { lang }),
   logout: () => call<void>('POST', '/api/logout'),

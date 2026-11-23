@@ -90,6 +90,7 @@ func New(cfg Config) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.logout)
+	mux.HandleFunc("GET /api/guest", s.guest)
 	mux.Handle("GET /api/me", s.auth(s.me))
 	mux.Handle("PUT /api/me/alert-lang", s.auth(s.setAlertLang))
 	mux.Handle("GET /api/sources", s.auth(s.listSources))

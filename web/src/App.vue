@@ -5,12 +5,13 @@ import {
   CircleAlert,
   Gem,
   LayoutGrid,
+  Lock,
+  LogIn,
   LogOut,
   Radar,
   RefreshCw,
   SlidersHorizontal,
   TrendingDown,
-  TriangleAlert,
 } from 'lucide-vue-next'
 import AdminOverview from './components/AdminOverview.vue'
 import AppFooter from './components/AppFooter.vue'
@@ -21,14 +22,22 @@ import SearchesView from './components/SearchesView.vue'
 import WatchEditor from './components/WatchEditor.vue'
 import WatchesView from './components/WatchesView.vue'
 import PreferencesMenu from './components/PreferencesMenu.vue'
+import SignInCard from './components/SignInCard.vue'
 import ToastHost from './components/ToastHost.vue'
 import { api, ApiError, type Me } from './api'
 import { t } from './i18n'
-import { onLinkClick, route } from './router'
+import { navigate, onLinkClick, route } from './router'
 import { alertLang, alertLangs } from './state'
 
 const me = ref<Me | null>(null)
-const state = ref<'loading' | 'out' | 'in' | 'down'>('loading')
+const state = ref<'loading' | 'out' | 'in' | 'guest' | 'down'>('loading')
+// Signed out, the gem finder still works (when the server has one); the
+// other pages ask to sign in. A guest stays one across reloads.
+const guestGems = ref(false)
+const GUEST_KEY = 'guest'
+const admin = computed(() => me.value?.admin ?? false)
+const gems = computed(() => me.value?.gems ?? guestGems.value)
+const locked = (id: string) => state.value === 'guest' && id !== 'gems'
 // The sidebar entry for the current page; an editor belongs to its list.
 const tab = computed(() =>
   route.value.name === 'search'
@@ -59,7 +68,7 @@ const navigation = computed(() => [
     icon: Bell,
   },
   // Only when the server has a source to scan.
-  ...(me.value?.gems
+  ...(gems.value
     ? [
         {
           id: 'gems' as const,
@@ -93,12 +102,32 @@ onMounted(async () => {
     alertLangs.value = me.value.alertLangs
     alertLang.value = me.value.alertLang
     state.value = 'in'
+    localStorage.removeItem(GUEST_KEY)
   } catch (reason) {
     state.value =
       reason instanceof ApiError && reason.status === 401 ? 'out' : 'down'
   }
   if (expired) history.replaceState(null, '', '/')
+  if (state.value !== 'out') return
+  guestGems.value = (await api.guest().catch(() => ({ gems: false }))).gems
+  // A shared gem finder link opens for anyone.
+  if (
+    guestGems.value &&
+    (route.value.name === 'gems' || localStorage.getItem(GUEST_KEY))
+  )
+    continueAsGuest()
 })
+
+function continueAsGuest() {
+  localStorage.setItem(GUEST_KEY, '1')
+  state.value = 'guest'
+  if (route.value.name !== 'gems') navigate('/gems', { replace: true })
+}
+
+function signIn() {
+  localStorage.removeItem(GUEST_KEY)
+  state.value = 'out'
+}
 
 function reload() {
   location.reload()
@@ -106,6 +135,8 @@ function reload() {
 
 async function logout() {
   await api.logout().catch(() => undefined)
+  localStorage.removeItem(GUEST_KEY)
+  guestGems.value = me.value?.gems ?? false
   me.value = null
   alertLang.value = null
   state.value = 'out'
@@ -113,9 +144,9 @@ async function logout() {
 </script>
 
 <template>
-  <!-- Signed in: sidebar on wide screens, top bar on narrow ones. -->
+  <!-- Signed in or a guest: sidebar on wide screens, top bar on narrow ones. -->
   <div
-    v-if="state === 'in' && me"
+    v-if="(state === 'in' && me) || state === 'guest'"
     class="flex min-h-screen flex-col lg:flex-row"
   >
     <aside
@@ -137,7 +168,7 @@ async function logout() {
 
       <nav :aria-label="t('app.mainNav')" class="flex-1 px-3 pt-2">
         <template
-          v-for="group in me.admin
+          v-for="group in admin
             ? [
                 { label: '', items: navigation },
                 { label: t('app.administration'), items: adminNavigation },
@@ -174,11 +205,32 @@ async function logout() {
               :size="18"
               :class="tab === item.id ? 'text-brand-600' : 'text-gray-500'"
             />{{ t(item.label) }}
+            <Lock
+              v-if="locked(item.id)"
+              :size="14"
+              class="ml-auto text-gray-400"
+              aria-hidden="true"
+            />
           </a>
         </template>
       </nav>
 
-      <div class="flex items-center gap-3 border-t border-gray-150 px-4 py-3">
+      <div
+        v-if="!me"
+        class="flex items-center gap-3 border-t border-gray-150 px-4 py-3"
+      >
+        <p class="min-w-0 flex-1 text-sm font-medium text-gray-900">
+          {{ t('app.guest') }}
+        </p>
+        <PreferencesMenu placement="up" />
+        <button class="btn-secondary -ml-1" @click="signIn">
+          <LogIn :size="14" />{{ t('app.signIn') }}
+        </button>
+      </div>
+      <div
+        v-else
+        class="flex items-center gap-3 border-t border-gray-150 px-4 py-3"
+      >
         <span
           class="grid size-8 shrink-0 place-items-center rounded-full bg-brand-100 text-xs font-semibold text-brand-700"
           aria-hidden="true"
@@ -215,6 +267,16 @@ async function logout() {
         <span class="flex-1 text-sm font-semibold">{{ t('app.name') }}</span>
         <PreferencesMenu />
         <button
+          v-if="!me"
+          class="btn-icon"
+          :aria-label="t('app.signIn')"
+          :title="t('app.signIn')"
+          @click="signIn"
+        >
+          <LogIn :size="16" />
+        </button>
+        <button
+          v-else
           class="btn-icon"
           :aria-label="t('app.signOut')"
           :title="t('app.signOut')"
@@ -228,7 +290,7 @@ async function logout() {
         class="flex gap-5 overflow-x-auto px-4"
       >
         <a
-          v-for="item in me.admin
+          v-for="item in admin
             ? [...navigation, ...adminNavigation]
             : navigation"
           :href="item.href"
@@ -243,6 +305,12 @@ async function logout() {
           @click="onLinkClick($event, item.href)"
         >
           {{ t(item.label) }}
+          <Lock
+            v-if="locked(item.id)"
+            :size="12"
+            class="ml-1 text-gray-400"
+            aria-hidden="true"
+          />
           <span
             v-if="tab === item.id"
             class="absolute inset-x-0 bottom-0 h-[3px] rounded-full bg-brand-600"
@@ -258,17 +326,24 @@ async function logout() {
       <div
         class="mx-auto flex w-full max-w-[1200px] flex-1 flex-col px-4 py-8 sm:px-8 lg:px-10 lg:py-10"
       >
-        <SearchEditor v-if="route.name === 'search'" :me="me" :id="route.id" />
-        <WatchEditor
-          v-else-if="route.name === 'watch'"
-          :me="me"
-          :id="route.id"
-        />
-        <WatchesView v-else-if="route.name === 'watches'" :me="me" />
-        <MatchesView v-else-if="route.name === 'alerts'" />
-        <AdminOverview v-else-if="route.name === 'overview' && me.admin" />
-        <GemsView v-else-if="route.name === 'gems' && me.gems" :me="me" />
-        <SearchesView v-else :me="me" />
+        <GemsView v-if="route.name === 'gems' && gems" :admin="admin" />
+        <template v-else-if="me">
+          <SearchEditor
+            v-if="route.name === 'search'"
+            :me="me"
+            :id="route.id"
+          />
+          <WatchEditor
+            v-else-if="route.name === 'watch'"
+            :me="me"
+            :id="route.id"
+          />
+          <WatchesView v-else-if="route.name === 'watches'" :me="me" />
+          <MatchesView v-else-if="route.name === 'alerts'" />
+          <AdminOverview v-else-if="route.name === 'overview' && me.admin" />
+          <SearchesView v-else :me="me" />
+        </template>
+        <SignInCard v-else locked class="mx-auto mt-8 w-full max-w-[400px]" />
       </div>
       <AppFooter />
     </main>
@@ -300,42 +375,15 @@ async function logout() {
           <span class="text-base font-semibold">{{ t('app.name') }}</span>
         </div>
 
-        <section v-if="state === 'out'" class="card p-8">
-          <h1 class="text-title font-semibold">{{ t('signIn.title') }}</h1>
-          <p class="mt-1 text-sm text-gray-600">
-            {{ t('signIn.lead') }}
-          </p>
-          <div v-if="expired" role="alert" class="message-bar-warning mt-5">
-            <TriangleAlert
-              :size="16"
-              class="mt-0.5 shrink-0 text-warning-600"
-            />
-            {{ t('signIn.expired') }}
-          </div>
-          <ol class="mt-6 grid gap-4 text-sm">
-            <li class="flex gap-3">
-              <span
-                class="grid size-6 shrink-0 place-items-center rounded-full bg-gray-100 text-xs font-semibold text-gray-700"
-                >1</span
-              >
-              <span class="pt-0.5 text-gray-700"
-                >{{ t('signIn.step1Before') }}
-                <span class="kbd">/dashboard</span>
-                {{ t('signIn.step1After') }}</span
-              >
-            </li>
-            <li class="flex gap-3">
-              <span
-                class="grid size-6 shrink-0 place-items-center rounded-full bg-gray-100 text-xs font-semibold text-gray-700"
-                >2</span
-              >
-              <span class="pt-0.5 text-gray-700">{{ t('signIn.step2') }}</span>
-            </li>
-          </ol>
-          <p class="mt-6 border-t border-gray-150 pt-4 text-xs text-gray-500">
-            {{ t('signIn.footnote') }}
-          </p>
-        </section>
+        <SignInCard v-if="state === 'out'" :expired="expired">
+          <button
+            v-if="guestGems"
+            class="btn-secondary mt-4 w-full justify-center"
+            @click="continueAsGuest"
+          >
+            <Gem :size="14" />{{ t('signIn.guest') }}
+          </button>
+        </SignInCard>
 
         <section v-else role="alert" class="card p-8 text-center">
           <span

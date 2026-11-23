@@ -77,7 +77,8 @@ dashboard api ─┴─> subscriptions (users, channels, searches, logins) <─�
   bot admin: `ADMIN_USERS` plus the Discord app's owner or team, read at start. Alerts go by DM unless `channel:` is given; closed DMs get a warning, and the notifier drops "cannot DM"/"unknown channel" errors instead of retrying.
 - **Dashboard login:** `/dashboard` replies with a one-time link (`PUBLIC_URL/api/login?token=…`, 10 minutes, single use)
   that becomes a 30-day HttpOnly SameSite=Lax session cookie. Only SHA-256 hashes of tokens are stored. Changes need an
-  `X-Requested-With` header (CSRF). No OAuth app to set up.
+  `X-Requested-With` header (CSRF). No OAuth app to set up. Signed out, "Continue without signing in" opens the gem
+  finder (its reads are public, `GET /api/guest` says if it is on); the other tabs show a lock and ask to sign in.
 - **Sources are plugins** (`internal/sources.Source`): `FetchFeed`, `PlanFeeds` (merge feeds to cut requests),
   `InScope` (does an ad belong to a search's feeds). `internal/events.ListingDiscovered` is source-neutral: common
   fields plus `Attrs` (filterable facts) and `Fields` (what to display). Register a new site in `internal/app/sources.go`.
@@ -103,7 +104,7 @@ dashboard api ─┴─> subscriptions (users, channels, searches, logins) <─�
   is announced to no one. ss.com's own server search was rejected: it is POST + session, 2 requests per search per cycle.
 - **Reposts:** sources set `Fingerprint` (the item, not the ad; ss.com: `scraping/ss/reposts.go`). A new ad with a known
   fingerprint is still announced, as an orange "♻️ Reposted listing" with its price history.
-- **Gem finder** (`internal/gems`, a tab for everyone; only admins start a fetch) is category-generic: a
+- **Gem finder** (`internal/gems`, a tab for everyone, guests too; only admins start a fetch) is category-generic: a
   `gems.Category` (cars: `internal/gems/cars`, over `internal/deals`) says which stored ads belong, rates them
   (score, verdict, breakdown, candidates for an ad-page read) and declares a `Spec` (choice and range fields, sorts)
   that drives the API's filters and the dashboard's filters and cards; values live in `gems.attrs` (JSONB). A source

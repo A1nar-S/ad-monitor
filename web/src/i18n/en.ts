@@ -43,6 +43,8 @@ const en = {
     administrator: 'Administrator',
     member: 'Member',
     signOut: 'Sign out',
+    signIn: 'Sign in',
+    guest: 'Guest',
     license: 'MIT License',
     source: 'Source code',
   },
@@ -64,6 +66,8 @@ const en = {
   signIn: {
     title: 'Sign in',
     lead: 'Sign-in goes through the bot, so there is no password to remember.',
+    locked: 'Sign in to use this page.',
+    guest: 'Continue without signing in',
     expired: 'That sign-in link has expired or was already used.',
     step1Before: 'Send',
     step1After: 'to the bot.',
