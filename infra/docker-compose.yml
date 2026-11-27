@@ -273,7 +273,7 @@ services:
   # It reads every topic and group, so a NAMESPACE prefix needs no setting here;
   # the dashboard matches names by suffix.
   kafka-exporter:
-    image: danielqsj/kafka-exporter:v1.9.0
+    image: danielqsj/kafka-exporter:v1.11.0
     restart: unless-stopped
     profiles: [app]
     depends_on:
