@@ -513,39 +513,37 @@ func jittered(d time.Duration, jitter float64) time.Duration {
 }
 
 // save rates the items and replaces the gems of the scan's category with
-// them, in one transaction. Each verdict is turned into its row as soon as
-// it is rated: as rows (texts as JSON) a whole category fits the scraper's
-// memory, as verdicts it does not. Rating is done before the transaction,
-// so it stays short. rated is how many were rated; unread are the
-// candidates whose ad page was not read yet, best first.
+// them, in one transaction. Each item is rated and its row written before
+// the next is rated, so only one is held at a time: a whole category's rows
+// (texts as JSON) are several times its listings and, held together, did
+// not fit the scraper's memory. Readers see the old gems until the commit.
+// rated is how many were rated; unread are the candidates whose ad page was
+// not read yet, best first.
 func (s *Scanner) save(ctx context.Context, scan Scan, items []Item, r Rater) (rated int, unread []int, err error) {
 	type candidate struct {
 		item  int
 		score float64
 	}
 	var cands []candidate
-	var rows []gemsdb.InsertGemParams
-	for i, it := range items {
-		x, ok := r.Rate(i)
-		if !ok {
-			continue
-		}
-		rated++
-		if x.Candidate && !it.Detailed {
-			cands = append(cands, candidate{i, x.Score})
-		}
-		if it.Listing.PriceValue != nil { // a category rates only priced ones; never store a row without
-			rows = append(rows, row(scan, it, x))
-		}
-	}
 	err = pgx.BeginFunc(ctx, s.Service.pool, func(tx pgx.Tx) error {
 		q := s.Service.q.WithTx(tx)
 		if err := q.ClearGems(ctx, gemsdb.ClearGemsParams{Source: scan.Source, Category: scan.Category}); err != nil {
 			return err
 		}
-		for _, p := range rows {
-			if err := q.InsertGem(ctx, p); err != nil {
-				return fmt.Errorf("save %s: %w", p.ExternalID, err)
+		for i, it := range items {
+			x, ok := r.Rate(i)
+			if !ok {
+				continue
+			}
+			rated++
+			if x.Candidate && !it.Detailed {
+				cands = append(cands, candidate{i, x.Score})
+			}
+			if it.Listing.PriceValue == nil { // a category rates only priced ones; never store a row without
+				continue
+			}
+			if err := q.InsertGem(ctx, row(scan, it, x)); err != nil {
+				return fmt.Errorf("save %s: %w", it.Listing.ExternalID, err)
 			}
 		}
 		return nil
