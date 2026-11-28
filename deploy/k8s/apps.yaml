@@ -18,7 +18,14 @@ spec:
       labels: {app: scraper}
     spec:
       containers:
-        - {name: app, image: admon/scraper:local}
+        - name: app
+          image: admon/scraper:local
+          # A gem scan holds a whole category in memory. Go collects only
+          # once the heap doubles, which reached the 512Mi limit
+          # (app-common.yaml) and got the scraper OOM-killed; this makes it
+          # collect harder before then instead.
+          env:
+            - {name: GOMEMLIMIT, value: 400MiB}
 ---
 apiVersion: apps/v1
 kind: Deployment
